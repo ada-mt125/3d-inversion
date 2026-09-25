@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoInv3D — Unified Workflow</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
+<style>
+:root {
+  --bg:#0e131a;--bg2:#161d27;--bg3:#1c2530;--border:#2a3644;--border-soft:#212b37;
+  --text:#e7ecf2;--text2:#8b97a6;--text3:#57677a;--accent:#d98e4a;--accent2:#e8a95e;
+  --red:#c0483d;--blue:#3d6fc0;--green:#2f9c8f;--purple:#9b59b6;
+  --node-mesh:#4CAF50;--node-model:#2196F3;--node-survey:#FF9800;
+  --node-reg:#009688;--node-inv:#e94560;--node-sparse:#E91E63;
+  --node-export:#8BC34A;--node-default:#607D8B;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);
+    height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+.mono{font-family:'Consolas','SF Mono','Fira Code',monospace;}
+
+header{display:flex;align-items:center;gap:14px;padding:9px 18px;
+      border-bottom:1px solid var(--border);background:var(--bg2);flex:none;}
+header h1{font-size:15px;font-weight:600;color:var(--accent);}
+header .sub{font-size:11px;color:var(--text3);}
+.toolbar{margin-left:auto;display:flex;gap:6px;}
+.btn{font-size:11px;padding:5px 11px;background:var(--bg3);color:var(--text);
+    border:1px solid var(--border);border-radius:4px;cursor:pointer;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+
+.tab-bar{display:flex;background:var(--bg2);border-bottom:1px solid var(--border);flex:none;}
+.tab{padding:8px 18px;background:none;border:none;border-bottom:2px solid transparent;
+    color:var(--text2);font-size:12px;cursor:pointer;}
+.tab:hover{color:var(--text);}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab.disabled{color:var(--text3);cursor:default;opacity:0.5;}
+
+.main{flex:1;display:flex;overflow:hidden;}
+.panel{display:none;flex:1;overflow:hidden;position:relative;}
+.panel.active{display:flex;flex-direction:column;}
+
+/* DAG */
+.dag-area{flex:1;display:flex;overflow:hidden;}
+.graph-box{flex:1;position:relative;overflow:hidden;}
+svg#dag{width:100%;height:100%;cursor:grab;}
+svg#dag:active{cursor:grabbing;}
+.dag-node{cursor:pointer;transition:filter .15s;}
+.dag-node:hover{filter:brightness(1.2);}
+.dag-node.selected rect,.dag-node.selected polygon{stroke:#fff;stroke-width:3;}
+.node-label{fill:#fff;font-size:11px;font-weight:600;text-anchor:middle;dominant-baseline:central;pointer-events:none;}
+.node-sub{fill:rgba(255,255,255,.6);font-size:9px;text-anchor:middle;pointer-events:none;}
+.node-cfg{fill:rgba(255,255,255,.82);font-size:8.5px;font-family:'Consolas',monospace;text-anchor:middle;pointer-events:none;}
+
+.legend{position:absolute;bottom:10px;left:10px;background:rgba(22,29,39,.9);
+       border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:10px;z-index:5;}
+.legend-title{font-weight:600;color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.legend-item{display:flex;align-items:center;gap:5px;padding:1px 0;}
+.legend-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
+
+.zoom-ctl{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;gap:2px;z-index:5;}
+.zbtn{width:28px;height:28px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;
+     color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.zbtn:hover{background:var(--accent);color:#fff;}
+
+.sidebar{width:300px;background:var(--bg2);border-left:1px solid var(--border);
+        overflow-y:auto;padding:14px;flex-shrink:0;}
+.sidebar h2{font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text2);}
+.det-section{margin-bottom:14px;}
+.det-section h3{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);margin-bottom:5px;}
+.det-row{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11px;}
+.det-key{color:var(--text2);min-width:80px;}
+.det-val{text-align:right;color:var(--text);word-break:break-all;max-width:180px;}
+.det-val.num{color:#64B5F6;}
+.det-val.str{color:#81C784;}
+.det-val.arr{color:var(--accent);font-style:italic;}
+.btn-results{display:block;width:100%;margin-top:10px;padding:8px;background:var(--accent);
+            color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;text-align:center;}
+.btn-results:hover{background:var(--accent2);}
+.empty-msg{text-align:center;padding:30px;color:var(--text3);font-size:12px;}
+
+/* Result panels */
+.result-panel{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:14px;gap:12px;}
+.result-panel canvas{border-radius:6px;display:block;width:100%;}
+.fill-canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;}
+.m3d-mode{flex:1;font-size:11px;padding:5px;background:#1c2530;border:1px solid #2a3644;border-radius:4px;color:#8b97a6;cursor:pointer;}
+.m3d-mode.active{border-color:#d98e4a;color:#d98e4a;}
+/* Upload page */
+#panel-upload [hidden]{display:none!important;}
+.up-scroll{flex:1;overflow-y:auto;}
+.up-wrap{max-width:980px;margin:0 auto;padding:28px 24px 40px;}
+.up-title{font-size:20px;color:var(--accent);text-align:center;margin-bottom:6px;}
+.up-sub{color:var(--text3);font-size:12px;text-align:center;margin-bottom:22px;}
+.up-sec{margin-bottom:18px;}
+.up-sec-h{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px;}
+.up-step{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#0e131a;font-size:11px;display:inline-flex;align-items:center;justify-content:center;flex:none;}
+.up-hint{font-weight:400;font-size:11px;color:var(--text3);}
+.up-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px;}
+.up-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;}
+.up-ds{border-top:3px solid var(--c);opacity:.8;transition:opacity .2s;}
+.up-ds.loaded{opacity:1;}
+.up-ds-h{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin-bottom:10px;}
+.up-dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none;}
+.up-en{font-weight:400;color:var(--text3);font-size:11px;}
+.up-chip{margin-left:auto;font-size:10px;font-weight:500;padding:2px 8px;border-radius:10px;background:var(--bg3);color:var(--text3);border:1px solid transparent;}
+.up-ds.loaded .up-chip{color:var(--c);border-color:var(--c);}
+.up-drop{border:2px dashed var(--border);border-radius:8px;padding:16px 12px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;}
+.up-drop:hover,.up-drop.over{border-color:var(--accent);background:rgba(217,142,74,.06);}
+.up-drop-t{font-size:12px;font-weight:600;margin-bottom:3px;}
+.up-drop-s{font-size:10px;color:var(--text3);}
+.up-files{display:flex;flex-direction:column;gap:4px;margin-top:8px;}
+.up-files:empty{display:none;}
+.up-file{display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:11px;}
+.up-file .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.up-file .s{color:var(--text3);font-size:10px;}
+.up-file .x{cursor:pointer;color:var(--red);font-size:15px;line-height:1;background:none;border:none;}
+.up-lbl{font-size:11px;color:var(--text3);display:block;margin-bottom:4px;}
+.up-in{width:100%;padding:7px 9px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;}
+.up-in:focus{outline:none;border-color:var(--accent);}
+.up-in:disabled{opacity:.6;}
+.up-in-sm{width:80px;display:inline-block;margin:0 4px;}
+.up-row{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;}
+.up-col{flex:1;min-width:110px;}
+.up-chk{display:flex;align-items:flex-end;font-size:12px;color:var(--text2);padding-bottom:7px;}
+.up-flat{margin-top:10px;font-size:12px;color:var(--text2);}
+.up-method-desc{font-size:11px;color:var(--text2);margin-top:6px;min-height:14px;}
+.up-seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:12px;}
+.up-seg button{padding:6px 14px;font-size:12px;background:var(--bg3);color:var(--text2);border:none;cursor:pointer;}
+.up-seg button.active{background:var(--accent);color:#0e131a;font-weight:600;}
+.up-auto-list{margin:0 0 10px 18px;font-size:12px;color:var(--text2);line-height:1.8;}
+.up-note{font-size:11px;color:var(--text3);background:var(--bg3);border-left:3px solid var(--accent);padding:8px 10px;border-radius:4px;}
+.up-grp{font-size:11px;font-weight:600;color:var(--text);margin-top:16px;}
+#up-manual>.up-grp:first-child{margin-top:0;}
+.up-submit{width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;}
+.up-submit:disabled{opacity:.5;cursor:not-allowed;}
+.up-status{margin-top:14px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.7;}
+.up-err{color:var(--red);font-size:12px;}
+.chart-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;flex:none;}
+.chart-title{font-size:12px;font-weight:600;margin-bottom:10px;}
+.chart-row{display:flex;gap:14px;flex-wrap:wrap;}
+.chart-row .chart-box{flex:1;min-width:300px;}
+.stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;flex:1;min-width:100px;}
+.stat-card .label{font-size:9px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}
+.stat-card .value{font-size:18px;font-weight:600;color:var(--accent);margin-top:2px;}
+
+
+#file-input{display:none;}
+#dropzone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;}
+#dropzone.hidden{display:none;}
+.drop-box{border:2px dashed var(--border);border-radius:14px;padding:40px 60px;text-align:center;cursor:pointer;}
+.drop-box:hover{border-color:var(--accent);background:rgba(217,142,74,.05);}
+.drop-box h2{font-size:16px;margin-bottom:6px;}
+.drop-box p{color:var(--text2);font-size:12px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GeoInv3D</h1>
+  <span class="sub">Unified Workflow Viewer</span>
+  <div class="toolbar">
+    <input type="file" id="file-input" accept=".json">
+    <button class="btn" id="btn-load">Load</button>
+    <button class="btn" id="btn-fit">Fit</button>
+    <button class="btn" id="btn-export">SVG</button>
+  </div>
+</header>
+
+<div class="tab-bar">
+  <button class="tab active" data-tab="dag">Workflow</button>
+  <button class="tab disabled" data-tab="convergence" id="tab-conv">Convergence</button>
+  <button class="tab disabled" data-tab="datafit" id="tab-fit">Data Fit</button>
+  <button class="tab disabled" data-tab="model3d" id="tab-3d">3D View</button>
+  <button class="tab" data-tab="upload" style="margin-left:auto;color:#81C784;">⬆ Upload</button>
+</div>
+
+<div class="main">
+  <!-- Workflow DAG -->
+  <div class="panel active" id="panel-dag">
+    <div class="dag-area">
+      <div class="graph-box">
+        <div id="dropzone">
+          <div class="drop-box" id="drop-area">
+            <h2>Load Workflow</h2>
+            <p>Drop .geoinv3d.json or click to browse</p>
+          </div>
+        </div>
+        <svg id="dag"><defs>
+          <marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5"
+                  markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+            <polygon points="0 0,10 3.5,0 7" fill="#555"/>
+          </marker>
+        </defs></svg>
+        <div class="legend" id="legend" style="display:none">
+          <div class="legend-title">Node Types</div>
+          <div id="legend-items"></div>
+        </div>
+        <div class="zoom-ctl" id="zoom-ctl" style="display:none">
+          <button class="zbtn" id="z-in">+</button>
+          <button class="zbtn" id="z-out">-</button>
+          <button class="zbtn" id="z-fit">R</button>
+        </div>
+      </div>
+      <div class="sidebar" id="sidebar">
+        <h2>Node Details</h2>
+        <div id="sidebar-body"><div class="empty-msg">Select a node to view details</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Convergence -->
+  <div class="panel" id="panel-convergence">
+    <div class="result-panel" id="conv-content">
+      <div class="empty-msg">No convergence data</div>
+    </div>
+  </div>
+
+  <!-- Data Fit -->
+  <div class="panel" id="panel-datafit">
+    <div class="result-panel" id="fit-content">
+      <div class="empty-msg">No data fit information</div>
+    </div>
+  </div>
+
+  <!-- 3D View -->
+  <div class="panel" id="panel-model3d">
+    <div style="flex:1;min-height:0;display:flex;overflow:hidden;">
+      <div style="flex:1;min-height:0;position:relative;overflow:hidden;">
+        <div id="m3d-plot" style="position:absolute;left:0;top:0;width:100%;height:100%;"></div>
+        <div style="position:absolute;left:12px;bottom:10px;font-size:10px;color:#57677a;background:rgba(22,29,39,.85);border:1px solid #212b37;padding:4px 8px;border-radius:4px;pointer-events:none;">left-drag rotate · right-drag pan · scroll zoom</div>
+      </div>
+      <div id="m3d-sidebar" style="width:240px;background:#161d27;border-left:1px solid #2a3644;padding:14px;overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Layers</div>
+        <div id="m3d-layers"></div>
+        <div style="height:1px;background:#212b37;"></div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Mouse Drag</div>
+        <div style="display:flex;gap:4px;">
+          <button id="m3d-mode-rotate" class="m3d-mode active" data-mode="turntable">Rotate</button>
+          <button id="m3d-mode-pan" class="m3d-mode" data-mode="pan">Pan</button>
+        </div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Iso Threshold (% of max |value|)</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="range" id="m3d-thresh" min="5" max="90" value="20" style="flex:1;accent-color:#d98e4a;">
+          <span id="m3d-thresh-disp" style="font-size:11px;color:#d98e4a;min-width:30px;">20%</span>
+        </div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Opacity</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="range" id="m3d-opacity" min="15" max="100" value="70" style="flex:1;accent-color:#d98e4a;">
+          <span id="m3d-opacity-disp" style="font-size:11px;color:#d98e4a;min-width:30px;">70%</span>
+        </div>
+        <div style="height:1px;background:#212b37;"></div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Slice Planes</div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;">
+          <input type="checkbox" id="m3d-show-zslice" checked style="accent-color:#d98e4a;"> Depth slice (Z)
+        </label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="range" id="m3d-zslice" min="0" max="9" value="0" style="flex:1;accent-color:#64B5F6;">
+          <span id="m3d-zslice-disp" style="font-size:10px;color:#64B5F6;min-width:50px;">iz=0</span>
+        </div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;">
+          <input type="checkbox" id="m3d-show-ew" style="accent-color:#d98e4a;"> E-W section (Y)
+        </label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="range" id="m3d-ewslice" min="0" max="19" value="10" style="flex:1;accent-color:#81C784;">
+          <span id="m3d-ewslice-disp" style="font-size:10px;color:#81C784;min-width:50px;">iy=10</span>
+        </div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;">
+          <input type="checkbox" id="m3d-show-ns" style="accent-color:#d98e4a;"> N-S section (X)
+        </label>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <input type="range" id="m3d-nsslice" min="0" max="19" value="10" style="flex:1;accent-color:#FFB74D;">
+          <span id="m3d-nsslice-disp" style="font-size:10px;color:#FFB74D;min-width:50px;">ix=10</span>
+        </div>
+        <div style="height:1px;background:#212b37;"></div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Colorbar</div>
+        <canvas id="m3d-cbar" width="200" height="20" style="width:100%;border-radius:3px;"></canvas>
+        <div id="m3d-cbar-ticks" style="display:flex;justify-content:space-between;font-size:9px;color:#57677a;"></div>
+        <div id="m3d-stats" style="font-size:10px;color:#57677a;"></div>
+        <button id="m3d-reset" style="font-size:11px;padding:6px;background:#1c2530;border:1px solid #2a3644;border-radius:4px;color:#e7ecf2;cursor:pointer;">&#8635; Reset View</button>
+      </div>
+    </div>
+    <div id="m3d-splitter" style="display:none;height:6px;flex-shrink:0;cursor:ns-resize;background:#1c2530;border-top:1px solid #2a3644;border-bottom:1px solid #2a3644;position:relative;">
+      <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:30px;height:2px;background:#57677a;border-radius:1px;"></div>
+    </div>
+    <div id="m3d-section-row" style="display:none;flex:none;min-height:120px;flex-shrink:0;">
+      <div id="m3d-sec-z" style="flex:1;position:relative;overflow:hidden;display:none;border-right:1px solid #2a3644;">
+        <canvas id="m3d-z-canvas" class="fill-canvas"></canvas>
+      </div>
+      <div id="m3d-sec-ew" style="flex:1;position:relative;overflow:hidden;display:none;border-right:1px solid #2a3644;">
+        <canvas id="m3d-ew-canvas" class="fill-canvas"></canvas>
+      </div>
+      <div id="m3d-sec-ns" style="flex:1;position:relative;overflow:hidden;display:none;">
+        <canvas id="m3d-ns-canvas" class="fill-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="panel" id="panel-upload">
+    <div class="up-scroll">
+      <div class="up-wrap">
+        <h2 class="up-title">New Inversion Job</h2>
+        <p class="up-sub">Upload observed data by type plus optional topography, configure the inversion, and submit it to AWS</p>
+
+        <section class="up-sec">
+          <div class="up-sec-h"><span class="up-step">1</span>Observed data<span class="up-hint">One card per data type — at least one; two or more can be inverted jointly</span></div>
+          <div class="up-grid" id="up-datasets"></div>
+        </section>
+
+        <section class="up-sec">
+          <div class="up-sec-h"><span class="up-step">2</span>Topography<span class="up-hint">optional</span></div>
+          <div class="up-card" id="up-topo">
+            <div class="up-drop" id="up-topo-drop">
+              <input type="file" id="up-topo-file" accept=".xyz,.csv,.txt,.dat,.asc,.tif,.tiff" hidden>
+              <div class="up-drop-t">Drop a topography file here, or click to browse</div>
+              <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
+            </div>
+            <div class="up-files" id="up-topo-list"></div>
+            <div class="up-flat" id="up-topo-flat">
+              No topography uploaded → using <b>flat topography</b> at elevation
+              <input type="number" id="up-flat-elev" value="0" step="1" class="up-in up-in-sm"> m
+            </div>
+          </div>
+        </section>
+
+        <section class="up-sec">
+          <div class="up-sec-h"><span class="up-step">3</span>Inversion setup</div>
+          <div class="up-card">
+            <label class="up-lbl" for="upload-method">Inversion method</label>
+            <select id="upload-method" class="up-in" disabled><option>Upload observed data first</option></select>
+            <div class="up-method-desc" id="up-method-desc"></div>
+            <div class="up-row">
+              <div class="up-col">
+                <label class="up-lbl" for="upload-mesh">Mesh type</label>
+                <select id="upload-mesh" class="up-in">
+                  <option value="tensor">Tensor Mesh</option>
+                  <option value="octree" selected>OcTree Mesh</option>
+                </select>
+              </div>
+              <div class="up-col">
+                <label class="up-lbl" for="upload-instance">Instance type</label>
+                <select id="upload-instance" class="up-in">
+                  <option value="c5.xlarge">c5.xlarge (4 vCPU, ~$0.17/hr)</option>
+                  <option value="c5.2xlarge" selected>c5.2xlarge (8 vCPU, ~$0.34/hr)</option>
+                  <option value="c5.4xlarge">c5.4xlarge (16 vCPU, ~$0.68/hr)</option>
+                  <option value="c5.9xlarge">c5.9xlarge (36 vCPU, ~$1.53/hr)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="up-sec">
+          <div class="up-sec-h"><span class="up-step">4</span>Regularization &amp; inversion parameters</div>
+          <div class="up-card">
+            <div class="up-seg" id="up-pmode">
+              <button type="button" data-mode="auto" class="active">Auto (recommended)</button>
+              <button type="button" data-mode="manual">Manual</button>
+            </div>
+
+            <div id="up-auto">
+              <ul class="up-auto-list">
+                <li><b>Data weights</b>: uncertainty = percent × |d| + floor (set on each data card)</li>
+                <li><b>β (trade-off)</b>: initial value from an eigenvalue estimate, cooled until χ² ≈ number of data</li>
+                <li><b>α (smoothness weights)</b>: α<sub>s</sub> = 1e-4, α<sub>x</sub> = α<sub>y</sub> = α<sub>z</sub> = 1</li>
+                <li><b>Model norms</b>: p = [0, 2, 2, 1] (compact bodies); IRLS thresholds tuned automatically</li>
+                <li id="up-auto-joint" hidden><b>Joint inversion</b>: equal data weights, cross-gradient weight = 1</li>
+              </ul>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl" for="up-auto-maxit">Max iterations</label><input id="up-auto-maxit" type="number" class="up-in" step="1" min="1" value="30"></div>
+                <div class="up-col"><label class="up-lbl" for="up-auto-maxirls">Max IRLS iterations</label><input id="up-auto-maxirls" type="number" class="up-in" step="1" min="1" value="30"></div>
+              </div>
+              <div class="up-note">Auto uses proven defaults plus an automatic β search and covers most cases. Switch to Manual if you have prior knowledge of the model style (smooth vs blocky) or the physical-property range.</div>
+            </div>
+
+            <div id="up-manual" hidden>
+              <div class="up-grp">Regularization</div>
+              <div class="up-row">
+                <div class="up-col">
+                  <select id="up-reg-type" class="up-in">
+                    <option value="lp">Lp-norm IRLS (sparse / smooth)</option>
+                    <option value="l1l2">L1–L2 elastic net (Utsugi 2019)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="up-l1l2-params" hidden>
+                <div class="up-row up-4">
+                  <div class="up-col"><label class="up-lbl" for="up-l1-ratio">L1 ratio a (0–1)</label><input id="up-l1-ratio" type="number" class="up-in" min="0" max="1" step="0.1" value="0.5"></div>
+                </div>
+                <div class="up-note">φ<sub>m</sub> = (1−a)/2·‖m̃‖² + a·‖m̃‖₁ on the depth-weighted model m̃<sub>j</sub> = ‖g<sub>j</sub>‖<sup>½</sup>·m<sub>j</sub>. a = 1 gives compact, sparse bodies; a = 0 gives smooth models with lower amplitudes. There is no smoothness term, so the norm and α<sub>x,y,z</sub> settings do not apply. Joint jobs still use L2.</div>
+              </div>
+
+              <div id="up-lp-params">
+              <div class="up-grp">Model style (norms)</div>
+              <div class="up-row">
+                <div class="up-col">
+                  <select id="up-norm-preset" class="up-in">
+                    <option value="0,2,2,1">Compact bodies (default) — p = [0, 2, 2, 1]</option>
+                    <option value="2,2,2,2">Smooth (L2) — p = [2, 2, 2, 2]</option>
+                    <option value="0,1,1,1">Blocky / sharp edges — p = [0, 1, 1, 1]</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+              </div>
+              <div class="up-row up-4" id="up-norm-custom" hidden>
+                <div class="up-col"><label class="up-lbl">p<sub>s</sub></label><input id="up-p-s" type="number" class="up-in" min="0" max="2" step="0.1" value="0"></div>
+                <div class="up-col"><label class="up-lbl">p<sub>x</sub></label><input id="up-p-x" type="number" class="up-in" min="0" max="2" step="0.1" value="2"></div>
+                <div class="up-col"><label class="up-lbl">p<sub>y</sub></label><input id="up-p-y" type="number" class="up-in" min="0" max="2" step="0.1" value="2"></div>
+                <div class="up-col"><label class="up-lbl">p<sub>z</sub></label><input id="up-p-z" type="number" class="up-in" min="0" max="2" step="0.1" value="1"></div>
+              </div>
+
+              <div class="up-grp">Regularization weights α</div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl">α<sub>s</sub></label><input id="up-alpha-s" type="number" class="up-in" step="any" value="0.0001"></div>
+                <div class="up-col"><label class="up-lbl">α<sub>x</sub></label><input id="up-alpha-x" type="number" class="up-in" step="any" value="1"></div>
+                <div class="up-col"><label class="up-lbl">α<sub>y</sub></label><input id="up-alpha-y" type="number" class="up-in" step="any" value="1"></div>
+                <div class="up-col"><label class="up-lbl">α<sub>z</sub></label><input id="up-alpha-z" type="number" class="up-in" step="any" value="1"></div>
+              </div>
+              </div>
+
+              <div class="up-grp">Iteration control</div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl">β₀ ratio</label><input id="up-beta0" type="number" class="up-in" step="any" value="1"></div>
+                <div class="up-col"><label class="up-lbl">β cooling factor</label><input id="up-cool" type="number" class="up-in" step="any" value="2"></div>
+                <div class="up-col"><label class="up-lbl">Max iterations</label><input id="up-maxit" type="number" class="up-in" step="1" min="1" value="30"></div>
+                <div class="up-col"><label class="up-lbl">Max IRLS iterations</label><input id="up-maxirls" type="number" class="up-in" step="1" min="1" value="30"></div>
+              </div>
+
+              <div class="up-grp">Property bounds</div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl">Lower bound</label><input id="up-lower" type="number" class="up-in" step="any" placeholder="none"></div>
+                <div class="up-col"><label class="up-lbl">Upper bound</label><input id="up-upper" type="number" class="up-in" step="any" placeholder="none"></div>
+                <div class="up-col up-chk"><label><input id="up-precond" type="checkbox" checked> Jacobi preconditioner</label></div>
+              </div>
+
+              <div id="up-joint-params" hidden>
+                <div class="up-grp">Joint inversion</div>
+                <div class="up-row up-4" id="up-joint-weights"></div>
+                <div class="up-row up-4">
+                  <div class="up-col"><label class="up-lbl">Cross-gradient weight</label><input id="up-xgrad" type="number" class="up-in" step="any" value="1"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="up-sec">
+          <label class="up-lbl" for="upload-note">Note (optional)</label>
+          <input id="upload-note" type="text" class="up-in" placeholder="e.g. Karnataka 70 km deep inversion">
+        </section>
+
+        <button id="upload-submit" class="up-submit" disabled>🚀 Submit inversion job to AWS</button>
+        <div id="upload-status" class="up-status" hidden></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// CONSTANTS & HELPERS
+// ══════════════════════════════════════════
+const NCOL = {
+  MeshCreateNode:'#4CAF50', ModelCreateNode:'#2196F3', ModelFromArrayNode:'#2196F3',
+  SurveyCreateNode:'#FF9800', ForwardNode:'#9C27B0',
+  LogTransformNode:'#00BCD4', ScaleNode:'#00BCD4', OffsetNode:'#00BCD4',
+  ConductivityToResistivityNode:'#00BCD4',
+  RegularizationNode:'#009688', CrossGradientNode:'#009688',
+  SingleInversionNode:'#e94560', SparseInversionNode:'#E91E63',
+  JointInversionNode:'#e94560',
+  ModelExportNode:'#8BC34A', ResultExportNode:'#8BC34A',
+};
+const NCAT = {
+  MeshCreateNode:'Mesh', ModelCreateNode:'Model', ModelFromArrayNode:'Model',
+  SurveyCreateNode:'Survey', ForwardNode:'Forward',
+  LogTransformNode:'Transform', ScaleNode:'Transform', OffsetNode:'Transform',
+  ConductivityToResistivityNode:'Transform',
+  RegularizationNode:'Regularization', CrossGradientNode:'Regularization',
+  SingleInversionNode:'Inversion', SparseInversionNode:'Sparse Inv.',
+  JointInversionNode:'Joint Inv.',
+  ModelExportNode:'Export', ResultExportNode:'Export',
+};
+
+const CMAP = [
+  [0.00, [49,54,149]], [0.15, [69,117,180]], [0.30, [116,173,209]],
+  [0.45, [171,217,233]], [0.50, [255,255,191]],
+  [0.55, [253,174,97]], [0.70, [244,109,67]], [0.85, [215,48,39]], [1.00, [165,0,38]]
+];
+
+function cmap(v, vmin, vmax) {
+  let t = vmax === vmin ? 0.5 : (v - vmin) / (vmax - vmin);
+  t = Math.max(0, Math.min(1, t));
+  for (let i = 1; i < CMAP.length; i++) {
+    if (t <= CMAP[i][0]) {
+      const [t0, c0] = CMAP[i-1], [t1, c1] = CMAP[i];
+      const f = (t - t0) / (t1 - t0);
+      return [Math.round(c0[0]+(c1[0]-c0[0])*f), Math.round(c0[1]+(c1[1]-c0[1])*f), Math.round(c0[2]+(c1[2]-c0[2])*f)];
+    }
+  }
+  return CMAP[CMAP.length-1][1];
+}
+
+function fmtN(n) {
+  if (n == null) return '-';
+  if (Number.isInteger(n)) return n.toString();
+  if (Math.abs(n) < 0.001 && n !== 0) return n.toExponential(3);
+  return parseFloat(n.toPrecision(5)).toString();
+}
+function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function trunc(s, m) { return s.length > m ? s.slice(0, m-1)+'…' : s; }
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let W = null, selNode = null, resultNode = null;
+let tf = {x:0,y:0,k:1}, npos = {}, dragging=false, dragS={x:0,y:0};
+const svg = document.getElementById('dag');
+const sbBody = document.getElementById('sidebar-body');
+
+// ══════════════════════════════════════════
+// TAB SWITCHING
+// ══════════════════════════════════════════
+let dirtyTabs = new Set();
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    if (t.classList.contains('disabled')) return;
+    switchTab(t.dataset.tab);
+  });
+});
+
+function enableResultTabs() {
+  ['tab-conv','tab-fit','tab-3d'].forEach(id => {
+    document.getElementById(id).classList.remove('disabled');
+  });
+}
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
+  requestAnimationFrame(() => renderActiveTab(name));
+}
+
+function renderActiveTab(name) {
+  if (!resultNode || !dirtyTabs.has(name)) return;
+  dirtyTabs.delete(name);
+  if (name === 'convergence') renderConvergence(resultNode);
+  else if (name === 'datafit') renderDataFit(resultNode);
+  else if (name === 'model3d') { updateSectionRow(); render3D(); }
+}
+
+// ══════════════════════════════════════════
+// FILE LOADING
+// ══════════════════════════════════════════
+const dz = document.getElementById('dropzone');
+const da = document.getElementById('drop-area');
+const fi = document.getElementById('file-input');
+document.getElementById('btn-load').addEventListener('click', () => fi.click());
+fi.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+da.addEventListener('click', () => fi.click());
+da.addEventListener('dragover', e => { e.preventDefault(); da.style.borderColor='var(--accent)'; });
+da.addEventListener('dragleave', () => { da.style.borderColor=''; });
+da.addEventListener('drop', e => { e.preventDefault(); da.style.borderColor=''; if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+
+function loadFile(file) {
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const d = JSON.parse(e.target.result);
+      if (!d.nodes) throw new Error('Invalid format');
+      W = d; dz.classList.add('hidden'); initWorkflow();
+    } catch(err) { alert('Error: '+err.message); }
+  };
+  r.readAsText(file);
+}
+
+// ══════════════════════════════════════════
+// DAG: NODE CONFIG HELPER
+// ══════════════════════════════════════════
+function isInv(t) { return t==='SingleInversionNode'||t==='SparseInversionNode'||t==='JointInversionNode'; }
+
+function cfgLines(n) {
+  const p = n.params||{}, t = n.type;
+  if (t === 'SparseInversionNode') {
+    const nrm = p.norms ? '('+p.norms.join(',')+')' : '?';
+    return [p.method_type+' | sparse IRLS', 'norms='+nrm+' precond='+(p.use_preconditioner?'ON':'OFF'),
+            'iter='+p.max_iter+' irls_cool='+p.irls_cooling_factor];
+  }
+  if (t === 'SingleInversionNode')
+    return [p.method_type+' | smooth L2', 'cool='+p.cooling_factor+' iter='+p.max_iter];
+  if (t === 'JointInversionNode')
+    return [(p.method_types||[]).join('+'), 'iter='+p.max_iter];
+  return [];
+}
+
+// ══════════════════════════════════════════
+// DAG LAYOUT & RENDER
+// ══════════════════════════════════════════
+function computeLayout(nodes, edges) {
+  const layers={}, visited=new Set();
+  function assign(id) {
+    if (visited.has(id)) return layers[id];
+    visited.add(id);
+    const par = edges.filter(([f,t])=>t===id).map(([f])=>f);
+    layers[id] = par.length===0 ? 0 : Math.max(...par.map(assign))+1;
+    return layers[id];
+  }
+  nodes.forEach(n => assign(n.id));
+
+  const groups={};
+  let maxL=0;
+  nodes.forEach(n => { const l=layers[n.id]; if(!groups[l])groups[l]=[]; groups[l].push(n); maxL=Math.max(maxL,l); });
+
+  const nW=170, nH=48, iW=210, iH=85, gap=36, lGap=110;
+  const nmap={}; nodes.forEach(n=>{nmap[n.id]=n;});
+  const pos={};
+
+  for (let l=0; l<=maxL; l++) {
+    const g = groups[l]||[];
+    const maxH = Math.max(nH, ...g.map(n => isInv(n.type)?iH:nH));
+    const totW = g.reduce((s,n)=>s+(isInv(n.type)?iW:nW),0)+(g.length-1)*gap;
+    let cx = -totW/2;
+    g.forEach(n => {
+      const w=isInv(n.type)?iW:nW, h=isInv(n.type)?iH:nH;
+      pos[n.id]={x:cx+w/2, y:l*(maxH+lGap)+maxH/2, w, h};
+      cx+=w+gap;
+    });
+  }
+  return pos;
+}
+
+function renderDAG() {
+  if (!W) return;
+  const nodes=W.nodes, edges=[];
+  nodes.forEach(n=>(n.inputs||[]).forEach(i=>edges.push([i,n.id])));
+  npos = computeLayout(nodes, edges);
+
+  // Legend
+  const li=document.getElementById('legend-items');
+  li.innerHTML='';
+  const seen=new Set();
+  nodes.forEach(n=>{
+    const cat=NCAT[n.type]||n.type;
+    if(seen.has(cat))return; seen.add(cat);
+    const c=NCOL[n.type]||'#607D8B';
+    li.innerHTML+=`<div class="legend-item"><div class="legend-swatch" style="background:${c}"></div>${cat}</div>`;
+  });
+  document.getElementById('legend').style.display='';
+  document.getElementById('zoom-ctl').style.display='';
+
+  // Fit view
+  const rect=svg.getBoundingClientRect();
+  const ax=Object.values(npos).map(p=>p.x), ay=Object.values(npos).map(p=>p.y);
+  const x0=Math.min(...ax)-120, x1=Math.max(...ax)+120, y0=Math.min(...ay)-60, y1=Math.max(...ay)+60;
+  const sc=Math.min(rect.width/(x1-x0), rect.height/(y1-y0), 1.5)*0.85;
+  tf={x:rect.width/2-((x0+x1)/2)*sc, y:rect.height/2-((y0+y1)/2)*sc, k:sc};
+  drawDAG(nodes, edges);
+}
+
+function drawDAG(nodes, edges) {
+  const defs=svg.querySelector('defs');
+  svg.innerHTML=''; svg.appendChild(defs);
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.id='dag-g'; g.setAttribute('transform',`translate(${tf.x},${tf.y}) scale(${tf.k})`);
+  svg.appendChild(g);
+
+  // Edges
+  edges.forEach(([f,t])=>{
+    const p1=npos[f],p2=npos[t]; if(!p1||!p2)return;
+    const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1',p1.x); ln.setAttribute('y1',p1.y+p1.h/2);
+    ln.setAttribute('x2',p2.x); ln.setAttribute('y2',p2.y-p2.h/2);
+    ln.setAttribute('stroke','#444'); ln.setAttribute('stroke-width','2');
+    ln.setAttribute('marker-end','url(#arrow)');
+    g.appendChild(ln);
+  });
+
+  // Nodes
+  nodes.forEach(n=>{
+    const p=npos[n.id]; if(!p)return;
+    const col=NCOL[n.type]||'#607D8B';
+    const inv=isInv(n.type);
+    const hasOut=!!n.output;
+
+    const ng=document.createElementNS('http://www.w3.org/2000/svg','g');
+    ng.setAttribute('class','dag-node'+(selNode===n.id?' selected':''));
+    ng.setAttribute('data-id',n.id);
+
+    if (inv) {
+      // Diamond
+      const pts=[`${p.x},${p.y-p.h/2-5}`,`${p.x+p.w/2+10},${p.y}`,
+                 `${p.x},${p.y+p.h/2+5}`,`${p.x-p.w/2-10},${p.y}`].join(' ');
+      const poly=document.createElementNS('http://www.w3.org/2000/svg','polygon');
+      poly.setAttribute('points',pts); poly.setAttribute('fill',col);
+      poly.setAttribute('stroke',col); poly.setAttribute('stroke-width','2');
+      ng.appendChild(poly);
+
+      // Title
+      addText(ng, p.x, p.y-25, trunc(n.name,22), 'node-label');
+      addText(ng, p.x, p.y-12, '#'+n.id+' '+n.type.replace('Node',''), 'node-sub');
+
+      // Config lines
+      cfgLines(n).forEach((ln,i)=>{
+        addText(ng, p.x, p.y+4+i*12, ln, 'node-cfg');
+      });
+    } else {
+      // Rounded rect
+      const cat=NCAT[n.type]||'';
+      const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x',p.x-p.w/2); r.setAttribute('y',p.y-p.h/2);
+      r.setAttribute('width',p.w); r.setAttribute('height',p.h);
+      r.setAttribute('rx',cat==='Mesh'||cat==='Survey'||cat==='Model'?18:6);
+      r.setAttribute('fill',col); r.setAttribute('stroke',col); r.setAttribute('stroke-width','2');
+      ng.appendChild(r);
+
+      addText(ng, p.x, p.y-3, trunc(n.name,18), 'node-label');
+      addText(ng, p.x, p.y+12, '#'+n.id+' '+n.type.replace('Node',''), 'node-sub');
+    }
+
+    // Output indicator
+    if (hasOut) {
+      const ci=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      ci.setAttribute('cx',p.x+p.w/2-4); ci.setAttribute('cy',p.y-p.h/2+4);
+      ci.setAttribute('r','6'); ci.setAttribute('fill','#4CAF50');
+      ci.setAttribute('stroke','var(--bg)'); ci.setAttribute('stroke-width','2');
+      ng.appendChild(ci);
+    }
+
+    ng.addEventListener('click',()=>selectNode(n.id));
+    g.appendChild(ng);
+  });
+}
+
+function addText(parent, x, y, text, cls) {
+  const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+  t.setAttribute('x',x); t.setAttribute('y',y); t.setAttribute('class',cls);
+  t.textContent=text; parent.appendChild(t);
+}
+
+// ══════════════════════════════════════════
+// NODE SELECTION & SIDEBAR
+// ══════════════════════════════════════════
+function selectNode(id) {
+  selNode=id;
+  document.querySelectorAll('.dag-node').forEach(el=>{
+    el.classList.toggle('selected',parseInt(el.dataset.id)===id);
+  });
+
+  const n=W.nodes.find(nd=>nd.id===id);
+  if(!n){sbBody.innerHTML='<div class="empty-msg">Node not found</div>';return;}
+
+  const col=NCOL[n.type]||'#607D8B';
+  let h='';
+
+  // Identity
+  h+=`<div class="det-section"><h3>Identity</h3>`;
+  h+=dRow('Name',n.name); h+=dRow('ID','#'+n.id);
+  h+=dRow('Type',`<span style="background:${col};color:#fff;padding:1px 7px;border-radius:10px;font-size:10px">${NCAT[n.type]||n.type}</span>`);
+  h+=`</div>`;
+
+  // Params
+  const pk=Object.keys(n.params||{}).filter(k=>k!=='name');
+  if(pk.length){
+    h+=`<div class="det-section"><h3>Parameters</h3>`;
+    pk.forEach(k=>{ h+=dRow(k, fmtParam(n.params[k])); });
+    h+=`</div>`;
+  }
+
+  // Connections
+  const inN=(n.inputs||[]).map(i=>W.nodes.find(nd=>nd.id===i)).filter(Boolean);
+  const outN=W.nodes.filter(nd=>(nd.inputs||[]).includes(n.id));
+  if(inN.length||outN.length){
+    h+=`<div class="det-section"><h3>Connections</h3>`;
+    if(inN.length){ h+='<div style="font-size:10px;color:var(--text3);margin-bottom:3px">Inputs:</div>';
+      inN.forEach(inp=>{h+=`<div style="font-size:11px;cursor:pointer;padding:2px 0;color:var(--text2)" onclick="selectNode(${inp.id})">#${inp.id} ${escH(inp.name)}</div>`;});
+    }
+    if(outN.length){ h+='<div style="font-size:10px;color:var(--text3);margin-top:6px;margin-bottom:3px">Outputs:</div>';
+      outN.forEach(out=>{h+=`<div style="font-size:11px;cursor:pointer;padding:2px 0;color:var(--text2)" onclick="selectNode(${out.id})">#${out.id} ${escH(out.name)}</div>`;});
+    }
+    h+=`</div>`;
+  }
+
+  // Output summary
+  if(n.output){
+    h+=`<div class="det-section"><h3>Results</h3>`;
+    h+=dRow('Type',n.output.type);
+    if(n.output.n_iterations) h+=dRow('Iterations',n.output.n_iterations);
+    if(n.output.converged!=null) h+=dRow('Converged',n.output.converged?'Yes':'No');
+    if(n.output.final_model){
+      const fm=n.output.final_model;
+      h+=dRow('Property',fm.prop);
+      h+=dRow('Range','['+fmtN(fm.min)+', '+fmtN(fm.max)+'] '+(fm.unit||''));
+    }
+    if(n.output.data_fit){
+      const df=n.output.data_fit;
+      h+=dRow('RMS residual',fmtN(df.rms)+' '+(df.unit||''));
+      h+=dRow('chi²',fmtN(df.chi2));
+    }
+    h+=`</div>`;
+    h+=`<button class="btn-results" onclick="viewResults(${n.id})">View Full Results →</button>`;
+  }
+
+  sbBody.innerHTML=h;
+}
+
+function dRow(k,v){return `<div class="det-row"><div class="det-key">${k}</div><div class="det-val">${v}</div></div>`;}
+function fmtParam(v){
+  if(v==null)return '<span style="color:#666">null</span>';
+  if(Array.isArray(v)){
+    if(v.length<=6&&v.every(x=>typeof x==='number'))return '<span class="det-val arr">['+v.map(fmtN).join(', ')+']</span>';
+    return '<span class="det-val arr">'+v.length+' items</span>';
+  }
+  if(typeof v==='number')return '<span class="det-val num">'+fmtN(v)+'</span>';
+  if(typeof v==='boolean')return '<span class="det-val num">'+v+'</span>';
+  if(typeof v==='string')return '<span class="det-val str">'+escH(v)+'</span>';
+  return escH(JSON.stringify(v));
+}
+
+// ══════════════════════════════════════════
+// VIEW RESULTS
+// ══════════════════════════════════════════
+function viewResults(nodeId) {
+  const n=W.nodes.find(nd=>nd.id===nodeId);
+  if(!n||!n.output)return;
+  resultNode=n;
+  enableResultTabs();
+  init3D(n);
+  dirtyTabs = new Set(['convergence','datafit','model3d']);
+  switchTab('convergence');
+}
+
+// ══════════════════════════════════════════
+// CONVERGENCE
+// ══════════════════════════════════════════
+function renderConvergence(n) {
+  const ct=document.getElementById('conv-content');
+  const iters=n.output.iterations||[];
+  if(!iters.length){ct.innerHTML='<div class="empty-msg">No iteration data</div>';return;}
+
+  let h='<div class="chart-row">';
+  h+='<div class="chart-box"><div class="chart-title">Data Misfit (φ_d) & Model Norm (φ_m)</div><canvas id="cv-phidm" height="260"></canvas></div>';
+  h+='<div class="chart-box"><div class="chart-title">Total Objective & Beta</div><canvas id="cv-obj" height="260"></canvas></div>';
+  h+='</div>';
+  ct.innerHTML=h;
+
+  requestAnimationFrame(()=>{
+    drawLineChart('cv-phidm', iters, [
+      {key:'phi_d',label:'φ_d',color:'#64B5F6'},
+      {key:'phi_m',label:'φ_m',color:'#81C784'}
+    ], true);
+    drawLineChart('cv-obj', iters, [
+      {key:'phi_total',label:'φ_total',color:'#e94560'},
+      {key:'beta',label:'β',color:'#FFB74D',dash:true}
+    ], true);
+  });
+}
+
+function drawLineChart(canvasId, data, series, logScale) {
+  const canvas=document.getElementById(canvasId); if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.height='260px';
+  const W2=canvas.clientWidth, H2=260;
+  canvas.width=W2*dpr; canvas.height=H2*dpr;
+  ctx.scale(dpr,dpr);
+
+  const pad={t:25,r:25,b:35,l:55}, pw=W2-pad.l-pad.r, ph=H2-pad.t-pad.b;
+  ctx.fillStyle='#161d27'; ctx.fillRect(0,0,W2,H2);
+
+  const all=series.flatMap(s=>data.map(d=>d[s.key])).filter(v=>v>0);
+  if(!all.length)return;
+  const useLog=logScale&&(Math.max(...all)/Math.min(...all)>50);
+  const mn=Math.min(...all)*(useLog?0.5:0.8), mx=Math.max(...all)*(useLog?2:1.2);
+
+  function toY(v){
+    if(useLog){const l0=Math.log10(Math.max(mn,1e-12)),l1=Math.log10(mx);
+      return pad.t+ph*(1-(Math.log10(Math.max(v,1e-12))-l0)/(l1-l0));}
+    return pad.t+ph*(1-(v-mn)/(mx-mn));
+  }
+  function toX(i){return pad.l+pw*i/Math.max(data.length-1,1);}
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+  for(let i=0;i<5;i++){const y=pad.t+ph*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W2-pad.r,y);ctx.stroke();}
+
+  // X labels
+  ctx.fillStyle='#8b97a6'; ctx.font='10px sans-serif'; ctx.textAlign='center';
+  data.forEach((d,i)=>{if(data.length<=15||i%Math.ceil(data.length/10)===0)
+    ctx.fillText(d.iteration,toX(i),H2-pad.b+16);});
+  ctx.fillText('Iteration',W2/2,H2-4);
+
+  // Y labels
+  ctx.textAlign='right';
+  for(let i=0;i<=4;i++){
+    const f=i/4; let v;
+    if(useLog){const l0=Math.log10(Math.max(mn,1e-12)),l1=Math.log10(mx);v=Math.pow(10,l0+(l1-l0)*(1-f));}
+    else{v=mn+(mx-mn)*(1-f);}
+    ctx.fillText(v<0.01?v.toExponential(1):fmtN(v),pad.l-6,pad.t+ph*f+3);
+  }
+
+  // Lines
+  series.forEach(s=>{
+    const vals=data.map(d=>d[s.key]);
+    ctx.strokeStyle=s.color; ctx.lineWidth=2;
+    if(s.dash)ctx.setLineDash([5,3]); else ctx.setLineDash([]);
+    ctx.beginPath();
+    vals.forEach((v,i)=>{i===0?ctx.moveTo(toX(i),toY(v)):ctx.lineTo(toX(i),toY(v));});
+    ctx.stroke(); ctx.setLineDash([]);
+    vals.forEach((v,i)=>{ctx.beginPath();ctx.arc(toX(i),toY(v),3,0,Math.PI*2);ctx.fillStyle=s.color;ctx.fill();});
+  });
+
+  // Legend
+  ctx.font='10px sans-serif'; ctx.textAlign='left';
+  let lx=pad.l+10;
+  series.forEach(s=>{
+    ctx.fillStyle=s.color; ctx.fillRect(lx,pad.t+4,12,3);
+    ctx.fillText(s.label,lx+16,pad.t+10); lx+=70;
+  });
+}
+
+// ══════════════════════════════════════════
+// DATA FIT
+// ══════════════════════════════════════════
+function renderDataFit(n) {
+  const ct=document.getElementById('fit-content');
+  const df=n.output.data_fit;
+  if(!df){ct.innerHTML='<div class="empty-msg">No data fit info</div>';return;}
+
+  let h='<div class="stats-row">';
+  h+=statCard('RMS Residual',fmtN(df.rms)+' '+(df.unit||''));
+  h+=statCard('χ²/N',fmtN(df.chi2));
+  h+=statCard('Stations',df.observed.length);
+  const mxRes=Math.max(...df.residuals.map(Math.abs));
+  h+=statCard('Max |Residual|',fmtN(mxRes)+' '+(df.unit||''));
+  h+='</div>';
+  h+='<div class="chart-row">';
+  h+='<div class="chart-box"><div class="chart-title">Observed vs Predicted</div><canvas id="cv-scatter" height="300"></canvas></div>';
+  h+='<div class="chart-box"><div class="chart-title">Residual Map</div><canvas id="cv-resmap" height="300"></canvas></div>';
+  h+='</div>';
+  h+='<div class="chart-row" style="margin-top:4px">';
+  h+='<div class="chart-box" style="flex:1;min-width:320px"><div class="chart-title">Observed ('+(df.unit||'')+')</div><canvas id="cv-obsmap" height="350"></canvas></div>';
+  h+='<div class="chart-box" style="flex:1;min-width:320px"><div class="chart-title">Predicted ('+(df.unit||'')+')</div><canvas id="cv-predmap" height="350"></canvas></div>';
+  h+='</div>';
+  h+='<div class="chart-row" style="margin-top:4px">';
+  h+='<div class="chart-box" style="flex:1;min-width:320px;max-width:50%"><div class="chart-title">Residual ('+(df.unit||'')+')</div><canvas id="cv-resmap2" height="350"></canvas></div>';
+  h+='</div>';
+  ct.innerHTML=h;
+
+  requestAnimationFrame(()=>{
+    drawScatter('cv-scatter',df);
+    drawResMap('cv-resmap',df);
+    drawStationMap('cv-obsmap',df,'observed');
+    drawStationMap('cv-predmap',df,'predicted');
+    drawStationMap('cv-resmap2',df,'residual');
+  });
+}
+
+function statCard(label,val){return `<div class="stat-card"><div class="label">${label}</div><div class="value">${val}</div></div>`;}
+
+function drawScatter(canvasId, df) {
+  const canvas=document.getElementById(canvasId); if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.height='350px';
+  const cw=canvas.clientWidth, ch=350;
+  canvas.width=cw*dpr; canvas.height=ch*dpr; ctx.scale(dpr,dpr);
+
+  const pad={t:20,r:20,b:45,l:55}, pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
+  const obs=df.observed, pred=df.predicted;
+  const all=[...obs,...pred];
+  const mn=Math.min(...all), mx=Math.max(...all);
+  const rng=mx-mn||1;
+
+  function toX(v){return pad.l+pw*(v-mn+rng*0.05)/(rng*1.1);}
+  function toY(v){return pad.t+ph*(1-(v-mn+rng*0.05)/(rng*1.1));}
+
+  ctx.fillStyle='#161d27'; ctx.fillRect(0,0,cw,ch);
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=pad.t+ph*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(cw-pad.r,y);ctx.stroke();}
+
+  // 1:1 line
+  ctx.strokeStyle='rgba(255,255,255,.2)'; ctx.setLineDash([5,3]);
+  ctx.beginPath(); ctx.moveTo(toX(mn),toY(mn)); ctx.lineTo(toX(mx),toY(mx)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Points
+  obs.forEach((o,i)=>{
+    const res=Math.abs(df.residuals[i]);
+    const mxR=Math.max(...df.residuals.map(Math.abs));
+    const [r,g,b]=cmap(res,0,mxR);
+    ctx.beginPath(); ctx.arc(toX(o),toY(pred[i]),4,0,Math.PI*2);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.lineWidth=0.5; ctx.stroke();
+  });
+
+  // Axes
+  ctx.fillStyle='#8b97a6'; ctx.font='10px sans-serif';
+  ctx.textAlign='center'; ctx.fillText('Observed ('+(df.unit||'')+')',cw/2,ch-6);
+  ctx.save(); ctx.translate(12,ch/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Predicted ('+(df.unit||'')+')',0,0); ctx.restore();
+
+  for(let i=0;i<=4;i++){
+    const v=mn+rng*i/4;
+    ctx.textAlign='center'; ctx.fillText(fmtN(v),toX(v),ch-pad.b+14);
+    ctx.textAlign='right'; ctx.fillText(fmtN(v),pad.l-6,toY(v)+3);
+  }
+}
+
+function drawResMap(canvasId, df) {
+  const canvas=document.getElementById(canvasId); if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.height='350px';
+  const cw=canvas.clientWidth, ch=350;
+  canvas.width=cw*dpr; canvas.height=ch*dpr; ctx.scale(dpr,dpr);
+
+  const pad={t:20,r:70,b:45,l:55}, pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
+  const xs=df.x_stations, ys=df.y_stations, res=df.residuals;
+  const xmn=Math.min(...xs), xmx=Math.max(...xs), ymn=Math.min(...ys), ymx=Math.max(...ys);
+  const rmx=Math.max(...res.map(Math.abs))||1;
+
+  function toX(v){return pad.l+pw*(v-xmn)/(xmx-xmn||1);}
+  function toY(v){return pad.t+ph*(1-(v-ymn)/(ymx-ymn||1));}
+
+  ctx.fillStyle='#161d27'; ctx.fillRect(0,0,cw,ch);
+
+  // Points colored by residual (diverging)
+  const DCMAP=[[0,[49,54,149]],[0.25,[116,173,209]],[0.5,[255,255,191]],[0.75,[244,109,67]],[1,[165,0,38]]];
+  function dcmap(v){
+    let t=(v+rmx)/(2*rmx); t=Math.max(0,Math.min(1,t));
+    for(let i=1;i<DCMAP.length;i++){
+      if(t<=DCMAP[i][0]){const[t0,c0]=DCMAP[i-1],[t1,c1]=DCMAP[i];const f=(t-t0)/(t1-t0);
+        return[Math.round(c0[0]+(c1[0]-c0[0])*f),Math.round(c0[1]+(c1[1]-c0[1])*f),Math.round(c0[2]+(c1[2]-c0[2])*f)];}
+    }
+    return DCMAP[DCMAP.length-1][1];
+  }
+
+  xs.forEach((x,i)=>{
+    const sz=4+6*Math.abs(res[i])/rmx;
+    const[r,g,b]=dcmap(res[i]);
+    ctx.beginPath(); ctx.arc(toX(x),toY(ys[i]),sz,0,Math.PI*2);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.4)'; ctx.lineWidth=0.5; ctx.stroke();
+  });
+
+  // Axes
+  ctx.fillStyle='#8b97a6'; ctx.font='10px sans-serif';
+  ctx.textAlign='center'; ctx.fillText('Easting (m)',cw/2,ch-6);
+  ctx.save(); ctx.translate(12,ch/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText('Northing (m)',0,0); ctx.restore();
+
+  // Colorbar
+  const cbx=cw-pad.r+12, cbw=14, cby=pad.t, cbh=ph;
+  for(let j=0;j<cbh;j++){
+    const v=rmx-2*rmx*j/cbh;
+    const[r,g,b]=dcmap(v);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(cbx,cby+j,cbw,1);
+  }
+  ctx.strokeStyle='#2a3644'; ctx.strokeRect(cbx,cby,cbw,cbh);
+  ctx.fillStyle='#8b97a6'; ctx.font='9px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('+'+fmtN(rmx),cbx+cbw+4,cby+8);
+  ctx.fillText('0',cbx+cbw+4,cby+cbh/2+3);
+  ctx.fillText('-'+fmtN(rmx),cbx+cbw+4,cby+cbh-2);
+}
+
+// ══════════════════════════════════════════
+// STATION MAP (observed / predicted / residual)
+// ══════════════════════════════════════════
+function drawStationMap(canvasId, df, mode) {
+  const canvas=document.getElementById(canvasId); if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.height='350px';
+  const cw=canvas.clientWidth, ch=350;
+  canvas.width=cw*dpr; canvas.height=ch*dpr; ctx.scale(dpr,dpr);
+
+  const xs=df.x_stations, ys=df.y_stations;
+  let vals, vmin, vmax, diverging=false;
+  if(mode==='observed'){vals=df.observed;}
+  else if(mode==='predicted'){vals=df.predicted;}
+  else{vals=df.residuals; diverging=true;}
+
+  const xmn=Math.min(...xs), xmx=Math.max(...xs), ymn=Math.min(...ys), ymx=Math.max(...ys);
+  const pad={t:14,r:56,b:38,l:48}, pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
+
+  if(diverging){
+    const mx=Math.max(...vals.map(Math.abs))||1;
+    vmin=-mx; vmax=mx;
+  } else {
+    const allV=[...df.observed,...df.predicted];
+    vmin=Math.min(...allV); vmax=Math.max(...allV);
+  }
+
+  ctx.fillStyle='#161d27'; ctx.fillRect(0,0,cw,ch);
+
+  function toX(v){return pad.l+pw*(v-xmn)/(xmx-xmn||1);}
+  function toY(v){return pad.t+ph*(1-(v-ymn)/(ymx-ymn||1));}
+
+  // Interpolated grid background
+  const gx=40, gy=40;
+  for(let gi=0;gi<gx;gi++){
+    for(let gj=0;gj<gy;gj++){
+      const gxv=xmn+(xmx-xmn)*(gi+0.5)/gx;
+      const gyv=ymn+(ymx-ymn)*(gj+0.5)/gy;
+      let wsum=0, vsum=0;
+      for(let k=0;k<xs.length;k++){
+        const d2=(xs[k]-gxv)**2+(ys[k]-gyv)**2;
+        const w=1/(d2+1);
+        wsum+=w; vsum+=w*vals[k];
+      }
+      const iv=vsum/wsum;
+      const [r,g,b]=cmap(iv,vmin,vmax);
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(toX(xmn+(xmx-xmn)*gi/gx), toY(ymn+(ymx-ymn)*(gj+1)/gy),
+                   pw/gx+1, ph/gy+1);
+    }
+  }
+
+  // Station dots
+  xs.forEach((x,i)=>{
+    const [r,g,b]=cmap(vals[i],vmin,vmax);
+    ctx.beginPath(); ctx.arc(toX(x),toY(ys[i]),3.5,0,Math.PI*2);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fill();
+    ctx.strokeStyle='#000'; ctx.lineWidth=0.5; ctx.stroke();
+  });
+
+  // Axes
+  ctx.fillStyle='#8b97a6'; ctx.font='9px sans-serif';
+  ctx.textAlign='center';
+  for(let i=0;i<=3;i++){
+    const v=xmn+(xmx-xmn)*i/3;
+    ctx.fillText(fmtN(v),toX(v),ch-pad.b+14);
+  }
+  ctx.textAlign='right';
+  for(let i=0;i<=3;i++){
+    const v=ymn+(ymx-ymn)*i/3;
+    ctx.fillText(fmtN(v),pad.l-4,toY(v)+3);
+  }
+
+  // Colorbar
+  const cbx=cw-pad.r+8, cbw=10, cby=pad.t, cbh=ph;
+  for(let j=0;j<cbh;j++){
+    const v=vmax-(vmax-vmin)*j/cbh;
+    const[r,g,b]=cmap(v,vmin,vmax);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(cbx,cby+j,cbw,1);
+  }
+  ctx.strokeStyle='#2a3644'; ctx.lineWidth=1; ctx.strokeRect(cbx,cby,cbw,cbh);
+  ctx.fillStyle='#8b97a6'; ctx.font='8px monospace'; ctx.textAlign='left';
+  [0,0.5,1].forEach(f=>{
+    ctx.fillText(fmtN(vmax-(vmax-vmin)*f),cbx+cbw+3,cby+cbh*f+3);
+  });
+}
+
+// ══════════════════════════════════════════
+// 3D VIEW — Plotly scene: isosurfaces + slice planes
+// ══════════════════════════════════════════
+let m3dData=null, m3dGrid=null, m3dIso=null, m3dReady=false, m3dDragMode='turntable';
+const M3D_CAM={eye:{x:1.25,y:-1.25,z:0.75},center:{x:0,y:0,z:0},up:{x:0,y:0,z:1}};
+const M3D_CSCALE=CMAP.map(([t,c])=>[t,`rgb(${c[0]},${c[1]},${c[2]})`]);
+const M3D_TRUE_CSCALE=[[0,'#1a5276'],[0.5,'#2980b9'],[1,'#85c1e9']];
+const $v=id=>document.getElementById(id);
+
+function m3dCenters(E){const c=[];for(let i=0;i<E.length-1;i++)c.push((E[i]+E[i+1])/2);return c;}
+
+// Trilinear upsampling in index space, so non-uniform (padded) meshes keep their true coordinates
+function m3dBuildGrid(m){
+  const {nx,ny,nz}=m;
+  const xc=m3dCenters(m.x_edges), yc=m3dCenters(m.y_edges), zc=m3dCenters(m.z_edges);
+  // ~64 samples per axis, capped at ~80k points total so WebGL redraws stay fast (z is reduced first)
+  const fa=[nx,ny,nz].map(n=>Math.max(1,Math.min(3,Math.round(64/n))));
+  const total=()=>[nx,ny,nz].reduce((p,n,a)=>p*((n-1)*fa[a]+1),1);
+  for(const a of [2,2,0,1,0,1])if(total()>80000&&fa[a]>1)fa[a]--;
+  const axis=(c,f)=>{
+    const n=c.length, N=(n-1)*f+1, i0=[], w=[], pos=[];
+    for(let k=0;k<N;k++){
+      const s=k/f, i=Math.max(0,Math.min(n-2,Math.floor(s))), i1=Math.min(n-1,i+1), t=s-i;
+      i0.push(i); w.push(t); pos.push(c[i]*(1-t)+c[i1]*t);
+    }
+    return {i0,w,pos,N};
+  };
+  const X=axis(xc,fa[0]), Y=axis(yc,fa[1]), Z=axis(zc,fa[2]);
+  const x=[], y=[], z=[];
+  for(let k=0;k<Z.N;k++)for(let j=0;j<Y.N;j++)for(let i=0;i<X.N;i++){x.push(X.pos[i]);y.push(Y.pos[j]);z.push(Z.pos[k]);}
+  const interp=vals=>{
+    const out=new Array(X.N*Y.N*Z.N); let p=0;
+    const v=(a,b,c)=>vals[a+b*nx+c*nx*ny];
+    for(let k=0;k<Z.N;k++){const k0=Z.i0[k],k1=Math.min(nz-1,k0+1),wz=Z.w[k];
+      for(let j=0;j<Y.N;j++){const j0=Y.i0[j],j1=Math.min(ny-1,j0+1),wy=Y.w[j];
+        for(let i=0;i<X.N;i++){const i0=X.i0[i],i1=Math.min(nx-1,i0+1),wx=X.w[i];
+          const c00=v(i0,j0,k0)*(1-wx)+v(i1,j0,k0)*wx, c10=v(i0,j1,k0)*(1-wx)+v(i1,j1,k0)*wx;
+          const c01=v(i0,j0,k1)*(1-wx)+v(i1,j0,k1)*wx, c11=v(i0,j1,k1)*(1-wx)+v(i1,j1,k1)*wx;
+          out[p++]=(c00*(1-wy)+c10*wy)*(1-wz)+(c01*(1-wy)+c11*wy)*wz;
+        }}}
+    return out;
+  };
+  let vmin=Infinity, vmax=-Infinity;
+  for(const arr of [m.values,m.true_values||[]])for(const q of arr){if(q<vmin)vmin=q;if(q>vmax)vmax=q;}
+  return {x,y,z,xc,yc,zc,vmin,vmax,rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
+}
+
+function m3dIsoTraces(vals, cscale, name){
+  const g=m3dGrid, lim=Math.max(Math.abs(g.vmin),Math.abs(g.vmax));
+  const thr=lim*(+$v('m3d-thresh').value)/100;
+  const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name,
+    opacity:(+$v('m3d-opacity').value)/100,
+    caps:{x:{show:false},y:{show:false},z:{show:false}},
+    showscale:false,colorscale:cscale,cmin:g.vmin,cmax:g.vmax,
+    lighting:{ambient:0.55,diffuse:0.7,specular:0.15,roughness:0.9},
+    hovertemplate:name+'<br>x %{x:.0f} m<br>y %{y:.0f} m<br>z %{z:.0f} m<br>%{value:.4g}<extra></extra>'};
+  const t=[];
+  if(g.vmax>thr) t.push({...base,isomin:thr,isomax:g.vmax,surface:{count:6,fill:0.9}});
+  if(g.vmin<-thr) t.push({...base,isomin:g.vmin,isomax:-thr,surface:{count:6,fill:0.9}});
+  return t;
+}
+
+// Slice planes are drawn as outlines only, so they never hide the isosurfaces
+function m3dSliceTraces(){
+  const m=m3dData, g=m3dGrid, XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
+  const x0=XE[0], x1=XE[m.nx], y0=YE[0], y1=YE[m.ny], z0=ZE[0], z1=ZE[m.nz];
+  const zv=g.zc[+$v('m3d-zslice').value], yv=g.yc[+$v('m3d-ewslice').value], xv=g.xc[+$v('m3d-nsslice').value];
+  const rect=(name,color,visible,x,y,z)=>({type:'scatter3d',mode:'lines',name,visible,x,y,z,
+    line:{color,width:5},hovertemplate:name+'<extra></extra>'});
+  return [
+    rect('Z = '+Math.round(zv)+' m','#64B5F6',$v('m3d-show-zslice').checked,
+      [x0,x1,x1,x0,x0],[y0,y0,y1,y1,y0],[zv,zv,zv,zv,zv]),
+    rect('Y = '+Math.round(yv)+' m','#81C784',$v('m3d-show-ew').checked,
+      [x0,x1,x1,x0,x0],[yv,yv,yv,yv,yv],[z0,z0,z1,z1,z0]),
+    rect('X = '+Math.round(xv)+' m','#FFB74D',$v('m3d-show-ns').checked,
+      [xv,xv,xv,xv,xv],[y0,y1,y1,y0,y0],[z0,z0,z1,z1,z0]),
+  ];
+}
+
+function m3dLayout(){
+  const m=m3dData, XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
+  const xs=XE[m.nx]-XE[0], ys=YE[m.ny]-YE[0], zs=Math.abs(ZE[m.nz]-ZE[0]), mx=Math.max(xs,ys);
+  const ax=(t,r,n)=>({title:{text:t,font:{size:11,color:'#8b97a6'}},range:r,nticks:n,
+    color:'#57677a',gridcolor:'#212b37',gridwidth:1,zerolinecolor:'#2a3644',
+    showbackground:true,backgroundcolor:'#11161e',tickfont:{size:9,color:'#8b97a6'},showspikes:false});
+  return {
+    paper_bgcolor:'#0e131a',margin:{l:0,r:0,t:0,b:0},showlegend:false,uirevision:'m3d',
+    scene:{
+      xaxis:ax('Easting (m)',[XE[0],XE[m.nx]],14),
+      yaxis:ax('Northing (m)',[YE[0],YE[m.ny]],14),
+      zaxis:ax('Depth (m)',[Math.min(ZE[0],ZE[m.nz]),Math.max(ZE[0],ZE[m.nz])],10),
+      aspectmode:'manual',aspectratio:{x:xs/mx,y:ys/mx,z:Math.max(zs/mx,0.35)},
+      camera:M3D_CAM,dragmode:m3dDragMode,
+    },
+  };
+}
+
+function render3D(isoChanged){
+  if(!m3dData)return;
+  const div=$v('m3d-plot');
+  if(!div.offsetWidth)return;
+  if(typeof Plotly==='undefined'){
+    div.innerHTML='<div class="empty-msg">3D view needs an internet connection to load Plotly.</div>';
+    return;
+  }
+  if(!m3dGrid)m3dGrid=m3dBuildGrid(m3dData);
+  if(isoChanged||!m3dIso){
+    m3dIso=[];
+    if($v('m3d-chk-rec')?.checked) m3dIso.push(...m3dIsoTraces(m3dGrid.rec,M3D_CSCALE,'Recovered'));
+    if($v('m3d-chk-true')?.checked&&m3dGrid.tru) m3dIso.push(...m3dIsoTraces(m3dGrid.tru,M3D_TRUE_CSCALE,'True model'));
+  }
+  Plotly.react(div,[...m3dIso,...m3dSliceTraces()],m3dLayout(),{displayModeBar:false,scrollZoom:true});
+  m3dReady=true;
+}
+
+// WebGL redraws recompute every trace, so slider drags redraw the 3D scene only once the user pauses
+let m3dTimer=null, m3dPendingIso=false;
+function schedule3D(isoChanged){
+  m3dPendingIso=m3dPendingIso||!!isoChanged;
+  clearTimeout(m3dTimer);
+  m3dTimer=setTimeout(()=>{const iso=m3dPendingIso;m3dPendingIso=false;render3D(iso);},180);
+}
+
+function init3D(n) {
+  const m3=n.output.model_3d; if(!m3)return;
+  m3dData=m3; m3dGrid=null; m3dIso=null;
+
+  let lh='';
+  lh+='<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0">';
+  lh+='<input type="checkbox" id="m3d-chk-rec" checked style="accent-color:#c0483d;"> Recovered</label>';
+  if(m3.true_values){
+    lh+='<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0">';
+    lh+='<input type="checkbox" id="m3d-chk-true" style="accent-color:#2980b9;"> True Model</label>';
+  }
+  $v('m3d-layers').innerHTML=lh;
+
+  $v('m3d-zslice').max=m3.nz-1;
+  $v('m3d-ewslice').max=m3.ny-1;
+  $v('m3d-ewslice').value=Math.floor(m3.ny/2);
+  $v('m3d-nsslice').max=m3.nx-1;
+  $v('m3d-nsslice').value=Math.floor(m3.nx/2);
+  $v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;
+  $v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;
+
+  const cctx=$v('m3d-cbar').getContext('2d');
+  let vmin=Infinity, vmax=-Infinity;
+  for(const arr of [m3.values,m3.true_values||[]])for(const q of arr){if(q<vmin)vmin=q;if(q>vmax)vmax=q;}
+  for(let i=0;i<200;i++){
+    const[r,g,b]=cmap(vmin+(vmax-vmin)*i/200,vmin,vmax);
+    cctx.fillStyle=`rgb(${r},${g},${b})`; cctx.fillRect(i,0,1,20);
+  }
+  $v('m3d-cbar-ticks').innerHTML=
+    `<span>${fmtN(vmin)}</span><span>${fmtN((vmin+vmax)/2)}</span><span>${fmtN(vmax)}</span>`;
+
+  const rng=a=>{let lo=Infinity,hi=-Infinity;for(const q of a){if(q<lo)lo=q;if(q>hi)hi=q;}return `[${fmtN(lo)}, ${fmtN(hi)}]`;};
+  $v('m3d-stats').innerHTML='Recovered: '+rng(m3.values)+(m3.true_values?'<br>True: '+rng(m3.true_values):'');
+
+  const bind=(id,fn)=>{const e=$v(id);if(e){e.oninput=fn;e.onchange=fn;}};
+  bind('m3d-thresh',()=>{$v('m3d-thresh-disp').textContent=$v('m3d-thresh').value+'%';schedule3D(true);});
+  bind('m3d-opacity',()=>{$v('m3d-opacity-disp').textContent=$v('m3d-opacity').value+'%';schedule3D(true);});
+  bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent='iz='+$v('m3d-zslice').value;updateSectionRow();schedule3D();});
+  bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;updateSectionRow();schedule3D();});
+  bind('m3d-nsslice',()=>{$v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;updateSectionRow();schedule3D();});
+  ['m3d-chk-rec','m3d-chk-true'].forEach(id=>{const el=$v(id);if(el)el.onchange=()=>schedule3D(true);});
+  ['m3d-show-zslice','m3d-show-ew','m3d-show-ns'].forEach(id=>{
+    const el=$v(id); if(el)el.onchange=()=>{updateSectionRow();schedule3D();};
+  });
+  $v('m3d-reset').onclick=()=>{if(m3dReady)Plotly.relayout('m3d-plot',{'scene.camera':M3D_CAM});};
+}
+
+document.querySelectorAll('.m3d-mode').forEach(b=>b.addEventListener('click',()=>{
+  m3dDragMode=b.dataset.mode;
+  document.querySelectorAll('.m3d-mode').forEach(o=>o.classList.toggle('active',o===b));
+  if(m3dReady)Plotly.relayout('m3d-plot',{'scene.dragmode':m3dDragMode});
+}));
+
+// Keep the 3D scene and the 2D sections sized to their boxes (window resize, splitter drag)
+new ResizeObserver(()=>{if(m3dReady&&$v('m3d-plot').offsetWidth)Plotly.Plots.resize('m3d-plot');})
+  .observe($v('m3d-plot'));
+new ResizeObserver(()=>{
+  if(!m3dData)return;
+  if($v('m3d-show-zslice').checked)drawSection2D('z');
+  if($v('m3d-show-ew').checked)drawSection2D('ew');
+  if($v('m3d-show-ns').checked)drawSection2D('ns');
+}).observe($v('m3d-section-row'));
+
+// ══════════════════════════════════════════
+// 2D SECTION CANVASES
+// ══════════════════════════════════════════
+function updateSectionRow(){
+  const showZ=document.getElementById('m3d-show-zslice').checked;
+  const showEW=document.getElementById('m3d-show-ew').checked;
+  const showNS=document.getElementById('m3d-show-ns').checked;
+  const row=document.getElementById('m3d-section-row');
+  const splitter=document.getElementById('m3d-splitter');
+  const n=(showZ?1:0)+(showEW?1:0)+(showNS?1:0);
+  if(!n){row.style.display='none';splitter.style.display='none';return;}
+  row.style.display='flex';
+  splitter.style.display='block';
+  if(!row.dataset.userResized){
+    const panelH=document.getElementById('panel-model3d').offsetHeight;
+    row.style.height=Math.max(180,Math.round(panelH*0.45))+'px';
+  }
+  document.getElementById('m3d-sec-z').style.display=showZ?'block':'none';
+  document.getElementById('m3d-sec-ew').style.display=showEW?'block':'none';
+  document.getElementById('m3d-sec-ns').style.display=showNS?'block':'none';
+  requestAnimationFrame(()=>{
+    if(showZ) drawSection2D('z');
+    if(showEW) drawSection2D('ew');
+    if(showNS) drawSection2D('ns');
+  });
+}
+
+// Splitter drag logic
+(function(){
+  const splitter=document.getElementById('m3d-splitter');
+  const row=document.getElementById('m3d-section-row');
+  const panel=document.getElementById('panel-model3d');
+  if(!splitter)return;
+  let dragging=false, startY=0, startH=0;
+  splitter.addEventListener('mousedown',e=>{
+    e.preventDefault();
+    dragging=true; startY=e.clientY; startH=row.offsetHeight;
+    document.body.style.cursor='ns-resize';
+    document.body.style.userSelect='none';
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const dy=startY-e.clientY;
+    const newH=Math.max(120,Math.min(panel.offsetHeight-80,startH+dy));
+    row.style.height=newH+'px';
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    dragging=false;
+    row.dataset.userResized='1';
+    document.body.style.cursor='';
+    document.body.style.userSelect='';
+    updateSectionRow();
+  });
+})();
+
+function drawSection2D(mode){
+  if(!m3dData)return;
+  const m=m3dData;
+  const nx=m.nx, ny=m.ny, nz=m.nz;
+  const XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
+  const vals=m.values;
+  const allV=[...vals,...(m.true_values||[])];
+  const vmin=Math.min(...allV), vmax=Math.max(...allV);
+
+  const canvasId=mode==='z'?'m3d-z-canvas':mode==='ew'?'m3d-ew-canvas':'m3d-ns-canvas';
+  const canvas=document.getElementById(canvasId);
+  if(!canvas)return;
+  const par=canvas.parentElement;
+  const dpr=window.devicePixelRatio||1;
+  const cw=par.clientWidth, ch=par.clientHeight;
+  if(cw<20||ch<20)return;
+  canvas.width=cw*dpr; canvas.height=ch*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+
+  ctx.fillStyle='#0e131a'; ctx.fillRect(0,0,cw,ch);
+
+  const pad={t:18,r:16,b:28,l:48};
+  const pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
+  if(pw<10||ph<10)return;
+
+  let nh, nv, hEdges, vEdges, getIdx, flipV=true;
+  if(mode==='z'){
+    const iz=parseInt(document.getElementById('m3d-zslice').value);
+    nh=nx; nv=ny; hEdges=XE; vEdges=YE;
+    getIdx=(ih,iv)=>ih+iv*nx+iz*nx*ny;
+    flipV=false;
+  } else if(mode==='ew'){
+    const iy=parseInt(document.getElementById('m3d-ewslice').value);
+    nh=nx; nv=nz; hEdges=XE; vEdges=ZE;
+    getIdx=(ih,iv)=>ih+iy*nx+iv*nx*ny;
+  } else {
+    const ix=parseInt(document.getElementById('m3d-nsslice').value);
+    nh=ny; nv=nz; hEdges=YE; vEdges=ZE;
+    getIdx=(ih,iv)=>ix+ih*nx+iv*nx*ny;
+  }
+
+  const hMin=hEdges[0], hMax=hEdges[nh], vMin=vEdges[0], vMax=vEdges[nv];
+  const hRng=hMax-hMin||1, vRng=vMax-vMin||1;
+
+  function toX(v){return pad.l+pw*(v-hMin)/hRng;}
+  function toY(v){return flipV?pad.t+ph*(1-(v-vMin)/vRng):pad.t+ph*(v-vMin)/vRng;}
+
+  for(let iv=0;iv<nv;iv++){
+    for(let ih=0;ih<nh;ih++){
+      const idx=getIdx(ih,iv);
+      const v=vals[idx];
+      const[r,g,b]=cmap(v,vmin,vmax);
+      const x1=toX(hEdges[ih]), x2=toX(hEdges[ih+1]);
+      const y1=flipV?toY(vEdges[iv+1]):toY(vEdges[iv]);
+      const y2=flipV?toY(vEdges[iv]):toY(vEdges[iv+1]);
+      ctx.fillStyle=`rgb(${r},${g},${b})`;
+      ctx.fillRect(x1,y1,x2-x1+0.5,y2-y1+0.5);
+    }
+  }
+
+  // Grid lines
+  ctx.strokeStyle='rgba(150,170,190,0.25)'; ctx.lineWidth=1;
+  const nTicksH=Math.min(cw<200?3:5,nh);
+  const nTicksV=Math.min(cw<200?3:4,nv);
+  for(let i=1;i<nTicksV;i++){
+    const v=vMin+vRng*i/nTicksV;
+    const yp=toY(v);
+    ctx.beginPath(); ctx.moveTo(pad.l,yp); ctx.lineTo(pad.l+pw,yp); ctx.stroke();
+  }
+  for(let i=1;i<nTicksH;i++){
+    const v=hMin+hRng*i/nTicksH;
+    const xp=toX(v);
+    ctx.beginPath(); ctx.moveTo(xp,pad.t); ctx.lineTo(xp,pad.t+ph); ctx.stroke();
+  }
+
+  // Axes border
+  ctx.strokeStyle='#2a3644'; ctx.lineWidth=1;
+  ctx.strokeRect(pad.l,pad.t,pw,ph);
+
+  const tickFont=cw<200?'8px Consolas,monospace':'9px Consolas,monospace';
+  const labelFont=cw<200?'bold 8px sans-serif':'bold 10px sans-serif';
+  ctx.fillStyle='#9aabb8'; ctx.font=tickFont;
+  for(let i=0;i<=nTicksH;i++){
+    const v=hMin+hRng*i/nTicksH;
+    ctx.textAlign='center';
+    ctx.fillText((v/1000).toFixed(0)+'k',toX(v),ch-pad.b+12);
+  }
+  for(let i=0;i<=nTicksV;i++){
+    const v=vMin+vRng*i/nTicksV;
+    ctx.textAlign='right';
+    const yp=toY(v);
+    ctx.fillText(mode==='z'?(v/1000).toFixed(0)+'k':Math.round(v),pad.l-3,yp+4);
+  }
+
+  ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
+  if(mode==='z'){
+    ctx.fillText('Easting (m)',pad.l+pw/2,ch-2);
+    const iz=parseInt(document.getElementById('m3d-zslice').value);
+    const zv=(ZE[iz]+ZE[iz+1])/2;
+    ctx.fillStyle='#64B5F6'; ctx.font='bold 10px sans-serif';
+    ctx.fillText('Z = '+Math.round(zv)+' m',pad.l+pw/2,12);
+    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
+    ctx.fillText('Northing (m)',0,0); ctx.restore();
+  } else if(mode==='ew'){
+    ctx.fillText('Easting (m)',pad.l+pw/2,ch-2);
+    const iy=parseInt(document.getElementById('m3d-ewslice').value);
+    const yv=(YE[iy]+YE[iy+1])/2;
+    ctx.fillStyle='#81C784'; ctx.font='bold 10px sans-serif';
+    ctx.fillText('Y = '+Math.round(yv)+' m',pad.l+pw/2,12);
+    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
+    ctx.fillText('Depth (m)',0,0); ctx.restore();
+  } else {
+    ctx.fillText('Northing (m)',pad.l+pw/2,ch-2);
+    const ix=parseInt(document.getElementById('m3d-nsslice').value);
+    const xv=(XE[ix]+XE[ix+1])/2;
+    ctx.fillStyle='#FFB74D'; ctx.font='bold 10px sans-serif';
+    ctx.fillText('X = '+Math.round(xv)+' m',pad.l+pw/2,12);
+    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
+    ctx.fillText('Depth (m)',0,0); ctx.restore();
+  }
+
+  // Colorbar (small, right side)
+  const cbw=8, cbx=cw-pad.r-cbw-2, cby=pad.t, cbh=ph;
+  for(let j=0;j<cbh;j++){
+    const v=vmax-(vmax-vmin)*j/cbh;
+    const[r,g,b]=cmap(v,vmin,vmax);
+    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(cbx,cby+j,cbw,1);
+  }
+  ctx.strokeStyle='#2a3644'; ctx.lineWidth=0.5; ctx.strokeRect(cbx,cby,cbw,cbh);
+}
+
+
+// ══════════════════════════════════════════
+// PAN & ZOOM
+// ══════════════════════════════════════════
+svg.addEventListener('mousedown',e=>{
+  if(e.target.closest('.dag-node'))return;
+  dragging=true; dragS={x:e.clientX-tf.x,y:e.clientY-tf.y};
+});
+window.addEventListener('mousemove',e=>{
+  if(!dragging)return; tf.x=e.clientX-dragS.x; tf.y=e.clientY-dragS.y; applyTf();
+});
+window.addEventListener('mouseup',()=>{dragging=false;});
+svg.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const r=svg.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const f=e.deltaY<0?1.15:1/1.15;
+  const nk=Math.max(0.1,Math.min(5,tf.k*f));
+  tf.x=mx-(mx-tf.x)*(nk/tf.k); tf.y=my-(my-tf.y)*(nk/tf.k); tf.k=nk;
+  applyTf();
+},{passive:false});
+
+function applyTf(){
+  const g=document.getElementById('dag-g');
+  if(g)g.setAttribute('transform',`translate(${tf.x},${tf.y}) scale(${tf.k})`);
+}
+
+document.getElementById('z-in').addEventListener('click',()=>{tf.k=Math.min(5,tf.k*1.3);applyTf();});
+document.getElementById('z-out').addEventListener('click',()=>{tf.k=Math.max(0.1,tf.k/1.3);applyTf();});
+document.getElementById('z-fit').addEventListener('click',()=>renderDAG());
+document.getElementById('btn-fit').addEventListener('click',()=>renderDAG());
+
+document.getElementById('btn-export').addEventListener('click',()=>{
+  const c=svg.cloneNode(true);
+  c.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  c.setAttribute('style','background:#0e131a');
+  const b=new Blob([c.outerHTML],{type:'image/svg+xml'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b); a.download='geoinv3d_workflow.svg'; a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// ══════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════
+function initWorkflow() {
+  renderDAG();
+  const rn=W.nodes.find(n=>n.output&&n.output.model_3d);
+  if(rn){
+    selectNode(rn.id);
+    resultNode=rn;
+    enableResultTabs();
+    init3D(rn);
+    dirtyTabs = new Set(['convergence','datafit','model3d']);
+  }
+}
+
+// Embedded data
+function tryEmbed(){
+  const el=document.getElementById('embedded-data');
+  if(el){try{W=JSON.parse(el.textContent);dz.classList.add('hidden');initWorkflow();}catch{}return true;}
+  return false;
+}
+if(!tryEmbed()){
+  const obs=new MutationObserver(()=>{if(tryEmbed())obs.disconnect();});
+  obs.observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('load',()=>{tryEmbed();obs.disconnect();});
+}
+
+window.addEventListener('resize',()=>{if(W)renderDAG();});
+
+// ══════════════════════════════════════════
+// UPLOAD PAGE
+// ══════════════════════════════════════════
+(function(){
+  const $u=id=>document.getElementById(id);
+  const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz';
+  const UP_TYPES=[
+    {key:'gravity',label:'Gravity',en:'density',color:'#FF9800',unit:'mGal',pct:5,floor:0.05,
+      opts:[{id:'comp',label:'Component',type:'select',options:[['gz','gz — gravity anomaly'],['gzz','gzz — gravity gradient']]}]},
+    {key:'magnetic',label:'Magnetics',en:'susceptibility',color:'#E91E63',unit:'nT',pct:5,floor:2,
+      opts:[{id:'comp',label:'Data type',type:'select',options:[['tmi','TMI — total-field anomaly'],['bz','Bz — vertical component']]},
+        {id:'amp',label:'Field strength (nT)',type:'number',value:50000},
+        {id:'inc',label:'Inclination I (°)',type:'number',value:90},
+        {id:'dec',label:'Declination D (°)',type:'number',value:0}]},
+    {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
+      opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]}]},
+  ];
+  const files={gravity:[],magnetic:[],electrical:[]};
+  let topoFile=null, paramMode='auto', methodPicked=false;
+
+  const methodOf=t=>t.key==='electrical'?$u('up-electrical-sub').value:t.key;
+  const methodName=t=>t.key==='electrical'?($u('up-electrical-sub').value==='mt'?'MT':'DC'):t.en;
+  const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
+  const fileRow=(f,act)=>`<div class="up-file"><span class="n" title="${escH(f.name)}">${escH(f.name)}</span>`+
+    `<span class="s">${fmtSize(f.size)}</span><button type="button" class="x" data-act="${act}" title="Remove">×</button></div>`;
+
+  function allNames(){return [...Object.values(files).flat(),...(topoFile?[topoFile]:[])].map(f=>f.name);}
+
+  function wireDrop(drop,input,onFiles){
+    drop.addEventListener('click',()=>input.click());
+    drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
+    drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+    drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');onFiles([...e.dataTransfer.files]);});
+    input.addEventListener('change',()=>{onFiles([...input.files]);input.value='';});
+  }
+
+  // Filenames become S3 keys, so they must be unique across all cards
+  function takeUnique(list){
+    const taken=new Set(allNames()), ok=[], dup=[];
+    for(const f of list){(taken.has(f.name)?dup:ok).push(f);taken.add(f.name);}
+    if(dup.length)showStatus(`<div class="up-err">Skipped files with duplicate names: ${dup.map(f=>escH(f.name)).join(', ')}</div>`);
+    return ok;
+  }
+
+  // ── Dataset cards ──
+  const grid=$u('up-datasets');
+  grid.innerHTML=UP_TYPES.map(t=>{
+    const opt=o=>o.type==='select'
+      ?`<select id="up-${t.key}-${o.id}" class="up-in">${o.options.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>`
+      :`<input id="up-${t.key}-${o.id}" type="number" step="any" class="up-in" value="${o.value}">`;
+    const optsHtml=t.opts.map(o=>`<div class="up-col"><label class="up-lbl" for="up-${t.key}-${o.id}">${o.label}</label>${opt(o)}</div>`).join('');
+    return `<div class="up-card up-ds" id="up-ds-${t.key}" style="--c:${t.color}">
+      <div class="up-ds-h"><span class="up-dot"></span>${t.label}<span class="up-en">${t.en}</span><span class="up-chip" id="up-chip-${t.key}">empty</span></div>
+      <div class="up-drop" id="up-drop-${t.key}">
+        <input type="file" id="up-file-${t.key}" accept="${DATA_ACCEPT}" multiple hidden>
+        <div class="up-drop-t">Drop files or click to browse</div>
+        <div class="up-drop-s">.tif .grd (grid) · .csv .xyz .obs (stations)</div>
+      </div>
+      <div class="up-files" id="up-files-${t.key}"></div>
+      <div class="up-row">${optsHtml}</div>
+      <div class="up-row">
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"></div>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-floor">Noise floor${t.unit?' ('+t.unit+')':''}</label><input id="up-${t.key}-floor" type="number" step="any" min="0" class="up-in" value="${t.floor}"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  UP_TYPES.forEach(t=>{
+    wireDrop($u('up-drop-'+t.key),$u('up-file-'+t.key),list=>{files[t.key].push(...takeUnique(list));refresh();});
+    $u('up-files-'+t.key).addEventListener('click',e=>{
+      const b=e.target.closest('[data-act]'); if(!b)return;
+      files[t.key].splice(+b.dataset.act,1); refresh();
+    });
+  });
+  $u('up-electrical-sub').addEventListener('change',refresh);
+
+  // ── Topography ──
+  wireDrop($u('up-topo-drop'),$u('up-topo-file'),list=>{
+    const ok=takeUnique(list.slice(0,1)); if(ok.length){topoFile=ok[0];refresh();}
+  });
+  $u('up-topo-list').addEventListener('click',e=>{if(e.target.closest('[data-act]')){topoFile=null;refresh();}});
+
+  // ── Parameter mode ──
+  $u('up-pmode').addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b)return;
+    paramMode=b.dataset.mode;
+    $u('up-pmode').querySelectorAll('button').forEach(o=>o.classList.toggle('active',o===b));
+    $u('up-auto').hidden=paramMode!=='auto';
+    $u('up-manual').hidden=paramMode!=='manual';
+  });
+  // Iteration limits are editable in both modes; keep the two copies in step
+  [['up-auto-maxit','up-maxit'],['up-auto-maxirls','up-maxirls']].forEach(([a,b])=>{
+    $u(a).addEventListener('input',()=>{$u(b).value=$u(a).value;});
+    $u(b).addEventListener('input',()=>{$u(a).value=$u(b).value;});
+  });
+  $u('up-reg-type').addEventListener('change',()=>{
+    const en=$u('up-reg-type').value==='l1l2';
+    $u('up-l1l2-params').hidden=!en;
+    $u('up-lp-params').hidden=en;
+  });
+  $u('up-norm-preset').addEventListener('change',()=>{
+    const v=$u('up-norm-preset').value;
+    $u('up-norm-custom').hidden=v!=='custom';
+    if(v!=='custom'){const p=v.split(',');['s','x','y','z'].forEach((a,i)=>$u('up-p-'+a).value=p[i]);}
+  });
+  $u('upload-method').addEventListener('change',()=>{methodPicked=true;updateMode();});
+
+  // ── Method list follows the uploaded data types ──
+  function loadedTypes(){return UP_TYPES.filter(t=>files[t.key].length);}
+
+  function subsets(arr){
+    const out=[];
+    for(let m=1;m<(1<<arr.length);m++){const s=arr.filter((_,i)=>m&(1<<i));if(s.length>=2)out.push(s);}
+    return out.sort((a,b)=>b.length-a.length);
+  }
+
+  function refresh(){
+    UP_TYPES.forEach(t=>{
+      const n=files[t.key].length;
+      $u('up-ds-'+t.key).classList.toggle('loaded',n>0);
+      $u('up-chip-'+t.key).textContent=n?`${n} file${n>1?'s':''}`:'empty';
+      $u('up-files-'+t.key).innerHTML=files[t.key].map((f,i)=>fileRow(f,i)).join('');
+    });
+    $u('up-topo-list').innerHTML=topoFile?fileRow(topoFile,'topo'):'';
+    $u('up-topo-flat').hidden=!!topoFile;
+
+    const sel=$u('upload-method'), prev=sel.value, L=loadedTypes();
+    const opts=[];
+    L.forEach(t=>opts.push([`single:${t.key}`,`Single — ${t.label}${t.key==='electrical'?' ('+methodName(t)+')':''}`]));
+    if(L.length>=2){
+      opts.push(['separate','Separate — one independent job per data type']);
+      subsets(L).forEach(s=>opts.push([`joint:${s.map(t=>t.key).join('+')}`,`Joint — ${s.map(t=>t.label).join(' + ')} (cross-gradient coupling)`]));
+    }
+    if(!opts.length){
+      sel.innerHTML='<option>Upload observed data first</option>'; sel.disabled=true;
+    }else{
+      sel.innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+      sel.disabled=false;
+      const vals=opts.map(o=>o[0]);
+      sel.value=methodPicked&&vals.includes(prev)?prev:(L.length>=2?`joint:${L.map(t=>t.key).join('+')}`:vals[0]);
+    }
+    $u('upload-submit').disabled=!L.length;
+    updateMode();
+  }
+
+  function selection(){
+    const v=$u('upload-method').value, L=loadedTypes();
+    if(!L.length)return null;
+    if(v==='separate')return {mode:'separate',types:L};
+    const [mode,keys]=v.split(':');
+    return {mode,types:keys.split('+').map(k=>UP_TYPES.find(t=>t.key===k))};
+  }
+
+  function updateMode(){
+    const s=selection(), joint=s&&s.mode==='joint';
+    const desc={single:'Invert a single data type.',
+      separate:'Each data type is inverted independently, with no coupling; results are returned separately.',
+      joint:'The selected data are inverted together; a cross-gradient term makes the structural boundaries of the property models agree.'};
+    $u('up-method-desc').textContent=s?desc[s.mode]:'';
+    $u('up-auto-joint').hidden=!joint;
+    $u('up-joint-params').hidden=!joint;
+    if(joint){
+      const box=$u('up-joint-weights'), keep={};
+      box.querySelectorAll('input').forEach(i=>keep[i.id]=i.value);
+      box.innerHTML=s.types.map(t=>`<div class="up-col"><label class="up-lbl" for="up-jw-${t.key}">${t.label} data weight</label>`+
+        `<input id="up-jw-${t.key}" type="number" step="any" min="0" class="up-in" value="${keep['up-jw-'+t.key]??1}"></div>`).join('');
+    }
+  }
+
+  // ── Build the job specs sent to the API ──
+  function num(id,label,{optional=false,min=null,integer=false}={}){
+    const raw=$u(id).value.trim();
+    if(raw===''){if(optional)return undefined;throw new Error(`Please enter ${label}`);}
+    const v=Number(raw);
+    if(!Number.isFinite(v)||(integer&&!Number.isInteger(v))||(min!==null&&v<min))throw new Error(`Invalid value for ${label}: ${raw}`);
+    return v;
+  }
+
+  function datasetSpec(t){
+    const spec={type:t.key,method:methodOf(t),files:files[t.key].map(f=>f.name),
+      noise_pct:num(`up-${t.key}-pct`,`${t.label} uncertainty`,{min:0})/100,
+      noise_floor:num(`up-${t.key}-floor`,`${t.label} noise floor`,{min:0})};
+    if(t.key==='gravity')spec.component=$u('up-gravity-comp').value;
+    if(t.key==='magnetic'){
+      spec.component=$u('up-magnetic-comp').value;
+      spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};
+    }
+    return spec;
+  }
+
+  function regParams(){
+    if(paramMode==='auto')return {param_mode:'auto',regularization_type:'sparse',
+      max_iter:num('up-auto-maxit','max iterations',{min:1,integer:true}),
+      max_irls_iterations:num('up-auto-maxirls','max IRLS iterations',{min:1,integer:true})};
+    const lo=num('up-lower','lower bound',{optional:true}), hi=num('up-upper','upper bound',{optional:true});
+    if(lo!==undefined&&hi!==undefined&&lo>=hi)throw new Error('Lower bound must be less than upper bound');
+    const regMethod=$u('up-reg-type').value==='l1l2'?{regularization_type:'l1l2',l1_ratio:num('up-l1-ratio','L1 ratio',{min:0})}:{
+      norms:['s','x','y','z'].map(a=>num('up-p-'+a,'p_'+a,{min:0})),
+      alpha_s:num('up-alpha-s','α_s',{min:0}),alpha_x:num('up-alpha-x','α_x',{min:0}),
+      alpha_y:num('up-alpha-y','α_y',{min:0}),alpha_z:num('up-alpha-z','α_z',{min:0})};
+    if(regMethod.l1_ratio>1)throw new Error('L1 ratio must be between 0 and 1');
+    if(regMethod.norms)regMethod.regularization_type=regMethod.norms.every(v=>v===2)?'l2':'sparse';
+    const p={param_mode:'manual',...regMethod,
+      beta0_ratio:num('up-beta0','β₀ ratio',{min:0}),cooling_factor:num('up-cool','β cooling factor',{min:1}),
+      max_iter:num('up-maxit','max iterations',{min:1,integer:true}),
+      max_irls_iterations:num('up-maxirls','max IRLS iterations',{min:1,integer:true}),
+      use_preconditioner:$u('up-precond').checked};
+    if(p.norms&&p.norms.some(v=>v>2))throw new Error('Norms p must be between 0 and 2');
+    if(lo!==undefined)p.bounds_lower=lo;
+    if(hi!==undefined)p.bounds_upper=hi;
+    return p;
+  }
+
+  function buildJobs(){
+    const s=selection(), reg=regParams();
+    const topography=topoFile?{file:topoFile.name}:{flat_elevation:num('up-flat-elev','flat topography elevation')};
+    const extra=topoFile?[topoFile]:[];
+    const regularization_type=reg.regularization_type;
+    if(s.mode==='joint'){
+      const specs=s.types.map(datasetSpec);
+      const jointP=paramMode==='manual'?{
+        joint_weights:s.types.map(t=>num('up-jw-'+t.key,`${t.label} data weight`,{min:0})),
+        cross_gradient_weight:num('up-xgrad','cross-gradient weight',{min:0})}:{};
+      return [{method:'joint',files:[...s.types.flatMap(t=>files[t.key]),...extra],params:{
+        method_type:'joint',inversion_mode:'joint',regularization_type,datasets:specs,
+        joint_methods:specs.map(d=>d.method),joint_kwargs_list:specs.map(d=>d.method_kwargs||{}),
+        topography,...reg,...jointP}}];
+    }
+    return s.types.map(t=>{
+      const d=datasetSpec(t);
+      return {method:d.method,files:[...files[t.key],...extra],params:{
+        method_type:d.method,inversion_mode:'single',regularization_type,datasets:[d],
+        data_file:d.files[0],noise_pct:d.noise_pct,noise_floor:d.noise_floor,
+        method_kwargs:d.method_kwargs||{},topography,...reg}};
+    });
+  }
+
+  // ── Submit ──
+  function showStatus(html){const st=$u('upload-status');st.hidden=false;st.innerHTML=html;}
+
+  $u('upload-submit').addEventListener('click',async()=>{
+    let jobs;
+    try{jobs=buildJobs();}catch(err){showStatus(`<div class="up-err">⚠ ${escH(err.message)}</div>`);return;}
+    const btn=$u('upload-submit'), label=btn.textContent;
+    btn.disabled=true; btn.textContent='⏳ Uploading...';
+    showStatus(`<span style="color:#64B5F6;">Submitting ${jobs.length} job${jobs.length>1?'s':''}...</span>`);
+    const apiBase=window.GEOINV3D_API||'http://localhost:8000';
+    const rows=[];
+    for(const job of jobs){
+      const fd=new FormData();
+      job.files.forEach(f=>fd.append('files',f));
+      fd.append('method',job.method);
+      fd.append('mesh_type',$u('upload-mesh').value);
+      fd.append('instance_type',$u('upload-instance').value);
+      fd.append('note',$u('upload-note').value);
+      fd.append('params_json',JSON.stringify({...job.params,mesh_type:$u('upload-mesh').value}));
+      try{
+        const resp=await fetch(apiBase+'/api/inversion/submit',{method:'POST',body:fd});
+        if(!resp.ok)throw new Error('HTTP '+resp.status+(resp.status===500?': '+((await resp.json().catch(()=>({}))).detail||''):''));
+        const r=await resp.json();
+        rows.push(`<div style="color:#81C784;">✓ ${escH(job.method)} — Job ID <span style="color:var(--accent);">${escH(r.job_id||'N/A')}</span></div>`);
+      }catch(err){
+        rows.push(`<div class="up-err">⚠ ${escH(job.method)} submission failed: ${escH(err.message)}</div>`);
+      }
+    }
+    const failed=rows.some(r=>r.includes('up-err'));
+    showStatus(rows.join('')+(failed?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Make sure the backend API is running (python -m geoinv3d.api)</div>':''));
+    btn.textContent=label; btn.disabled=!loadedTypes().length;
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

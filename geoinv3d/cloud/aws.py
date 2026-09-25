@@ -1,0 +1,318 @@
+"""AWS integration: S3 upload/download, Batch job management, and
+end-to-end inversion pipeline.
+
+Provides AWSRunner for two workflows:
+
+  Workflow 1 — Pre-packed task (existing):
+    1. pack_task() creates a .zip with mesh, data, and parameters
+    2. AWSRunner.submit() uploads to S3 and submits an AWS Batch job
+    3. AWSRunner.wait() checks job status
+    4. AWSRunner.fetch_result() downloads the result archive
+
+  Workflow 2 — Raw data pipeline (new):
+    1. AWSRunner.upload_data() uploads raw survey files (GeoTIFF, CSV, etc.)
+    2. AWSRunner.submit_pipeline() sends inversion params + data location
+    3. Worker loads data, builds mesh, runs inversion
+    4. AWSRunner.fetch_result() downloads results
+
+Prerequisites:
+    - boto3 installed
+    - AWS credentials configured (env vars, ~/.aws/credentials, or IAM role)
+    - S3 bucket and Batch job queue/definition created (see deploy/ folder)
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Optional
+
+from .task import InversionTask, pack_task, unpack_task
+
+
+class AWSRunner:
+    """Submit and manage inversion jobs on AWS."""
+
+    def __init__(
+        self,
+        bucket: str,
+        region: str = "eu-west-1",
+        job_queue: str = "geoinv3d-queue",
+        job_definition: str = "geoinv3d-worker",
+        prefix: str = "geoinv3d/jobs",
+    ) -> None:
+        self.bucket = bucket
+        self.region = region
+        self.job_queue = job_queue
+        self.job_definition = job_definition
+        self.prefix = prefix
+        self._s3 = None
+        self._batch = None
+
+    @property
+    def s3(self):
+        if self._s3 is None:
+            import boto3
+            self._s3 = boto3.client("s3", region_name=self.region)
+        return self._s3
+
+    @property
+    def batch(self):
+        if self._batch is None:
+            import boto3
+            self._batch = boto3.client("batch", region_name=self.region)
+        return self._batch
+
+    # ---- Workflow 1: Pre-packed task ----
+
+    def submit(
+        self,
+        task: InversionTask,
+        local_archive: Optional[str] = None,
+    ) -> str:
+        """Pack, upload, and submit a task.  Returns the Batch job ID."""
+        if not task.task_id:
+            task.task_id = uuid.uuid4().hex[:12]
+
+        if local_archive is None:
+            local_archive = f"{task.task_id}.geoinv3d.zip"
+
+        pack_task(task, local_archive)
+
+        s3_key = f"{self.prefix}/{task.task_id}/input.zip"
+        print(f"[AWS] Uploading {local_archive} -> s3://{self.bucket}/{s3_key}")
+        self.s3.upload_file(local_archive, self.bucket, s3_key)
+
+        response = self.batch.submit_job(
+            jobName=f"geoinv3d-{task.task_id}",
+            jobQueue=self.job_queue,
+            jobDefinition=self.job_definition,
+            containerOverrides={
+                "environment": [
+                    {"name": "TASK_BUCKET", "value": self.bucket},
+                    {"name": "TASK_KEY", "value": s3_key},
+                    {"name": "TASK_ID", "value": task.task_id},
+                    {"name": "RESULT_PREFIX", "value": f"{self.prefix}/{task.task_id}"},
+                    {"name": "PIPELINE_MODE", "value": "task"},
+                ],
+            },
+        )
+
+        job_id = response["jobId"]
+        print(f"[AWS] Submitted job: {job_id}")
+        return job_id
+
+    # ---- Workflow 2: Raw data pipeline ----
+
+    def upload_data(
+        self,
+        local_paths: list[str],
+        task_id: Optional[str] = None,
+    ) -> tuple[str, str]:
+        """Upload raw data files to S3.
+
+        Args:
+            local_paths: Local file paths to upload (GeoTIFF, CSV, etc.).
+            task_id: Optional ID; generated if not provided.
+
+        Returns:
+            (task_id, data_prefix) — the S3 prefix where files were uploaded.
+        """
+        if task_id is None:
+            task_id = uuid.uuid4().hex[:12]
+
+        data_prefix = f"{self.prefix}/{task_id}/data"
+        for local_path in local_paths:
+            fname = Path(local_path).name
+            s3_key = f"{data_prefix}/{fname}"
+            print(f"[AWS] Uploading {local_path} -> s3://{self.bucket}/{s3_key}")
+            self.s3.upload_file(str(local_path), self.bucket, s3_key)
+
+        print(f"[AWS] Uploaded {len(local_paths)} file(s) to s3://{self.bucket}/{data_prefix}/")
+        return task_id, data_prefix
+
+    def submit_pipeline(
+        self,
+        task_id: str,
+        data_prefix: str,
+        params: dict,
+    ) -> str:
+        """Submit a raw-data pipeline job.
+
+        The worker will download data files from S3, build the mesh,
+        and run the inversion according to params.
+
+        Args:
+            task_id: Task identifier (from upload_data).
+            data_prefix: S3 prefix where data files live.
+            params: Inversion parameters dict. Keys:
+                method_type: "gravity" or "magnetics"
+                regularization_type: "smooth" or "sparse" (default "sparse")
+                data_file: filename of the primary data file (auto-detected if omitted)
+                aoi: [west, east, south, north] (optional)
+                core_cell_m: horizontal cell size (default 500)
+                core_cell_z_m: vertical cell size (default 250)
+                depth_core_m: depth of fine mesh (default 3000)
+                pad_distance_m: padding distance (default 2000)
+                decimate_stride: data thinning (default 1)
+                norms: [s, x, y, z] regularization norms (default [0, 2, 2, 1])
+                max_iter: max outer iterations (default 25)
+                irls_cooling_factor: IRLS cooling (default 1.1)
+                max_irls_iterations: max IRLS iterations (default 12)
+                use_preconditioner: enable CG preconditioner (default true)
+                noise_pct: relative noise (default 0.05)
+                noise_floor: absolute noise floor (default 0.5)
+                bounds_lower, bounds_upper: model bounds (optional)
+                method_kwargs: extra method constructor args (optional)
+
+        Returns:
+            AWS Batch job ID.
+        """
+        params["task_id"] = task_id
+        params_key = f"{self.prefix}/{task_id}/params.json"
+        import tempfile, os
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(params, f, indent=2)
+            params_path = f.name
+        try:
+            self.s3.upload_file(params_path, self.bucket, params_key)
+        finally:
+            os.unlink(params_path)
+
+        response = self.batch.submit_job(
+            jobName=f"geoinv3d-pipeline-{task_id}",
+            jobQueue=self.job_queue,
+            jobDefinition=self.job_definition,
+            containerOverrides={
+                "environment": [
+                    {"name": "TASK_BUCKET", "value": self.bucket},
+                    {"name": "TASK_ID", "value": task_id},
+                    {"name": "RESULT_PREFIX", "value": f"{self.prefix}/{task_id}"},
+                    {"name": "PIPELINE_MODE", "value": "data"},
+                    {"name": "PIPELINE_PARAMS", "value": params_key},
+                    {"name": "DATA_PREFIX", "value": data_prefix},
+                ],
+            },
+        )
+
+        job_id = response["jobId"]
+        print(f"[AWS] Submitted pipeline job: {job_id}")
+        return job_id
+
+    def run_pipeline(
+        self,
+        local_paths: list[str],
+        params: dict,
+        poll_interval: int = 30,
+        timeout: int = 7200,
+    ) -> dict:
+        """End-to-end: upload data, run inversion on AWS, download results.
+
+        Args:
+            local_paths: Local data files to upload.
+            params: Inversion parameters (see submit_pipeline).
+            poll_interval: Seconds between status checks.
+            timeout: Max seconds to wait.
+
+        Returns:
+            Status dict with 'result_path' on success.
+        """
+        task_id, data_prefix = self.upload_data(local_paths)
+        job_id = self.submit_pipeline(task_id, data_prefix, params)
+        status = self.wait(job_id, poll_interval, timeout)
+        if status["status"] == "SUCCEEDED":
+            result_path = self.fetch_result(task_id)
+            status["result_path"] = result_path
+        return status
+
+    # ---- Common operations ----
+
+    def poll(self, job_id: str) -> dict:
+        """Check job status.  Returns {status, started, stopped, reason}."""
+        resp = self.batch.describe_jobs(jobs=[job_id])
+        if not resp["jobs"]:
+            return {"status": "UNKNOWN"}
+
+        job = resp["jobs"][0]
+        result = {
+            "status": job["status"],
+            "name": job.get("jobName", ""),
+        }
+        if "startedAt" in job:
+            result["started"] = job["startedAt"]
+        if "stoppedAt" in job:
+            result["stopped"] = job["stoppedAt"]
+        if job.get("statusReason"):
+            result["reason"] = job["statusReason"]
+        return result
+
+    def wait(
+        self,
+        job_id: str,
+        poll_interval: int = 30,
+        timeout: int = 3600,
+    ) -> dict:
+        """Block until the job finishes.  Returns final status."""
+        terminal = {"SUCCEEDED", "FAILED"}
+        elapsed = 0
+        while elapsed < timeout:
+            status = self.poll(job_id)
+            print(f"[AWS] Job {job_id[:12]}... status={status['status']} "
+                  f"({elapsed}s elapsed)")
+            if status["status"] in terminal:
+                return status
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+        return {"status": "TIMEOUT", "elapsed": elapsed}
+
+    def fetch_result(
+        self,
+        task_id: str,
+        output_dir: str = ".",
+    ) -> str:
+        """Download the result archive from S3.  Returns local path."""
+        s3_key = f"{self.prefix}/{task_id}/result.zip"
+        local_path = str(Path(output_dir) / f"{task_id}_result.zip")
+
+        print(f"[AWS] Downloading s3://{self.bucket}/{s3_key}")
+        self.s3.download_file(self.bucket, s3_key, local_path)
+        print(f"[AWS] Saved to {local_path}")
+        return local_path
+
+    def submit_and_wait(
+        self,
+        task: InversionTask,
+        poll_interval: int = 30,
+        timeout: int = 3600,
+    ) -> dict:
+        """Submit a task and block until completion."""
+        job_id = self.submit(task)
+        status = self.wait(job_id, poll_interval, timeout)
+        if status["status"] == "SUCCEEDED":
+            result_path = self.fetch_result(task.task_id)
+            status["result_path"] = result_path
+        return status
+
+    def list_jobs(self, status_filter: str = "RUNNING") -> list[dict]:
+        """List jobs in the queue with the given status."""
+        resp = self.batch.list_jobs(
+            jobQueue=self.job_queue,
+            jobStatus=status_filter,
+        )
+        return [
+            {
+                "job_id": j["jobId"],
+                "name": j["jobName"],
+                "status": j["status"],
+                "created": j.get("createdAt", 0),
+            }
+            for j in resp.get("jobSummaryList", [])
+        ]
+
+    def cancel(self, job_id: str, reason: str = "Cancelled by user") -> None:
+        """Cancel a running or pending job."""
+        self.batch.cancel_job(jobId=job_id, reason=reason)
+        print(f"[AWS] Cancelled job {job_id}")

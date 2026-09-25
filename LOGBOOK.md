@@ -1,0 +1,238 @@
+# Development Logbook
+
+Chronological record of design decisions and implementation progress.
+
+---
+
+## 2026-09-23 — Project Inception
+
+### Motivation
+
+Building a 3D geophysical joint inversion framework in Python that:
+1. Tracks every parameter change via a DAG (Directed Acyclic Graph)
+2. Uses SimPEG for forward modeling and inversion (not reinventing the wheel)
+3. Makes inversion workflows fully reproducible and inspectable
+
+### Design Decisions
+
+**DAG Architecture (from jif3d_visualization)**
+
+Studied the DAG system in `jif3d_visualization` (TU Berlin, Max Moorkamp):
+- `graph/node.py` — Node base class with `_compute`, `params`, `from_params`, `evaluate`, `invalidate`
+- `graph/serialize.py` — JSON serialization with Kahn's topological sort for deserialization
+- Key insight: "editing appends" — every parameter change adds a new node or invalidates the chain, never mutates
+
+Adapted the core pattern but simplified for a pure-inversion focus:
+- Removed Qt/UI thread requirements (`require_main_thread`)
+- Removed `PayloadBudget` (memory management for large visualizations)
+- Removed `EvaluationPlan` (background thread evaluation)
+- Kept: `Node`, `Graph`, `register_node`, `invalidate` propagation, serialization
+
+**SimPEG as Physics Backend**
+
+SimPEG provides all the heavy lifting:
+- `discretize.TensorMesh` for mesh generation
+- `potential_fields.gravity/magnetics` for potential field methods
+- `electromagnetics.static.resistivity` for DC
+- `regularization.WeightedLeastSquares` for smoothness regularization
+- `optimization.InexactGaussNewton` / L-BFGS for optimization
+- `inverse_problem.BaseInvProblem` for combining data misfit + regularization
+
+Our framework wraps SimPEG's API into clean `MethodBase` subclasses and
+DAG nodes, adding parameter tracking and workflow persistence.
+
+**Immutable Data Model**
+
+Following jif3d_visualization's invariant: "input data is immutable."
+All data payloads are frozen dataclasses with read-only NumPy arrays.
+Transformations return new objects via `dataclasses.replace()`.
+
+### What Was Built
+
+```
+geoinv3d/
+├── core/         ✅ DAG engine (Node, Graph, serialize)
+├── datamodel/    ✅ Mesh3D, PhysicalModel, SurveyData, InversionResult
+├── methods/      ✅ Gravity, Magnetics, DC Resistivity, Joint
+├── nodes/        ✅ Input, Transform, Forward, Regularization, Inversion, Export
+├── io/           ✅ NumPy/JSON model persistence
+├── viz/          ✅ DAG plots, model slices, convergence, 3D
+├── examples/     ✅ Gravity forward + inversion example
+└── tests/        ✅ Core DAG + serialization tests
+```
+
+### Known Limitations (to address in future sessions)
+
+1. **DC Resistivity survey setup** — electrode array construction from SurveyData is simplified; needs proper dipole-dipole / Wenner array support
+2. **Joint inversion node** — currently returns configuration dict; actual joint optimization loop not yet wired
+3. **Cross-gradient coupling** — node exists but not yet connected to SimPEG's cross-gradient regularization
+4. **No NetCDF I/O** — only NumPy/JSON for now; jif3D-compatible NetCDF format planned
+5. **No MT/Tomography** — only potential fields and DC for now
+
+---
+
+## 2026-09-23 — SimPEG Integration Complete
+
+### Import Migration
+
+SimPEG 0.25.2 renamed its package from `SimPEG` to `simpeg` (lowercase).
+Mixing old and new imports caused a `TypeError: data must be an instance of
+Data, not Data` because the two namespaces create separate class identities.
+
+Fixed all 6 method/node files to use `from simpeg import ...`.
+
+Also fixed:
+- `IterationCollector` now inherits from `simpeg.directives.InversionDirective`
+  (SimPEG validates directive types at runtime)
+- `maxIterCG` deprecated → `cg_maxiter`
+
+### Synthetic Gravity Inversion — Verified
+
+`examples/synthetic_gravity_inversion.py` runs end-to-end:
+- 15x15x8 mesh (1800 cells), 64 surface stations
+- Buried block anomaly at +0.5 g/cm³
+- 7 Gauss-Newton iterations, converged (phi_d = 25.74)
+- Recovered model range: [-0.012, 0.182] vs true [0.0, 0.5]
+- Full DAG serialized with 8 nodes and Mermaid diagram
+
+---
+
+## 2026-09-23 — Interactive DAG Viewer
+
+### Interactive Web Page
+
+Built `geoinv3d/viz/dag_interactive.html` — a standalone HTML/JS viewer that:
+- Loads `.geoinv3d.json` workflow files via drag-and-drop or file picker
+- Renders the DAG as an interactive SVG with automatic layered layout
+- Color-codes nodes by type (green=input, blue=model, orange=survey, purple=forward,
+  teal=regularization, red=inversion, light green=export)
+- Inversion nodes rendered as diamonds, input/survey as rounded rectangles
+- Click any node to see full parameters in the sidebar panel
+- Shows connections (inputs/outputs) with clickable navigation
+- Summarizes large arrays (model values, locations) as statistics
+- Supports pan (drag), zoom (scroll), fit-view, and SVG export
+
+### Python Helper
+
+`geoinv3d/viz/serve_dag.py` generates a self-contained HTML file with
+workflow data embedded — no server needed:
+
+```python
+python -m geoinv3d.viz.serve_dag workflow.geoinv3d.json --serve
+```
+
+Or programmatically:
+```python
+from geoinv3d.viz import generate_viewer
+generate_viewer("workflow.geoinv3d.json")
+```
+
+---
+
+## 2026-09-23 — Process Data Storage & Convergence Viewer
+
+### Enhanced Serialization
+
+`core/serialize.py` now supports `include_outputs=True`:
+- `graph_to_dict(graph, include_outputs=True)` exports each node's computed output
+- For inversion nodes: full iteration history (phi_d, phi_m, phi_total, beta, model
+  statistics per iteration), convergence status, final model summary
+- For other nodes: type-specific summaries (mesh shape, model stats, survey info)
+- `save_workflow(graph, path, include_outputs=True)` convenience function
+- Workflow JSON gets a `created` timestamp
+
+### Interactive Viewer (v2) — Inspired by jif3d_visualization
+
+Rebuilt `dag_interactive.html` with three tabs:
+
+**DAG Graph tab** (enhanced):
+- Green dot indicator on nodes that have computed output data
+- Sidebar shows full output summary when clicking a node (convergence info,
+  final model statistics, method details)
+- Timestamp display in stats bar
+
+**Convergence tab** (new, inspired by jif3d_visualization's convergence window):
+- Canvas-rendered phi_d + phi_m chart (like jif3d's RMS per data objective panel)
+- Total objective + beta chart with dual axes
+- Model statistics chart (min/max/mean per iteration with filled range)
+- Deferred rendering: charts only draw when tab is visible (fixes canvas sizing)
+
+**Iterations tab** (new):
+- Slider to browse any iteration snapshot
+- Metric cards: phi_d, phi_m, phi_total, beta
+- Model statistics: min, max, mean, std
+- Change-from-previous: percentage deltas with colored arrows
+
+### File-Interactive Design
+
+The viewer is fully file-interactive:
+- Loads `.geoinv3d.json` files via drag-and-drop or file picker
+- `generate_viewer()` embeds workflow data (including process data) into a
+  self-contained HTML file that works offline
+- Responsive layout: sidebar hides on narrow viewports
+
+### Next Steps
+
+- Add cross-gradient regularization from SimPEG
+- Add MT method wrapper (`simpeg.electromagnetics.natural_source`)
+- Add NetCDF I/O for jif3D compatibility
+
+---
+
+## 2026-09-25 — Raw-Data Pipeline Honours the Upload Spec
+
+`cloud/worker.py::run_data_pipeline` now consumes the upload page's `params_json`:
+
+- **Datasets**: each `datasets[]` entry is loaded from all of its files (grids
+  `.tif/.grd/.asc`, station data `.csv/.xyz/.txt/.dat/.obs/.npy/.npz`) and gets its
+  own noise model `noise_pct·|d| + noise_floor`. Legacy `data_file` params still work.
+  New readers: `read_station_table` (header / Geosoft-comment column detection),
+  `read_ubc_obs`, `read_esri_ascii`, `read_npz_points`.
+- **Components**: `GravityMethod(component="gz"|"gzz")`, `MagneticsMethod(component="tmi"|"bz")`.
+  Method aliases (`magnetic`, `dc`) are mapped to canonical names.
+- **Topography**: a DEM (grid or x,y,z points) drapes stations that have no
+  elevation and deactivates cells above ground; otherwise `flat_elevation` sets the
+  station height and the mesh top. Stations with their own z keep it.
+- **Mesh** spans the union of all survey extents; `mesh_type="octree"` builds a
+  `TreeMesh` refined along the ground surface (wrapped by `datamodel.DiscretizeMesh`).
+- **Joint** jobs run `JointInversion` with `joint_weights`, `cross_gradient_weight`
+  (auto: 1), active cells, and `alpha_s` + `alpha_x/y/z` as length scales (same
+  convention as the sparse single-method path). Joint stays L2: norms/bounds are
+  reported in `result["notes"]`.
+- **Auto mode** ignores manual-only keys, so defaults are exactly the previous ones.
+- Fixes: `make_simulation_active` used the removed `valInactive` argument (SimPEG ≥ 0.24)
+  and the wrong map size; 3+-method cross-gradient terms now act on the full joint model.
+- Results add `mesh` (discretize `to_dict`), `active_cells.npy`, `topography`, `datasets`.
+
+Tests: `tests/test_data_pipeline.py` (plumbing, readers, end-to-end SimPEG runs on
+~1000-cell meshes; no AWS).
+
+---
+
+## 2026-09-25 — L1–L2 (Elastic Net) Regularization
+
+Implemented Utsugi (2019, EPS 71:73) as restated by Nwosu & Becken (2025, GJI 243 ggaf390):
+`φ_m = (1−a)/2·‖m̃‖² + a·‖m̃‖₁`, `m̃_j = ‖g_j‖^½ (m_j − m_ref,j)`.
+
+- `methods/regularization.py`: `ElasticNetSmallness` (a `SparseSmallness`) and `ElasticNet`
+  (a `Sparse` with that single term, so SimPEG's `UpdateIRLS` drives it). The L1 term is
+  minimised by majorize–minimize: IRLS weights `q = a/(s·√(f²+ε²)) + (1−a)` make
+  SimPEG's `‖W f‖²` touch the elastic net at the current model with the same gradient.
+- `methods/directives.py`: `ElasticNetSensitivityWeights` sets `‖g_j‖` (unnormalized,
+  data units) as the paper's depth weighting. SimPEG's own weights are σ-weighted and
+  max-normalized, which shrinks m̃ so far that the L1 term swamps L2 and `a` stops mattering.
+- `DampedUpdateIRLS`: SimPEG's IRLS β controller can lock into a two-cycle when φ_d is
+  steep in β (seen: φ_d alternating 149/320, target 169). Each direction reversal now halves
+  the log-β step. Used only on the L1–L2 path.
+- Worker: `regularization_type="l1l2"` + `l1_ratio` (manual mode only; auto unchanged).
+  Joint jobs stay L2 and say so in `notes`. Upload page: Manual → Regularization select.
+- Fix (all bounded sparse jobs): a start model on a bound (m0 = 0, lower = 0) put every
+  cell in ProjectedGNCG's active set and the model never moved; m0 now starts 1e-4·range inside.
+
+Validation: IRLS solution = exact coordinate-descent elastic net (glmnet-style soft
+threshold) to 1e-6 with identical zero patterns for a = 1, 0.5, 0. On synthetic TMI,
+raising `a` concentrates the anomaly (cells > 10 % of max: 587 → 131 → 60 for a = 0, 0.5, 1)
+and raises the peak towards the true value, matching the papers' conclusions.
+
+Next: reproduce the paper's synthetic tests, L-curve / GCV for λ, focusing (MGS) and TV,
+then mesh extensions.

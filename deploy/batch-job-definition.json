@@ -1,0 +1,26 @@
+{
+  "jobDefinitionName": "geoinv3d-worker",
+  "type": "container",
+  "containerProperties": {
+    "image": "<ACCOUNT_ID>.dkr.ecr.eu-west-1.amazonaws.com/geoinv3d-worker:latest",
+    "vcpus": 4,
+    "memory": 16384,
+    "environment": [
+      { "name": "TASK_BUCKET", "value": "geoinv3d-tasks" }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/aws/batch/geoinv3d",
+        "awslogs-region": "eu-west-1",
+        "awslogs-stream-prefix": "worker"
+      }
+    }
+  },
+  "retryStrategy": {
+    "attempts": 1
+  },
+  "timeout": {
+    "attemptDurationSeconds": 7200
+  }
+}

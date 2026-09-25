@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoInv3D - DAG Viewer</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --bg3: #0f3460;
+  --text: #e0e0e0;
+  --text2: #a0a0b0;
+  --accent: #e94560;
+  --border: #2a2a4a;
+  --node-mesh: #4CAF50;
+  --node-model: #2196F3;
+  --node-survey: #FF9800;
+  --node-transform: #00BCD4;
+  --node-forward: #9C27B0;
+  --node-reg: #009688;
+  --node-inversion: #e94560;
+  --node-export: #8BC34A;
+  --node-default: #607D8B;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.header .subtitle {
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.toolbar {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--accent); border-color: var(--accent); }
+
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.graph-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+#dropzone {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 10;
+}
+
+#dropzone.hidden { display: none; }
+
+.drop-area {
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  padding: 60px 80px;
+  text-align: center;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.drop-area:hover, .drop-area.dragover {
+  border-color: var(--accent);
+  background: rgba(233, 69, 96, 0.05);
+}
+
+.drop-area h2 { font-size: 20px; margin-bottom: 8px; }
+.drop-area p { color: var(--text2); font-size: 14px; }
+
+svg#dag {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+svg#dag:active { cursor: grabbing; }
+
+.dag-node {
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+.dag-node:hover { filter: brightness(1.2); }
+.dag-node.selected rect, .dag-node.selected polygon {
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.dag-edge line {
+  stroke: #555;
+  stroke-width: 2;
+  marker-end: url(#arrowhead);
+}
+
+.node-label {
+  fill: white;
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.node-id {
+  fill: rgba(255,255,255,0.6);
+  font-size: 10px;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.sidebar {
+  width: 340px;
+  min-width: 0;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.sidebar.collapsed { width: 0; border: none; }
+
+@media (max-width: 800px) {
+  .sidebar { width: 240px; }
+}
+@media (max-width: 600px) {
+  .sidebar {
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    z-index: 20;
+    width: 280px;
+    box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  }
+  .sidebar.collapsed { width: 0; }
+}
+
+.sidebar-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.detail-section {
+  margin-bottom: 20px;
+}
+
+.detail-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text2);
+  margin-bottom: 8px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 13px;
+}
+
+.detail-key {
+  color: var(--text2);
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.detail-value {
+  text-align: right;
+  word-break: break-all;
+  max-width: 220px;
+  color: var(--text);
+}
+
+.detail-value.number { color: #64B5F6; }
+.detail-value.string { color: #81C784; }
+.detail-value.array-summary { color: #FFB74D; font-style: italic; }
+
+.node-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: white;
+}
+
+.connections-list {
+  list-style: none;
+}
+.connections-list li {
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text2);
+  transition: color 0.15s;
+}
+.connections-list li:hover { color: var(--accent); }
+
+.legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(22, 33, 62, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  z-index: 5;
+}
+
+.legend-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.empty-detail {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text2);
+}
+
+.zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 5;
+}
+
+.zoom-btn {
+  width: 36px;
+  height: 36px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.zoom-btn:hover { background: var(--accent); }
+
+.stats-bar {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(22, 33, 62, 0.9);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text2);
+  z-index: 5;
+  display: flex;
+  gap: 16px;
+}
+
+.stats-bar span { color: var(--text); font-weight: 600; }
+
+#file-input { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>GeoInv3D</h1>
+  <div class="subtitle">Interactive DAG Workflow Viewer</div>
+  <div class="toolbar">
+    <input type="file" id="file-input" accept=".json">
+    <button class="btn" id="btn-load">Load Workflow</button>
+    <button class="btn" id="btn-fit">Fit View</button>
+    <button class="btn" id="btn-export-svg">Export SVG</button>
+  </div>
+</div>
+
+<div class="main">
+  <div class="graph-container">
+    <div id="dropzone">
+      <div class="drop-area" id="drop-area">
+        <h2>Load a Workflow</h2>
+        <p>Drop a .geoinv3d.json file here, or click to browse</p>
+      </div>
+    </div>
+
+    <svg id="dag">
+      <defs>
+        <marker id="arrowhead" viewBox="0 0 10 7" refX="10" refY="3.5"
+                markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#555" />
+        </marker>
+      </defs>
+    </svg>
+
+    <div class="stats-bar" id="stats-bar" style="display:none">
+      Nodes: <span id="stat-nodes">0</span>
+      Edges: <span id="stat-edges">0</span>
+      Types: <span id="stat-types">0</span>
+    </div>
+
+    <div class="legend" id="legend" style="display:none">
+      <div class="legend-title">Node Types</div>
+      <div id="legend-items"></div>
+    </div>
+
+    <div class="zoom-controls" id="zoom-controls" style="display:none">
+      <button class="zoom-btn" id="zoom-in">+</button>
+      <button class="zoom-btn" id="zoom-out">-</button>
+      <button class="zoom-btn" id="zoom-reset" title="Reset view">R</button>
+    </div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h2>Node Details</h2>
+    </div>
+    <div class="sidebar-content" id="sidebar-content">
+      <div class="empty-detail">
+        <p>Select a node to view its parameters</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NODE_COLORS = {
+  MeshCreateNode: '#4CAF50',
+  ModelCreateNode: '#2196F3',
+  ModelFromArrayNode: '#2196F3',
+  SurveyCreateNode: '#FF9800',
+  ForwardNode: '#9C27B0',
+  LogTransformNode: '#00BCD4',
+  ScaleNode: '#00BCD4',
+  OffsetNode: '#00BCD4',
+  ConductivityToResistivityNode: '#00BCD4',
+  RegularizationNode: '#009688',
+  CrossGradientNode: '#009688',
+  SingleInversionNode: '#e94560',
+  JointInversionNode: '#e94560',
+  ModelExportNode: '#8BC34A',
+  ResultExportNode: '#8BC34A',
+};
+
+const NODE_CATEGORIES = {
+  MeshCreateNode: 'Input',
+  ModelCreateNode: 'Input',
+  ModelFromArrayNode: 'Model',
+  SurveyCreateNode: 'Survey',
+  ForwardNode: 'Forward',
+  LogTransformNode: 'Transform',
+  ScaleNode: 'Transform',
+  OffsetNode: 'Transform',
+  ConductivityToResistivityNode: 'Transform',
+  RegularizationNode: 'Regularization',
+  CrossGradientNode: 'Regularization',
+  SingleInversionNode: 'Inversion',
+  JointInversionNode: 'Inversion',
+  ModelExportNode: 'Export',
+  ResultExportNode: 'Export',
+};
+
+let workflowData = null;
+let selectedNodeId = null;
+let transform = { x: 0, y: 0, k: 1 };
+let nodePositions = {};
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+
+const svg = document.getElementById('dag');
+const dropzone = document.getElementById('dropzone');
+const dropArea = document.getElementById('drop-area');
+const fileInput = document.getElementById('file-input');
+const sidebar = document.getElementById('sidebar-content');
+const statsBar = document.getElementById('stats-bar');
+const legend = document.getElementById('legend');
+const zoomControls = document.getElementById('zoom-controls');
+
+// File loading
+document.getElementById('btn-load').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+dropArea.addEventListener('click', () => fileInput.click());
+
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('dragover'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropArea.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.nodes || !Array.isArray(data.nodes)) throw new Error('Invalid workflow format');
+      workflowData = data;
+      dropzone.classList.add('hidden');
+      renderDAG();
+    } catch (err) {
+      alert('Error loading file: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// DAG Layout (simple layered/Sugiyama-style)
+function computeLayout(nodes, edges) {
+  const nodeMap = {};
+  nodes.forEach(n => { nodeMap[n.id] = n; });
+
+  // Compute layers via longest-path
+  const inDegree = {};
+  const children = {};
+  nodes.forEach(n => { inDegree[n.id] = 0; children[n.id] = []; });
+  edges.forEach(([from, to]) => { inDegree[to]++; children[from].push(to); });
+
+  const layers = {};
+  const visited = new Set();
+
+  function assignLayer(id) {
+    if (visited.has(id)) return layers[id];
+    visited.add(id);
+    const parents = edges.filter(([f, t]) => t === id).map(([f]) => f);
+    if (parents.length === 0) {
+      layers[id] = 0;
+    } else {
+      layers[id] = Math.max(...parents.map(p => assignLayer(p))) + 1;
+    }
+    return layers[id];
+  }
+  nodes.forEach(n => assignLayer(n.id));
+
+  // Group by layer
+  const layerGroups = {};
+  let maxLayer = 0;
+  nodes.forEach(n => {
+    const l = layers[n.id];
+    if (!layerGroups[l]) layerGroups[l] = [];
+    layerGroups[l].push(n.id);
+    maxLayer = Math.max(maxLayer, l);
+  });
+
+  // Position nodes
+  const nodeW = 180;
+  const nodeH = 50;
+  const layerGap = 120;
+  const nodeGap = 40;
+  const positions = {};
+
+  for (let l = 0; l <= maxLayer; l++) {
+    const group = layerGroups[l] || [];
+    const totalWidth = group.length * nodeW + (group.length - 1) * nodeGap;
+    const startX = -totalWidth / 2;
+    group.forEach((id, i) => {
+      positions[id] = {
+        x: startX + i * (nodeW + nodeGap) + nodeW / 2,
+        y: l * (nodeH + layerGap) + nodeH / 2,
+        w: nodeW,
+        h: nodeH,
+      };
+    });
+  }
+
+  return positions;
+}
+
+function renderDAG() {
+  if (!workflowData) return;
+
+  const nodes = workflowData.nodes;
+  const edges = [];
+  nodes.forEach(n => {
+    (n.inputs || []).forEach(inputId => {
+      edges.push([inputId, n.id]);
+    });
+  });
+
+  nodePositions = computeLayout(nodes, edges);
+
+  // Update stats
+  const types = new Set(nodes.map(n => n.type));
+  document.getElementById('stat-nodes').textContent = nodes.length;
+  document.getElementById('stat-edges').textContent = edges.length;
+  document.getElementById('stat-types').textContent = types.size;
+  statsBar.style.display = '';
+  zoomControls.style.display = '';
+
+  // Build legend
+  const legendItems = document.getElementById('legend-items');
+  legendItems.innerHTML = '';
+  const seenCategories = new Set();
+  nodes.forEach(n => {
+    const cat = NODE_CATEGORIES[n.type] || n.type;
+    if (seenCategories.has(cat)) return;
+    seenCategories.add(cat);
+    const color = NODE_COLORS[n.type] || '#607D8B';
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<div class="legend-swatch" style="background:${color}"></div>${cat}`;
+    legendItems.appendChild(item);
+  });
+  legend.style.display = '';
+
+  // Center the graph
+  const rect = svg.getBoundingClientRect();
+  const allX = Object.values(nodePositions).map(p => p.x);
+  const allY = Object.values(nodePositions).map(p => p.y);
+  const minX = Math.min(...allX) - 100;
+  const maxX = Math.max(...allX) + 100;
+  const minY = Math.min(...allY) - 40;
+  const maxY = Math.max(...allY) + 40;
+  const graphW = maxX - minX;
+  const graphH = maxY - minY;
+  const scale = Math.min(rect.width / graphW, rect.height / graphH, 1.5) * 0.85;
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  transform = {
+    x: rect.width / 2 - cx * scale,
+    y: rect.height / 2 - cy * scale,
+    k: scale,
+  };
+
+  drawGraph(nodes, edges);
+}
+
+function drawGraph(nodes, edges) {
+  // Clear existing content (keep defs)
+  const defs = svg.querySelector('defs');
+  svg.innerHTML = '';
+  svg.appendChild(defs);
+
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.id = 'dag-group';
+  g.setAttribute('transform', `translate(${transform.x},${transform.y}) scale(${transform.k})`);
+  svg.appendChild(g);
+
+  // Draw edges
+  edges.forEach(([from, to]) => {
+    const p1 = nodePositions[from];
+    const p2 = nodePositions[to];
+    if (!p1 || !p2) return;
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p1.x);
+    line.setAttribute('y1', p1.y + p1.h / 2);
+    line.setAttribute('x2', p2.x);
+    line.setAttribute('y2', p2.y - p2.h / 2);
+    line.setAttribute('class', 'dag-edge');
+    line.setAttribute('stroke', '#555');
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    g.appendChild(line);
+  });
+
+  // Draw nodes
+  nodes.forEach(n => {
+    const pos = nodePositions[n.id];
+    if (!pos) return;
+    const color = NODE_COLORS[n.type] || '#607D8B';
+    const cat = NODE_CATEGORIES[n.type] || '';
+
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('class', 'dag-node' + (selectedNodeId === n.id ? ' selected' : ''));
+    group.setAttribute('data-id', n.id);
+
+    if (cat === 'Inversion') {
+      // Diamond shape for inversion
+      const points = [
+        `${pos.x},${pos.y - pos.h / 2 - 5}`,
+        `${pos.x + pos.w / 2 + 10},${pos.y}`,
+        `${pos.x},${pos.y + pos.h / 2 + 5}`,
+        `${pos.x - pos.w / 2 - 10},${pos.y}`,
+      ].join(' ');
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', points);
+      poly.setAttribute('fill', color);
+      poly.setAttribute('stroke', color);
+      poly.setAttribute('stroke-width', '2');
+      poly.setAttribute('rx', '8');
+      group.appendChild(poly);
+    } else {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('x', pos.x - pos.w / 2);
+      rect.setAttribute('y', pos.y - pos.h / 2);
+      rect.setAttribute('width', pos.w);
+      rect.setAttribute('height', pos.h);
+      rect.setAttribute('rx', cat === 'Input' || cat === 'Survey' ? 20 : 8);
+      rect.setAttribute('fill', color);
+      rect.setAttribute('stroke', color);
+      rect.setAttribute('stroke-width', '2');
+      group.appendChild(rect);
+    }
+
+    // Node name
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', pos.x);
+    label.setAttribute('y', pos.y - 2);
+    label.setAttribute('class', 'node-label');
+    label.textContent = truncate(n.name, 18);
+    group.appendChild(label);
+
+    // Node ID
+    const idText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    idText.setAttribute('x', pos.x);
+    idText.setAttribute('y', pos.y + 14);
+    idText.setAttribute('class', 'node-id');
+    idText.textContent = `#${n.id} ${n.type.replace('Node', '')}`;
+    group.appendChild(idText);
+
+    group.addEventListener('click', () => selectNode(n.id));
+    g.appendChild(group);
+  });
+}
+
+function truncate(s, max) {
+  return s.length > max ? s.slice(0, max - 1) + '...' : s;
+}
+
+function selectNode(id) {
+  selectedNodeId = id;
+  const node = workflowData.nodes.find(n => n.id === id);
+  if (!node) return;
+
+  // Update selection visual
+  document.querySelectorAll('.dag-node').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.id) === id);
+  });
+
+  const color = NODE_COLORS[node.type] || '#607D8B';
+  const cat = NODE_CATEGORIES[node.type] || 'Unknown';
+
+  let html = '';
+
+  // Identity section
+  html += `<div class="detail-section">`;
+  html += `<h3>Identity</h3>`;
+  html += detailRow('Name', node.name);
+  html += detailRow('ID', '#' + node.id);
+  html += detailRow('Type', `<span class="node-badge" style="background:${color}">${cat}</span>`);
+  html += detailRow('Class', node.type);
+  html += `</div>`;
+
+  // Parameters section
+  const params = node.params || {};
+  const paramKeys = Object.keys(params).filter(k => k !== 'name');
+  if (paramKeys.length > 0) {
+    html += `<div class="detail-section">`;
+    html += `<h3>Parameters</h3>`;
+    paramKeys.forEach(k => {
+      html += detailRow(k, formatParamValue(k, params[k]));
+    });
+    html += `</div>`;
+  }
+
+  // Connections section
+  const inputNodes = (node.inputs || []).map(iid =>
+    workflowData.nodes.find(n => n.id === iid)
+  ).filter(Boolean);
+
+  const outputNodes = workflowData.nodes.filter(n =>
+    (n.inputs || []).includes(node.id)
+  );
+
+  if (inputNodes.length > 0 || outputNodes.length > 0) {
+    html += `<div class="detail-section">`;
+    html += `<h3>Connections</h3>`;
+
+    if (inputNodes.length > 0) {
+      html += `<div style="margin-bottom:8px;font-size:12px;color:var(--text2)">Inputs:</div>`;
+      html += `<ul class="connections-list">`;
+      inputNodes.forEach(inp => {
+        const c = NODE_COLORS[inp.type] || '#607D8B';
+        html += `<li onclick="selectNode(${inp.id})">`;
+        html += `<span class="legend-swatch" style="background:${c};display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:6px"></span>`;
+        html += `#${inp.id} ${inp.name}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (outputNodes.length > 0) {
+      html += `<div style="margin-bottom:8px;margin-top:12px;font-size:12px;color:var(--text2)">Outputs:</div>`;
+      html += `<ul class="connections-list">`;
+      outputNodes.forEach(out => {
+        const c = NODE_COLORS[out.type] || '#607D8B';
+        html += `<li onclick="selectNode(${out.id})">`;
+        html += `<span class="legend-swatch" style="background:${c};display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:6px"></span>`;
+        html += `#${out.id} ${out.name}</li>`;
+      });
+      html += `</ul>`;
+    }
+    html += `</div>`;
+  }
+
+  sidebar.innerHTML = html;
+}
+
+function detailRow(key, value) {
+  return `<div class="detail-row"><div class="detail-key">${key}</div><div class="detail-value">${value}</div></div>`;
+}
+
+function formatParamValue(key, val) {
+  if (val === null || val === undefined) return '<span style="color:#888">null</span>';
+
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '<span class="array-summary">[] (empty)</span>';
+
+    // Check if nested array (like locations)
+    if (Array.isArray(val[0])) {
+      return `<span class="array-summary">${val.length} items (${val[0].length}D)</span>`;
+    }
+
+    // Numeric array — show stats
+    if (typeof val[0] === 'number') {
+      if (val.length <= 6) {
+        return `<span class="number">[${val.map(v => formatNum(v)).join(', ')}]</span>`;
+      }
+      const min = Math.min(...val);
+      const max = Math.max(...val);
+      const mean = val.reduce((a, b) => a + b, 0) / val.length;
+      const nonzero = val.filter(v => v !== 0).length;
+      return `<span class="array-summary">${val.length} values<br>` +
+        `min: ${formatNum(min)}<br>max: ${formatNum(max)}<br>` +
+        `mean: ${formatNum(mean)}<br>non-zero: ${nonzero}</span>`;
+    }
+
+    return `<span class="array-summary">${val.length} items</span>`;
+  }
+
+  if (typeof val === 'number') return `<span class="number">${formatNum(val)}</span>`;
+  if (typeof val === 'string') return `<span class="string">${escapeHtml(val)}</span>`;
+  if (typeof val === 'boolean') return `<span class="number">${val}</span>`;
+  if (typeof val === 'object' && !Array.isArray(val)) {
+    if (val.__array_summary__) {
+      return `<span class="array-summary">${val.length} values<br>` +
+        `min: ${formatNum(val.min)}<br>max: ${formatNum(val.max)}<br>` +
+        `mean: ${formatNum(val.mean)}<br>non-zero: ${val.nonzero}</span>`;
+    }
+    const keys = Object.keys(val);
+    if (keys.length === 0) return '{}';
+    return `<span class="array-summary">{${keys.join(', ')}}</span>`;
+  }
+  return String(val);
+}
+
+function formatNum(n) {
+  if (Number.isInteger(n)) return n.toString();
+  if (Math.abs(n) < 0.001 && n !== 0) return n.toExponential(3);
+  return parseFloat(n.toPrecision(6)).toString();
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Pan & Zoom
+svg.addEventListener('mousedown', e => {
+  if (e.target.closest('.dag-node')) return;
+  isDragging = true;
+  dragStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+});
+
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  transform.x = e.clientX - dragStart.x;
+  transform.y = e.clientY - dragStart.y;
+  applyTransform();
+});
+
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = svg.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const newK = Math.max(0.1, Math.min(5, transform.k * factor));
+
+  transform.x = mx - (mx - transform.x) * (newK / transform.k);
+  transform.y = my - (my - transform.y) * (newK / transform.k);
+  transform.k = newK;
+  applyTransform();
+}, { passive: false });
+
+function applyTransform() {
+  const g = document.getElementById('dag-group');
+  if (g) g.setAttribute('transform', `translate(${transform.x},${transform.y}) scale(${transform.k})`);
+}
+
+document.getElementById('zoom-in').addEventListener('click', () => {
+  transform.k = Math.min(5, transform.k * 1.3);
+  applyTransform();
+});
+document.getElementById('zoom-out').addEventListener('click', () => {
+  transform.k = Math.max(0.1, transform.k / 1.3);
+  applyTransform();
+});
+document.getElementById('zoom-reset').addEventListener('click', () => renderDAG());
+document.getElementById('btn-fit').addEventListener('click', () => renderDAG());
+
+// Export SVG
+document.getElementById('btn-export-svg').addEventListener('click', () => {
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('style', 'background: #1a1a2e');
+  const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'geoinv3d_dag.svg';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// Auto-load if embedded data exists (uses MutationObserver for injected data)
+function tryLoadEmbedded() {
+  const embedded = document.getElementById('embedded-data');
+  if (embedded) {
+    try {
+      workflowData = JSON.parse(embedded.textContent);
+      dropzone.classList.add('hidden');
+      renderDAG();
+    } catch {}
+    return true;
+  }
+  return false;
+}
+if (!tryLoadEmbedded()) {
+  const obs = new MutationObserver(() => { if (tryLoadEmbedded()) obs.disconnect(); });
+  obs.observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('load', () => { tryLoadEmbedded(); obs.disconnect(); });
+}
+
+// Handle window resize
+window.addEventListener('resize', () => { if (workflowData) renderDAG(); });
+</script>
+
+
+<script id="embedded-data" type="application/json">{"version":1,"nodes":[{"id":1,"type":"MeshCreateNode","name":"Survey Mesh","params":{"nx":15,"ny":15,"nz":8,"dx":100.0,"dy":100.0,"dz":50.0,"origin":[0.0,0.0,0.0],"name":"Survey Mesh"},"inputs":[]},{"id":2,"type":"ModelFromArrayNode","name":"True Density","params":{"values":{"__array_summary__":true,"length":1800,"min":0.0,"max":0.5,"mean":0.03,"nonzero":108},"prop":"density","name":"True Density"},"inputs":[1]},{"id":3,"type":"SurveyCreateNode","name":"tmp","params":{"locations":"[64 x 3D array]","observed":{"__array_summary__":true,"length":64,"min":0.0,"max":0.0,"mean":0.0,"nonzero":0},"std":{"__array_summary__":true,"length":64,"min":1.0,"max":1.0,"mean":1.0,"nonzero":64},"method":"gravity","name":"tmp"},"inputs":[]},{"id":4,"type":"ForwardNode","name":"Forward Gravity","params":{"method_type":"gravity","method_kwargs":{},"name":"Forward Gravity"},"inputs":[2,3]},{"id":5,"type":"SurveyCreateNode","name":"Observed Gravity","params":{"locations":"[64 x 3D array]","observed":{"__array_summary__":true,"length":64,"min":0.12313531560622373,"max":0.7987459132176105,"mean":0.302019,"nonzero":64},"std":{"__array_summary__":true,"length":64,"min":0.0025057468612687474,"max":0.015856778572571353,"mean":0.006068,"nonzero":64},"method":"gravity","name":"Observed Gravity"},"inputs":[]},{"id":6,"type":"ModelFromArrayNode","name":"Starting Model","params":{"values":{"__array_summary__":true,"length":1800,"min":0.0,"max":0.0,"mean":0.0,"nonzero":0},"prop":"density","name":"Starting Model"},"inputs":[1]},{"id":7,"type":"RegularizationNode","name":"Smoothness Reg","params":{"alpha_s":0.0001,"alpha_x":1.0,"alpha_y":1.0,"alpha_z":1.0,"reg_type":"smoothness","name":"Smoothness Reg"},"inputs":[]},{"id":8,"type":"SingleInversionNode","name":"Gravity Inversion","params":{"method_type":"gravity","method_kwargs":{},"max_iter":10,"beta0_ratio":1.0,"cooling_factor":2.0,"name":"Gravity Inversion"},"inputs":[6,5,7]}]}</script>
+</body>
+</html>

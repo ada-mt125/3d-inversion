@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GeoInv3D - DAG Viewer</title>
+<style>
+:root {
+  --bg: #1a1a2e;
+  --bg2: #16213e;
+  --bg3: #0f3460;
+  --text: #e0e0e0;
+  --text2: #a0a0b0;
+  --accent: #e94560;
+  --accent2: #ff6b6b;
+  --border: #2a2a4a;
+  --success: #4CAF50;
+  --warn: #FF9800;
+  --node-mesh: #4CAF50;
+  --node-model: #2196F3;
+  --node-survey: #FF9800;
+  --node-transform: #00BCD4;
+  --node-forward: #9C27B0;
+  --node-reg: #009688;
+  --node-inversion: #e94560;
+  --node-export: #8BC34A;
+  --node-default: #607D8B;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.header h1 { font-size: 17px; font-weight: 600; color: var(--accent); }
+.header .subtitle { font-size: 12px; color: var(--text2); }
+.toolbar { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+.btn {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--accent); border-color: var(--accent); }
+.btn.active { background: var(--accent); border-color: var(--accent); }
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.tab-btn {
+  padding: 8px 20px;
+  background: transparent;
+  color: var(--text2);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.main { display: flex; flex: 1; overflow: hidden; }
+
+.content-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.panel { display: none; flex: 1; overflow: hidden; position: relative; }
+.panel.active { display: flex; flex-direction: column; }
+
+/* ── DAG Panel ── */
+.graph-container { flex: 1; position: relative; overflow: hidden; }
+
+#dropzone {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; z-index: 10;
+}
+#dropzone.hidden { display: none; }
+
+.drop-area {
+  border: 2px dashed var(--border);
+  border-radius: 16px;
+  padding: 50px 70px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.drop-area:hover, .drop-area.dragover {
+  border-color: var(--accent);
+  background: rgba(233, 69, 96, 0.05);
+}
+.drop-area h2 { font-size: 18px; margin-bottom: 6px; }
+.drop-area p { color: var(--text2); font-size: 13px; }
+
+svg#dag { width: 100%; height: 100%; cursor: grab; }
+svg#dag:active { cursor: grabbing; }
+
+.dag-node { cursor: pointer; transition: filter 0.15s; }
+.dag-node:hover { filter: brightness(1.2); }
+.dag-node.selected rect, .dag-node.selected polygon { stroke: #fff; stroke-width: 3; }
+.dag-node.has-output rect, .dag-node.has-output polygon { stroke-dasharray: none; }
+
+.dag-edge line { stroke: #555; stroke-width: 2; marker-end: url(#arrowhead); }
+.node-label { fill: white; font-size: 12px; font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.node-id { fill: rgba(255,255,255,0.6); font-size: 10px; text-anchor: middle; pointer-events: none; }
+
+.output-indicator {
+  fill: var(--success);
+  font-size: 14px;
+  font-weight: bold;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+.stats-bar {
+  position: absolute; top: 12px; left: 12px;
+  background: rgba(22, 33, 62, 0.9);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 12px; font-size: 11px; color: var(--text2); z-index: 5;
+  display: flex; gap: 12px;
+}
+.stats-bar span { color: var(--text); font-weight: 600; }
+
+.legend {
+  position: absolute; bottom: 12px; left: 12px;
+  background: rgba(22, 33, 62, 0.9);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 14px; font-size: 11px; z-index: 5;
+}
+.legend-title { font-weight: 600; margin-bottom: 6px; color: var(--text2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.legend-item { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+
+.zoom-controls {
+  position: absolute; bottom: 12px; right: 12px;
+  display: flex; flex-direction: column; gap: 3px; z-index: 5;
+}
+.zoom-btn {
+  width: 32px; height: 32px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text); font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.zoom-btn:hover { background: var(--accent); }
+
+/* ── Convergence Panel ── */
+.convergence-panel {
+  flex: 1; display: flex; flex-direction: column; padding: 16px;
+  overflow-y: auto;
+}
+.conv-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--text2); font-size: 14px;
+}
+.chart-container {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 16px;
+}
+.chart-title {
+  font-size: 13px; font-weight: 600; margin-bottom: 12px; color: var(--text);
+}
+.chart-canvas { width: 100%; }
+
+/* ── Iteration Panel ── */
+.iter-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.iter-controls {
+  padding: 12px 16px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 12px;
+}
+.iter-controls label { font-size: 13px; color: var(--text2); }
+.iter-slider { flex: 1; accent-color: var(--accent); }
+.iter-display { font-size: 14px; font-weight: 600; min-width: 80px; text-align: center; }
+.iter-content { flex: 1; overflow-y: auto; padding: 16px; }
+
+.iter-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 12px;
+}
+.iter-card h3 { font-size: 13px; color: var(--accent); margin-bottom: 10px; }
+
+.metric-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.metric-item {
+  background: var(--bg); border-radius: 6px; padding: 10px 12px;
+}
+.metric-label { font-size: 10px; text-transform: uppercase; color: var(--text2); margin-bottom: 4px; letter-spacing: 0.5px; }
+.metric-value { font-size: 16px; font-weight: 600; color: var(--text); }
+.metric-value.phi-d { color: #64B5F6; }
+.metric-value.phi-m { color: #81C784; }
+.metric-value.beta { color: #FFB74D; }
+.metric-value.total { color: var(--accent); }
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 320px; min-width: 0;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden;
+}
+.sidebar.collapsed { width: 0; border: none; }
+
+@media (max-width: 900px) { .sidebar { width: 260px; } }
+@media (max-width: 700px) {
+  .sidebar {
+    position: absolute; right: 0; top: 0; bottom: 0; z-index: 20;
+    width: 280px; box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  }
+}
+@media (max-width: 500px) {
+  .sidebar { display: none; }
+  .sidebar.force-show {
+    display: flex; position: absolute; right: 0; top: 0; bottom: 0;
+    z-index: 20; width: 280px; box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  }
+}
+.sidebar.collapsed { width: 0; min-width: 0; border: none; overflow: hidden; }
+
+.sidebar-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sidebar-header h2 { font-size: 14px; font-weight: 600; }
+
+.sidebar-content { flex: 1; overflow-y: auto; padding: 12px 16px; }
+
+.detail-section { margin-bottom: 16px; }
+.detail-section h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text2); margin-bottom: 6px;
+}
+.detail-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 12px;
+}
+.detail-key { color: var(--text2); min-width: 80px; flex-shrink: 0; }
+.detail-value { text-align: right; word-break: break-all; max-width: 200px; color: var(--text); }
+.detail-value.number { color: #64B5F6; }
+.detail-value.string { color: #81C784; }
+.detail-value.array-summary { color: #FFB74D; font-style: italic; }
+
+.node-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; color: white;
+}
+.connections-list { list-style: none; }
+.connections-list li {
+  padding: 3px 0; font-size: 12px; cursor: pointer;
+  color: var(--text2); transition: color 0.15s;
+}
+.connections-list li:hover { color: var(--accent); }
+
+.empty-detail { text-align: center; padding: 30px 16px; color: var(--text2); font-size: 13px; }
+
+.output-section {
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  border-radius: 6px; padding: 12px; margin-top: 8px;
+}
+.output-section h4 {
+  font-size: 11px; color: var(--success); text-transform: uppercase;
+  letter-spacing: 0.5px; margin-bottom: 8px;
+}
+
+.mini-chart { width: 100%; height: 60px; margin: 6px 0; }
+
+#file-input { display: none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>GeoInv3D</h1>
+  <div class="subtitle">Interactive DAG Workflow Viewer</div>
+  <div class="toolbar">
+    <input type="file" id="file-input" accept=".json">
+    <button class="btn" id="btn-load">Load</button>
+    <button class="btn" id="btn-fit">Fit</button>
+    <button class="btn" id="btn-export-svg">SVG</button>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" data-tab="dag">DAG Graph</button>
+  <button class="tab-btn" data-tab="convergence">Convergence</button>
+  <button class="tab-btn" data-tab="iterations">Iterations</button>
+</div>
+
+<div class="main">
+  <div class="content-area">
+    <!-- DAG Panel -->
+    <div class="panel active" id="panel-dag">
+      <div class="graph-container">
+        <div id="dropzone">
+          <div class="drop-area" id="drop-area">
+            <h2>Load a Workflow</h2>
+            <p>Drop a .geoinv3d.json file here, or click to browse</p>
+          </div>
+        </div>
+        <svg id="dag">
+          <defs>
+            <marker id="arrowhead" viewBox="0 0 10 7" refX="10" refY="3.5"
+                    markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#555" />
+            </marker>
+          </defs>
+        </svg>
+        <div class="stats-bar" id="stats-bar" style="display:none">
+          Nodes: <span id="stat-nodes">0</span>
+          Edges: <span id="stat-edges">0</span>
+          Created: <span id="stat-created">-</span>
+        </div>
+        <div class="legend" id="legend" style="display:none">
+          <div class="legend-title">Node Types</div>
+          <div id="legend-items"></div>
+        </div>
+        <div class="zoom-controls" id="zoom-controls" style="display:none">
+          <button class="zoom-btn" id="zoom-in">+</button>
+          <button class="zoom-btn" id="zoom-out">-</button>
+          <button class="zoom-btn" id="zoom-reset" title="Reset view">R</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Convergence Panel -->
+    <div class="panel" id="panel-convergence">
+      <div class="convergence-panel" id="convergence-content">
+        <div class="conv-empty">Load a workflow with process data to see convergence curves</div>
+      </div>
+    </div>
+
+    <!-- Iterations Panel -->
+    <div class="panel" id="panel-iterations">
+      <div class="iter-panel">
+        <div class="iter-controls" id="iter-controls" style="display:none">
+          <label>Iteration:</label>
+          <input type="range" class="iter-slider" id="iter-slider" min="0" max="0" value="0">
+          <div class="iter-display" id="iter-display">0 / 0</div>
+        </div>
+        <div class="iter-content" id="iter-content">
+          <div class="conv-empty">Load a workflow with process data to browse iterations</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <h2>Node Details</h2>
+    </div>
+    <div class="sidebar-content" id="sidebar-content">
+      <div class="empty-detail"><p>Select a node to view its parameters and output</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NODE_COLORS = {
+  MeshCreateNode: '#4CAF50', ModelCreateNode: '#2196F3', ModelFromArrayNode: '#2196F3',
+  SurveyCreateNode: '#FF9800', ForwardNode: '#9C27B0',
+  LogTransformNode: '#00BCD4', ScaleNode: '#00BCD4', OffsetNode: '#00BCD4',
+  ConductivityToResistivityNode: '#00BCD4',
+  RegularizationNode: '#009688', CrossGradientNode: '#009688',
+  SingleInversionNode: '#e94560', JointInversionNode: '#e94560',
+  ModelExportNode: '#8BC34A', ResultExportNode: '#8BC34A',
+};
+const NODE_CATEGORIES = {
+  MeshCreateNode: 'Input', ModelCreateNode: 'Input', ModelFromArrayNode: 'Model',
+  SurveyCreateNode: 'Survey', ForwardNode: 'Forward',
+  LogTransformNode: 'Transform', ScaleNode: 'Transform', OffsetNode: 'Transform',
+  ConductivityToResistivityNode: 'Transform',
+  RegularizationNode: 'Regularization', CrossGradientNode: 'Regularization',
+  SingleInversionNode: 'Inversion', JointInversionNode: 'Inversion',
+  ModelExportNode: 'Export', ResultExportNode: 'Export',
+};
+
+let workflowData = null;
+let selectedNodeId = null;
+let transform = { x: 0, y: 0, k: 1 };
+let nodePositions = {};
+let isDragging = false;
+let dragStart = { x: 0, y: 0 };
+
+const svg = document.getElementById('dag');
+const dropzone = document.getElementById('dropzone');
+const dropArea = document.getElementById('drop-area');
+const fileInput = document.getElementById('file-input');
+const sidebarContent = document.getElementById('sidebar-content');
+
+// ── Tab Switching ──
+let chartsDrawn = false;
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'convergence' && !chartsDrawn && workflowData) {
+      requestAnimationFrame(() => { renderConvergence(); chartsDrawn = true; });
+    }
+  });
+});
+
+// ── File Loading ──
+document.getElementById('btn-load').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+dropArea.addEventListener('click', () => fileInput.click());
+dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('dragover'); });
+dropArea.addEventListener('dragleave', () => dropArea.classList.remove('dragover'));
+dropArea.addEventListener('drop', e => {
+  e.preventDefault(); dropArea.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+});
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.nodes || !Array.isArray(data.nodes)) throw new Error('Invalid workflow format');
+      workflowData = data;
+      dropzone.classList.add('hidden');
+      renderAll();
+    } catch (err) { alert('Error loading file: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+// ── Gather all inversion outputs ──
+function getInversionOutputs() {
+  if (!workflowData) return [];
+  return workflowData.nodes.filter(n =>
+    n.output && (n.output.type === 'InversionResult' || n.output.type === 'JointInversionResult')
+  );
+}
+
+function renderAll() {
+  renderDAG();
+  chartsDrawn = false;
+  const convPanel = document.getElementById('panel-convergence');
+  if (convPanel && convPanel.classList.contains('active')) {
+    requestAnimationFrame(() => { renderConvergence(); chartsDrawn = true; });
+  }
+  renderIterations();
+}
+
+// ══════════════════════════════════════════
+// DAG LAYOUT & RENDERING
+// ══════════════════════════════════════════
+function computeLayout(nodes, edges) {
+  const layers = {};
+  const visited = new Set();
+
+  function assignLayer(id) {
+    if (visited.has(id)) return layers[id];
+    visited.add(id);
+    const parents = edges.filter(([f, t]) => t === id).map(([f]) => f);
+    layers[id] = parents.length === 0 ? 0 : Math.max(...parents.map(p => assignLayer(p))) + 1;
+    return layers[id];
+  }
+  nodes.forEach(n => assignLayer(n.id));
+
+  const layerGroups = {};
+  let maxLayer = 0;
+  nodes.forEach(n => {
+    const l = layers[n.id];
+    if (!layerGroups[l]) layerGroups[l] = [];
+    layerGroups[l].push(n.id);
+    maxLayer = Math.max(maxLayer, l);
+  });
+
+  const nodeW = 170, nodeH = 48, layerGap = 110, nodeGap = 36;
+  const positions = {};
+  for (let l = 0; l <= maxLayer; l++) {
+    const group = layerGroups[l] || [];
+    const totalWidth = group.length * nodeW + (group.length - 1) * nodeGap;
+    const startX = -totalWidth / 2;
+    group.forEach((id, i) => {
+      positions[id] = { x: startX + i * (nodeW + nodeGap) + nodeW / 2, y: l * (nodeH + layerGap) + nodeH / 2, w: nodeW, h: nodeH };
+    });
+  }
+  return positions;
+}
+
+function renderDAG() {
+  if (!workflowData) return;
+  const nodes = workflowData.nodes;
+  const edges = [];
+  nodes.forEach(n => { (n.inputs || []).forEach(iid => edges.push([iid, n.id])); });
+  nodePositions = computeLayout(nodes, edges);
+
+  const types = new Set(nodes.map(n => n.type));
+  document.getElementById('stat-nodes').textContent = nodes.length;
+  document.getElementById('stat-edges').textContent = edges.length;
+  document.getElementById('stat-created').textContent = workflowData.created
+    ? new Date(workflowData.created).toLocaleString() : '-';
+  document.getElementById('stats-bar').style.display = '';
+  document.getElementById('zoom-controls').style.display = '';
+
+  const legendItems = document.getElementById('legend-items');
+  legendItems.innerHTML = '';
+  const seenCat = new Set();
+  nodes.forEach(n => {
+    const cat = NODE_CATEGORIES[n.type] || n.type;
+    if (seenCat.has(cat)) return;
+    seenCat.add(cat);
+    const c = NODE_COLORS[n.type] || '#607D8B';
+    const d = document.createElement('div');
+    d.className = 'legend-item';
+    d.innerHTML = `<div class="legend-swatch" style="background:${c}"></div>${cat}`;
+    legendItems.appendChild(d);
+  });
+  document.getElementById('legend').style.display = '';
+
+  const rect = svg.getBoundingClientRect();
+  const allX = Object.values(nodePositions).map(p => p.x);
+  const allY = Object.values(nodePositions).map(p => p.y);
+  const minX = Math.min(...allX) - 100, maxX = Math.max(...allX) + 100;
+  const minY = Math.min(...allY) - 40, maxY = Math.max(...allY) + 40;
+  const scale = Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY), 1.5) * 0.85;
+  transform = { x: rect.width / 2 - ((minX + maxX) / 2) * scale, y: rect.height / 2 - ((minY + maxY) / 2) * scale, k: scale };
+  drawGraph(nodes, edges);
+}
+
+function drawGraph(nodes, edges) {
+  const defs = svg.querySelector('defs');
+  svg.innerHTML = '';
+  svg.appendChild(defs);
+
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.id = 'dag-group';
+  g.setAttribute('transform', `translate(${transform.x},${transform.y}) scale(${transform.k})`);
+  svg.appendChild(g);
+
+  edges.forEach(([from, to]) => {
+    const p1 = nodePositions[from], p2 = nodePositions[to];
+    if (!p1 || !p2) return;
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y + p1.h / 2);
+    line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y - p2.h / 2);
+    line.setAttribute('stroke', '#555'); line.setAttribute('stroke-width', '2');
+    line.setAttribute('marker-end', 'url(#arrowhead)');
+    g.appendChild(line);
+  });
+
+  nodes.forEach(n => {
+    const pos = nodePositions[n.id];
+    if (!pos) return;
+    const color = NODE_COLORS[n.type] || '#607D8B';
+    const cat = NODE_CATEGORIES[n.type] || '';
+    const hasOutput = !!n.output;
+
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.setAttribute('class', 'dag-node' + (selectedNodeId === n.id ? ' selected' : '') + (hasOutput ? ' has-output' : ''));
+    group.setAttribute('data-id', n.id);
+
+    if (cat === 'Inversion') {
+      const pts = [
+        `${pos.x},${pos.y - pos.h / 2 - 5}`, `${pos.x + pos.w / 2 + 10},${pos.y}`,
+        `${pos.x},${pos.y + pos.h / 2 + 5}`, `${pos.x - pos.w / 2 - 10},${pos.y}`,
+      ].join(' ');
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      poly.setAttribute('points', pts); poly.setAttribute('fill', color);
+      poly.setAttribute('stroke', color); poly.setAttribute('stroke-width', '2');
+      group.appendChild(poly);
+    } else {
+      const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      r.setAttribute('x', pos.x - pos.w / 2); r.setAttribute('y', pos.y - pos.h / 2);
+      r.setAttribute('width', pos.w); r.setAttribute('height', pos.h);
+      r.setAttribute('rx', cat === 'Input' || cat === 'Survey' ? 18 : 6);
+      r.setAttribute('fill', color); r.setAttribute('stroke', color); r.setAttribute('stroke-width', '2');
+      group.appendChild(r);
+    }
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', pos.x); label.setAttribute('y', pos.y - 2);
+    label.setAttribute('class', 'node-label');
+    label.textContent = truncate(n.name, 18);
+    group.appendChild(label);
+
+    const idT = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    idT.setAttribute('x', pos.x); idT.setAttribute('y', pos.y + 13);
+    idT.setAttribute('class', 'node-id');
+    idT.textContent = `#${n.id} ${n.type.replace('Node', '')}`;
+    group.appendChild(idT);
+
+    if (hasOutput) {
+      const ind = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      ind.setAttribute('cx', pos.x + pos.w / 2 - 4);
+      ind.setAttribute('cy', pos.y - pos.h / 2 + 4);
+      ind.setAttribute('r', '6');
+      ind.setAttribute('fill', '#4CAF50');
+      ind.setAttribute('stroke', '#1a1a2e');
+      ind.setAttribute('stroke-width', '2');
+      group.appendChild(ind);
+    }
+
+    group.addEventListener('click', () => selectNode(n.id));
+    g.appendChild(group);
+  });
+}
+
+function truncate(s, max) { return s.length > max ? s.slice(0, max - 1) + '…' : s; }
+
+// ══════════════════════════════════════════
+// CONVERGENCE CHARTS (Canvas-based)
+// ══════════════════════════════════════════
+function renderConvergence() {
+  const container = document.getElementById('convergence-content');
+  const invNodes = getInversionOutputs();
+  if (invNodes.length === 0) {
+    container.innerHTML = '<div class="conv-empty">No inversion process data available.<br>Run an inversion with <code>include_outputs=True</code> to see convergence curves.</div>';
+    return;
+  }
+
+  let html = '';
+  invNodes.forEach(node => {
+    const out = node.output;
+    const iters = out.iterations || [];
+    if (iters.length === 0) return;
+
+    html += `<div class="chart-container">`;
+    html += `<div class="chart-title">${escapeHtml(node.name)} - Data Misfit (phi_d) & Model Norm (phi_m)</div>`;
+    html += `<canvas class="chart-canvas" id="conv-chart-${node.id}" height="220"></canvas>`;
+    html += `</div>`;
+
+    html += `<div class="chart-container">`;
+    html += `<div class="chart-title">${escapeHtml(node.name)} - Total Objective & Beta</div>`;
+    html += `<canvas class="chart-canvas" id="obj-chart-${node.id}" height="220"></canvas>`;
+    html += `</div>`;
+
+    if (iters[0].model_min !== undefined) {
+      html += `<div class="chart-container">`;
+      html += `<div class="chart-title">${escapeHtml(node.name)} - Model Statistics per Iteration</div>`;
+      html += `<canvas class="chart-canvas" id="model-chart-${node.id}" height="220"></canvas>`;
+      html += `</div>`;
+    }
+  });
+
+  container.innerHTML = html;
+
+  requestAnimationFrame(() => {
+    invNodes.forEach(node => {
+      const iters = node.output.iterations || [];
+      if (iters.length === 0) return;
+      drawConvergenceChart(node.id, iters);
+      drawObjectiveChart(node.id, iters);
+      if (iters[0].model_min !== undefined) drawModelStatsChart(node.id, iters);
+    });
+  });
+}
+
+function drawConvergenceChart(nodeId, iters) {
+  const canvas = document.getElementById('conv-chart-' + nodeId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  const H = canvas.height = 220 * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = 220;
+
+  const pad = { t: 20, r: 20, b: 35, l: 60 };
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+
+  const phiD = iters.map(i => i.phi_d);
+  const phiM = iters.map(i => i.phi_m);
+  const all = [...phiD, ...phiM].filter(v => v > 0);
+  const useLog = Math.max(...all) / Math.min(...all) > 100;
+
+  const minVal = Math.min(...all) * 0.8;
+  const maxVal = Math.max(...all) * 1.2;
+
+  function toY(v) {
+    if (useLog) {
+      const logMin = Math.log10(Math.max(minVal, 1e-12));
+      const logMax = Math.log10(maxVal);
+      return pad.t + ph * (1 - (Math.log10(Math.max(v, 1e-12)) - logMin) / (logMax - logMin));
+    }
+    return pad.t + ph * (1 - (v - minVal) / (maxVal - minVal));
+  }
+  function toX(i) { return pad.l + pw * i / Math.max(iters.length - 1, 1); }
+
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.t + ph * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+  }
+
+  // Axes labels
+  ctx.fillStyle = '#a0a0b0'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  iters.forEach((it, i) => {
+    if (iters.length <= 10 || i % Math.ceil(iters.length / 10) === 0) {
+      ctx.fillText(it.iteration, toX(i), h - pad.b + 18);
+    }
+  });
+  ctx.fillText('Iteration', w / 2, h - 4);
+
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const frac = i / 4;
+    let val;
+    if (useLog) {
+      const logMin = Math.log10(Math.max(minVal, 1e-12));
+      const logMax = Math.log10(maxVal);
+      val = Math.pow(10, logMin + (logMax - logMin) * (1 - frac));
+    } else {
+      val = minVal + (maxVal - minVal) * (1 - frac);
+    }
+    ctx.fillText(val < 0.01 ? val.toExponential(1) : val.toFixed(1), pad.l - 6, pad.t + ph * frac + 3);
+  }
+
+  // phi_d line
+  ctx.strokeStyle = '#64B5F6'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  phiD.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  ctx.stroke();
+  phiD.forEach((v, i) => { ctx.beginPath(); ctx.arc(toX(i), toY(v), 3, 0, Math.PI * 2); ctx.fillStyle = '#64B5F6'; ctx.fill(); });
+
+  // phi_m line
+  ctx.strokeStyle = '#81C784'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  phiM.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  ctx.stroke();
+  phiM.forEach((v, i) => { ctx.beginPath(); ctx.arc(toX(i), toY(v), 3, 0, Math.PI * 2); ctx.fillStyle = '#81C784'; ctx.fill(); });
+
+  // Legend
+  ctx.font = '11px sans-serif';
+  ctx.fillStyle = '#64B5F6'; ctx.fillRect(pad.l + 10, pad.t + 4, 12, 3);
+  ctx.fillText('phi_d (data misfit)', pad.l + 26, pad.t + 10);
+  ctx.fillStyle = '#81C784'; ctx.fillRect(pad.l + 10, pad.t + 18, 12, 3);
+  ctx.textAlign = 'left';
+  ctx.fillText('phi_m (model norm)', pad.l + 26, pad.t + 24);
+}
+
+function drawObjectiveChart(nodeId, iters) {
+  const canvas = document.getElementById('obj-chart-' + nodeId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  const H = canvas.height = 220 * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = 220;
+
+  const pad = { t: 20, r: 20, b: 35, l: 60 };
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+
+  const phiT = iters.map(i => i.phi_total);
+  const beta = iters.map(i => i.beta);
+
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h);
+
+  // phi_total (left axis)
+  const ptMin = Math.min(...phiT) * 0.8, ptMax = Math.max(...phiT) * 1.2;
+  function toYt(v) { return pad.t + ph * (1 - (v - ptMin) / (ptMax - ptMin)); }
+  function toX(i) { return pad.l + pw * i / Math.max(iters.length - 1, 1); }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.t + ph * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+  }
+
+  ctx.fillStyle = '#a0a0b0'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  iters.forEach((it, i) => {
+    if (iters.length <= 10 || i % Math.ceil(iters.length / 10) === 0) {
+      ctx.fillText(it.iteration, toX(i), h - pad.b + 18);
+    }
+  });
+  ctx.fillText('Iteration', w / 2, h - 4);
+
+  // Left axis values
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = ptMin + (ptMax - ptMin) * (1 - i / 4);
+    ctx.fillStyle = '#e94560';
+    ctx.fillText(val < 0.01 ? val.toExponential(1) : val.toFixed(1), pad.l - 6, pad.t + ph * i / 4 + 3);
+  }
+
+  // phi_total line
+  ctx.strokeStyle = '#e94560'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  phiT.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toYt(v)) : ctx.lineTo(toX(i), toYt(v)); });
+  ctx.stroke();
+  phiT.forEach((v, i) => { ctx.beginPath(); ctx.arc(toX(i), toYt(v), 3, 0, Math.PI * 2); ctx.fillStyle = '#e94560'; ctx.fill(); });
+
+  // beta (right axis)
+  const bMin = Math.min(...beta) * 0.5, bMax = Math.max(...beta) * 1.5;
+  function toYb(v) { return pad.t + ph * (1 - (v - bMin) / (bMax - bMin)); }
+
+  ctx.strokeStyle = '#FFB74D'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  beta.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toYb(v)) : ctx.lineTo(toX(i), toYb(v)); });
+  ctx.stroke();
+  ctx.setLineDash([]);
+  beta.forEach((v, i) => { ctx.beginPath(); ctx.arc(toX(i), toYb(v), 3, 0, Math.PI * 2); ctx.fillStyle = '#FFB74D'; ctx.fill(); });
+
+  // Right axis values
+  ctx.textAlign = 'left';
+  for (let i = 0; i <= 4; i++) {
+    const val = bMin + (bMax - bMin) * (1 - i / 4);
+    ctx.fillStyle = '#FFB74D';
+    ctx.fillText(val < 0.01 ? val.toExponential(1) : val.toFixed(2), w - pad.r + 6, pad.t + ph * i / 4 + 3);
+  }
+
+  // Legend
+  ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#e94560'; ctx.fillRect(pad.l + 10, pad.t + 4, 12, 3);
+  ctx.fillText('phi_total', pad.l + 26, pad.t + 10);
+  ctx.fillStyle = '#FFB74D'; ctx.fillRect(pad.l + 10, pad.t + 18, 12, 3);
+  ctx.fillText('beta (trade-off)', pad.l + 26, pad.t + 24);
+}
+
+function drawModelStatsChart(nodeId, iters) {
+  const canvas = document.getElementById('model-chart-' + nodeId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  const H = canvas.height = 220 * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = 220;
+
+  const pad = { t: 20, r: 20, b: 35, l: 60 };
+  const pw = w - pad.l - pad.r, ph = h - pad.t - pad.b;
+
+  const mins = iters.map(i => i.model_min);
+  const maxs = iters.map(i => i.model_max);
+  const means = iters.map(i => i.model_mean);
+
+  const allV = [...mins, ...maxs, ...means];
+  const vMin = Math.min(...allV) * 1.2, vMax = Math.max(...allV) * 1.2;
+
+  function toY(v) { return pad.t + ph * (1 - (v - vMin) / (vMax - vMin)); }
+  function toX(i) { return pad.l + pw * i / Math.max(iters.length - 1, 1); }
+
+  ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.t + ph * i / 4;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(w - pad.r, y); ctx.stroke();
+  }
+
+  ctx.fillStyle = '#a0a0b0'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  iters.forEach((it, i) => {
+    if (iters.length <= 10 || i % Math.ceil(iters.length / 10) === 0) {
+      ctx.fillText(it.iteration, toX(i), h - pad.b + 18);
+    }
+  });
+  ctx.fillText('Iteration', w / 2, h - 4);
+
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = vMin + (vMax - vMin) * (1 - i / 4);
+    ctx.fillStyle = '#a0a0b0';
+    ctx.fillText(formatNum(val), pad.l - 6, pad.t + ph * i / 4 + 3);
+  }
+
+  // Fill region between min and max
+  ctx.fillStyle = 'rgba(100, 181, 246, 0.1)';
+  ctx.beginPath();
+  mins.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  for (let i = maxs.length - 1; i >= 0; i--) ctx.lineTo(toX(i), toY(maxs[i]));
+  ctx.closePath(); ctx.fill();
+
+  // Min line
+  ctx.strokeStyle = '#64B5F6'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  mins.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Max line
+  ctx.strokeStyle = '#ef5350'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  maxs.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // Mean line (solid)
+  ctx.strokeStyle = '#FFB74D'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  means.forEach((v, i) => { i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)); });
+  ctx.stroke();
+  means.forEach((v, i) => { ctx.beginPath(); ctx.arc(toX(i), toY(v), 3, 0, Math.PI * 2); ctx.fillStyle = '#FFB74D'; ctx.fill(); });
+
+  // Legend
+  ctx.font = '11px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillStyle = '#64B5F6'; ctx.fillText('min', pad.l + 10, pad.t + 10);
+  ctx.fillStyle = '#FFB74D'; ctx.fillText('mean', pad.l + 40, pad.t + 10);
+  ctx.fillStyle = '#ef5350'; ctx.fillText('max', pad.l + 76, pad.t + 10);
+}
+
+// ══════════════════════════════════════════
+// ITERATION BROWSER
+// ══════════════════════════════════════════
+function renderIterations() {
+  const invNodes = getInversionOutputs();
+  const content = document.getElementById('iter-content');
+  const controls = document.getElementById('iter-controls');
+
+  if (invNodes.length === 0) {
+    content.innerHTML = '<div class="conv-empty">No iteration data available.<br>Run an inversion with <code>include_outputs=True</code>.</div>';
+    controls.style.display = 'none';
+    return;
+  }
+
+  const allIters = [];
+  invNodes.forEach(node => {
+    (node.output.iterations || []).forEach(it => {
+      allIters.push({ ...it, nodeName: node.name, nodeId: node.id });
+    });
+  });
+
+  if (allIters.length === 0) {
+    content.innerHTML = '<div class="conv-empty">No iteration snapshots recorded.</div>';
+    controls.style.display = 'none';
+    return;
+  }
+
+  const slider = document.getElementById('iter-slider');
+  slider.max = allIters.length - 1;
+  slider.value = allIters.length - 1;
+  controls.style.display = '';
+
+  function showIteration(idx) {
+    const it = allIters[idx];
+    document.getElementById('iter-display').textContent = `${idx + 1} / ${allIters.length}`;
+
+    let html = `<div class="iter-card">`;
+    html += `<h3>${escapeHtml(it.nodeName)} - Iteration ${it.iteration}</h3>`;
+    html += `<div class="metric-grid">`;
+    html += metricCard('phi_d', it.phi_d, 'phi-d', 'Data Misfit');
+    html += metricCard('phi_m', it.phi_m, 'phi-m', 'Model Norm');
+    html += metricCard('phi_total', it.phi_total, 'total', 'Total Objective');
+    html += metricCard('beta', it.beta, 'beta', 'Trade-off');
+    html += `</div></div>`;
+
+    if (it.model_min !== undefined) {
+      html += `<div class="iter-card">`;
+      html += `<h3>Model Statistics</h3>`;
+      html += `<div class="metric-grid">`;
+      html += metricCard('Min', it.model_min, 'phi-d', 'Minimum Value');
+      html += metricCard('Max', it.model_max, 'phi-m', 'Maximum Value');
+      html += metricCard('Mean', it.model_mean, 'beta', 'Mean Value');
+      if (it.model_std !== undefined) html += metricCard('Std', it.model_std, 'total', 'Std Deviation');
+      html += `</div></div>`;
+    }
+
+    // Comparison with previous iteration
+    if (idx > 0) {
+      const prev = allIters[idx - 1];
+      if (prev.nodeId === it.nodeId) {
+        html += `<div class="iter-card">`;
+        html += `<h3>Change from Previous</h3>`;
+        html += `<div class="metric-grid">`;
+        html += changeCard('phi_d', prev.phi_d, it.phi_d);
+        html += changeCard('phi_m', prev.phi_m, it.phi_m);
+        html += changeCard('phi_total', prev.phi_total, it.phi_total);
+        html += changeCard('beta', prev.beta, it.beta);
+        html += `</div></div>`;
+      }
+    }
+
+    content.innerHTML = html;
+  }
+
+  slider.addEventListener('input', () => showIteration(parseInt(slider.value)));
+  showIteration(allIters.length - 1);
+}
+
+function metricCard(label, value, cls, subtitle) {
+  return `<div class="metric-item">
+    <div class="metric-label">${subtitle || label}</div>
+    <div class="metric-value ${cls}">${formatNum(value)}</div>
+  </div>`;
+}
+
+function changeCard(label, prev, curr) {
+  const diff = curr - prev;
+  const pct = prev !== 0 ? ((diff / prev) * 100).toFixed(1) : '-';
+  const arrow = diff < 0 ? '↓' : diff > 0 ? '↑' : '→';
+  const color = diff < 0 ? '#81C784' : diff > 0 ? '#ef5350' : '#a0a0b0';
+  return `<div class="metric-item">
+    <div class="metric-label">${label}</div>
+    <div class="metric-value" style="color:${color}">${arrow} ${pct}%</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════
+// SIDEBAR: NODE DETAILS + OUTPUT
+// ══════════════════════════════════════════
+function selectNode(id) {
+  selectedNodeId = id;
+  const node = workflowData.nodes.find(n => n.id === id);
+  if (!node) return;
+
+  document.querySelectorAll('.dag-node').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.id) === id);
+  });
+
+  const color = NODE_COLORS[node.type] || '#607D8B';
+  const cat = NODE_CATEGORIES[node.type] || 'Unknown';
+  let html = '';
+
+  // Identity
+  html += `<div class="detail-section"><h3>Identity</h3>`;
+  html += detailRow('Name', node.name);
+  html += detailRow('ID', '#' + node.id);
+  html += detailRow('Type', `<span class="node-badge" style="background:${color}">${cat}</span>`);
+  html += detailRow('Class', node.type);
+  html += `</div>`;
+
+  // Parameters
+  const params = node.params || {};
+  const paramKeys = Object.keys(params).filter(k => k !== 'name');
+  if (paramKeys.length > 0) {
+    html += `<div class="detail-section"><h3>Parameters</h3>`;
+    paramKeys.forEach(k => { html += detailRow(k, formatParamValue(k, params[k])); });
+    html += `</div>`;
+  }
+
+  // Output (process data)
+  if (node.output) {
+    html += renderOutputSection(node.output);
+  }
+
+  // Connections
+  const inputNodes = (node.inputs || []).map(iid => workflowData.nodes.find(n => n.id === iid)).filter(Boolean);
+  const outputNodes = workflowData.nodes.filter(n => (n.inputs || []).includes(node.id));
+
+  if (inputNodes.length > 0 || outputNodes.length > 0) {
+    html += `<div class="detail-section"><h3>Connections</h3>`;
+    if (inputNodes.length > 0) {
+      html += `<div style="margin-bottom:6px;font-size:11px;color:var(--text2)">Inputs:</div>`;
+      html += `<ul class="connections-list">`;
+      inputNodes.forEach(inp => {
+        const c = NODE_COLORS[inp.type] || '#607D8B';
+        html += `<li onclick="selectNode(${inp.id})"><span class="legend-swatch" style="background:${c};display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:5px"></span>#${inp.id} ${inp.name}</li>`;
+      });
+      html += `</ul>`;
+    }
+    if (outputNodes.length > 0) {
+      html += `<div style="margin-bottom:6px;margin-top:10px;font-size:11px;color:var(--text2)">Outputs:</div>`;
+      html += `<ul class="connections-list">`;
+      outputNodes.forEach(out => {
+        const c = NODE_COLORS[out.type] || '#607D8B';
+        html += `<li onclick="selectNode(${out.id})"><span class="legend-swatch" style="background:${c};display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;margin-right:5px"></span>#${out.id} ${out.name}</li>`;
+      });
+      html += `</ul>`;
+    }
+    html += `</div>`;
+  }
+
+  sidebarContent.innerHTML = html;
+}
+
+function renderOutputSection(output) {
+  let html = `<div class="output-section"><h4>Computed Output</h4>`;
+  html += detailRow('Type', `<span class="string">${output.type}</span>`);
+
+  if (output.type === 'InversionResult' || output.type === 'JointInversionResult') {
+    html += detailRow('Method', output.method || (output.methods || []).join(', '));
+    html += detailRow('Converged', output.converged ? '<span style="color:#4CAF50">Yes</span>' : '<span style="color:#ef5350">No</span>');
+    html += detailRow('Iterations', `<span class="number">${output.n_iterations}</span>`);
+
+    if (output.iterations && output.iterations.length > 0) {
+      const last = output.iterations[output.iterations.length - 1];
+      html += detailRow('Final phi_d', `<span class="number">${formatNum(last.phi_d)}</span>`);
+      html += detailRow('Final phi_m', `<span class="number">${formatNum(last.phi_m)}</span>`);
+      html += detailRow('Final beta', `<span class="number">${formatNum(last.beta)}</span>`);
+    }
+
+    if (output.final_model) {
+      html += `<div style="margin-top:8px;font-size:11px;color:var(--text2)">Final Model:</div>`;
+      html += detailRow('Property', output.final_model.prop);
+      html += detailRow('Cells', output.final_model.n_cells);
+      html += detailRow('Range', `[${formatNum(output.final_model.min)}, ${formatNum(output.final_model.max)}]`);
+      html += detailRow('Mean', formatNum(output.final_model.mean));
+    }
+  } else if (output.type === 'PhysicalModel') {
+    html += detailRow('Property', output.prop);
+    html += detailRow('Cells', output.n_cells);
+    html += detailRow('Range', `[${formatNum(output.min)}, ${formatNum(output.max)}]`);
+    html += detailRow('Mean', formatNum(output.mean));
+  } else if (output.type === 'Mesh3D') {
+    html += detailRow('Shape', output.shape.join(' x '));
+    html += detailRow('Cells', output.n_cells);
+  } else if (output.type === 'SurveyData') {
+    html += detailRow('Method', output.method);
+    html += detailRow('Stations', output.n_stations);
+    html += detailRow('Data range', `[${formatNum(output.data_min)}, ${formatNum(output.data_max)}]`);
+  } else if (output.type === 'ndarray') {
+    html += detailRow('Shape', output.shape.join(' x '));
+    html += detailRow('Range', `[${formatNum(output.min)}, ${formatNum(output.max)}]`);
+    html += detailRow('Mean', formatNum(output.mean));
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function detailRow(key, value) {
+  return `<div class="detail-row"><div class="detail-key">${key}</div><div class="detail-value">${value}</div></div>`;
+}
+
+function formatParamValue(key, val) {
+  if (val === null || val === undefined) return '<span style="color:#888">null</span>';
+  if (Array.isArray(val)) {
+    if (val.length === 0) return '<span class="array-summary">[] (empty)</span>';
+    if (Array.isArray(val[0])) return `<span class="array-summary">${val.length} items (${val[0].length}D)</span>`;
+    if (typeof val[0] === 'number') {
+      if (val.length <= 6) return `<span class="number">[${val.map(v => formatNum(v)).join(', ')}]</span>`;
+      const min = Math.min(...val), max = Math.max(...val);
+      const mean = val.reduce((a, b) => a + b, 0) / val.length;
+      const nonzero = val.filter(v => v !== 0).length;
+      return `<span class="array-summary">${val.length} values<br>min: ${formatNum(min)}<br>max: ${formatNum(max)}<br>mean: ${formatNum(mean)}<br>non-zero: ${nonzero}</span>`;
+    }
+    return `<span class="array-summary">${val.length} items</span>`;
+  }
+  if (typeof val === 'number') return `<span class="number">${formatNum(val)}</span>`;
+  if (typeof val === 'string') return `<span class="string">${escapeHtml(val)}</span>`;
+  if (typeof val === 'boolean') return `<span class="number">${val}</span>`;
+  if (typeof val === 'object') {
+    if (val.__array_summary__) {
+      return `<span class="array-summary">${val.length} values<br>min: ${formatNum(val.min)}<br>max: ${formatNum(val.max)}<br>mean: ${formatNum(val.mean)}<br>non-zero: ${val.nonzero}</span>`;
+    }
+    const keys = Object.keys(val);
+    if (keys.length === 0) return '{}';
+    return `<span class="array-summary">{${keys.join(', ')}}</span>`;
+  }
+  return String(val);
+}
+
+function formatNum(n) {
+  if (n === undefined || n === null) return '-';
+  if (Number.isInteger(n)) return n.toString();
+  if (Math.abs(n) < 0.001 && n !== 0) return n.toExponential(3);
+  return parseFloat(n.toPrecision(6)).toString();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ══════════════════════════════════════════
+// PAN & ZOOM
+// ══════════════════════════════════════════
+svg.addEventListener('mousedown', e => {
+  if (e.target.closest('.dag-node')) return;
+  isDragging = true;
+  dragStart = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+});
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  transform.x = e.clientX - dragStart.x;
+  transform.y = e.clientY - dragStart.y;
+  applyTransform();
+});
+window.addEventListener('mouseup', () => { isDragging = false; });
+
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  const rect = svg.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  const newK = Math.max(0.1, Math.min(5, transform.k * factor));
+  transform.x = mx - (mx - transform.x) * (newK / transform.k);
+  transform.y = my - (my - transform.y) * (newK / transform.k);
+  transform.k = newK;
+  applyTransform();
+}, { passive: false });
+
+function applyTransform() {
+  const g = document.getElementById('dag-group');
+  if (g) g.setAttribute('transform', `translate(${transform.x},${transform.y}) scale(${transform.k})`);
+}
+
+document.getElementById('zoom-in').addEventListener('click', () => { transform.k = Math.min(5, transform.k * 1.3); applyTransform(); });
+document.getElementById('zoom-out').addEventListener('click', () => { transform.k = Math.max(0.1, transform.k / 1.3); applyTransform(); });
+document.getElementById('zoom-reset').addEventListener('click', () => renderDAG());
+document.getElementById('btn-fit').addEventListener('click', () => renderDAG());
+
+// Export SVG
+document.getElementById('btn-export-svg').addEventListener('click', () => {
+  const clone = svg.cloneNode(true);
+  clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  clone.setAttribute('style', 'background: #1a1a2e');
+  const blob = new Blob([clone.outerHTML], { type: 'image/svg+xml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'geoinv3d_dag.svg'; a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+// Auto-load embedded data
+function tryLoadEmbedded() {
+  const el = document.getElementById('embedded-data');
+  if (el) {
+    try {
+      workflowData = JSON.parse(el.textContent);
+      dropzone.classList.add('hidden');
+      renderAll();
+    } catch {}
+    return true;
+  }
+  return false;
+}
+if (!tryLoadEmbedded()) {
+  const obs = new MutationObserver(() => { if (tryLoadEmbedded()) obs.disconnect(); });
+  obs.observe(document.body, { childList: true, subtree: true });
+  window.addEventListener('load', () => { tryLoadEmbedded(); obs.disconnect(); });
+}
+
+window.addEventListener('resize', () => { if (workflowData) renderAll(); });
+</script>
+
+
+<script id="embedded-data" type="application/json">{"version":1,"nodes":[{"id":1,"type":"MeshCreateNode","name":"Survey Mesh","params":{"nx":15,"ny":15,"nz":8,"dx":100.0,"dy":100.0,"dz":50.0,"origin":[0.0,0.0,0.0],"name":"Survey Mesh"},"inputs":[],"output":{"type":"Mesh3D","shape":[15,15,8],"n_cells":1800}},{"id":2,"type":"ModelFromArrayNode","name":"True Density","params":{"values":{"__array_summary__":true,"length":1800,"min":0.0,"max":0.5,"mean":0.03,"nonzero":108},"prop":"density","name":"True Density"},"inputs":[1],"output":{"type":"PhysicalModel","prop":"density","n_cells":1800,"min":0.0,"max":0.5,"mean":0.03}},{"id":3,"type":"SurveyCreateNode","name":"tmp","params":{"locations":"[64 x 3D array]","observed":{"__array_summary__":true,"length":64,"min":0.0,"max":0.0,"mean":0.0,"nonzero":0},"std":{"__array_summary__":true,"length":64,"min":1.0,"max":1.0,"mean":1.0,"nonzero":64},"method":"gravity","name":"tmp"},"inputs":[],"output":{"type":"SurveyData","n_stations":64,"method":"gravity","data_min":0.0,"data_max":0.0}},{"id":4,"type":"ForwardNode","name":"Forward Gravity","params":{"method_type":"gravity","method_kwargs":{},"name":"Forward Gravity"},"inputs":[2,3],"output":{"type":"ndarray","shape":[64],"min":0.12523734306343737,"max":0.7927889286285676,"mean":0.3033467808383994}},{"id":5,"type":"SurveyCreateNode","name":"Observed Gravity","params":{"locations":"[64 x 3D array]","observed":{"__array_summary__":true,"length":64,"min":0.12313531560622373,"max":0.7987459132176105,"mean":0.302019,"nonzero":64},"std":{"__array_summary__":true,"length":64,"min":0.0025057468612687474,"max":0.015856778572571353,"mean":0.006068,"nonzero":64},"method":"gravity","name":"Observed Gravity"},"inputs":[],"output":{"type":"SurveyData","n_stations":64,"method":"gravity","data_min":0.12313531560622373,"data_max":0.7987459132176105}},{"id":6,"type":"ModelFromArrayNode","name":"Starting Model","params":{"values":{"__array_summary__":true,"length":1800,"min":0.0,"max":0.0,"mean":0.0,"nonzero":0},"prop":"density","name":"Starting Model"},"inputs":[1],"output":{"type":"PhysicalModel","prop":"density","n_cells":1800,"min":0.0,"max":0.0,"mean":0.0}},{"id":7,"type":"RegularizationNode","name":"Smoothness Reg","params":{"alpha_s":0.0001,"alpha_x":1.0,"alpha_y":1.0,"alpha_z":1.0,"reg_type":"smoothness","name":"Smoothness Reg"},"inputs":[]},{"id":8,"type":"SingleInversionNode","name":"Gravity Inversion","params":{"method_type":"gravity","method_kwargs":{},"max_iter":10,"beta0_ratio":1.0,"cooling_factor":2.0,"name":"Gravity Inversion"},"inputs":[6,5,7],"output":{"type":"InversionResult","method":"gravity","converged":true,"n_iterations":7,"iterations":[{"iteration":1,"phi_d":9740.08370362893,"phi_m":35.47740970251089,"phi_total":21381.290283137547,"beta":328.1301165198856,"model_min":4.262599028232242e-05,"model_max":0.04402834462426901,"model_mean":0.017414855121893346,"model_std":0.007417535513547697},{"iteration":2,"phi_d":4093.328982279755,"phi_m":53.805896747211094,"phi_total":12920.99656683941,"beta":164.0650582599428,"model_min":-0.0023156071105668776,"model_max":0.0803500753410223,"model_mean":0.01959019371360308,"model_std":0.010669630477847487},{"iteration":3,"phi_d":1930.2257489330373,"phi_m":71.98907902369334,"phi_total":7835.671970983973,"beta":82.0325291299714,"model_min":-0.0053718657965153675,"model_max":0.10667690267119477,"model_mean":0.020971183564346678,"model_std":0.013623600946278003},{"iteration":4,"phi_d":799.918338920432,"phi_m":90.98934128775656,"phi_total":4531.961233772831,"beta":41.0162645649857,"model_min":-0.007688400754098901,"model_max":0.1313890534602753,"model_mean":0.02200870187519416,"model_std":0.016252818407960345},{"iteration":5,"phi_d":285.2855970730041,"phi_m":108.09899714510445,"phi_total":2502.194130129623,"beta":20.50813228249285,"model_min":-0.009369710252864587,"model_max":0.1526130901679097,"model_mean":0.02273737073964216,"model_std":0.01832795917612399},{"iteration":6,"phi_d":89.8678873894024,"phi_m":120.99396979841134,"phi_total":1330.5480563942845,"beta":10.254066141246424,"model_min":-0.011009207820198347,"model_max":0.16922107604578193,"model_mean":0.023196789149350788,"model_std":0.019742600141332663},{"iteration":7,"phi_d":25.750393521619024,"phi_m":129.38271540242815,"phi_total":689.0998541568994,"beta":5.127033070623212,"model_min":-0.011863999637748252,"model_max":0.18148698792962156,"model_mean":0.023458529810692543,"model_std":0.020600746297661992}],"final_model":{"prop":"density","min":-0.011863999637748252,"max":0.18148698792962156,"mean":0.023458529810692543,"n_cells":1800}}}],"created":"2026-09-23T22:40:44.672481+00:00"}</script>
+</body>
+</html>
