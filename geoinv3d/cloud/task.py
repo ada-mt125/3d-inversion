@@ -59,6 +59,13 @@ class InversionTask:
     # L1–L2 (elastic net) mixing: 1 = pure L1, 0 = pure L2 smallness
     l1_ratio: float = 0.5
 
+    # Choice of beta: "discrepancy" (cool to chi^2 = N), "lcurve" or "gcv".
+    # The sweep is beta_sweep if given, else the discrepancy beta times
+    # beta_sweep_factors.
+    beta_selection: str = "discrepancy"
+    beta_sweep: Optional[list[float]] = None
+    beta_sweep_factors: tuple[float, ...] = tuple(np.logspace(-2, 2, 13))
+
     # Bounds for ProjectedGNCG (None = unbounded)
     bounds_lower: Optional[float] = None
     bounds_upper: Optional[float] = None
@@ -109,9 +116,13 @@ class InversionTask:
             "max_irls_iterations": self.max_irls_iterations,
             "use_preconditioner": self.use_preconditioner,
             "l1_ratio": self.l1_ratio,
+            "beta_selection": self.beta_selection,
+            "beta_sweep_factors": [float(f) for f in self.beta_sweep_factors],
             "noise_pct": self.noise_pct,
             "noise_floor": self.noise_floor,
         }
+        if self.beta_sweep is not None:
+            d["beta_sweep"] = [float(b) for b in self.beta_sweep]
         if self.bounds_lower is not None:
             d["bounds_lower"] = self.bounds_lower
         if self.bounds_upper is not None:
@@ -195,6 +206,10 @@ def unpack_task(archive_path: str) -> InversionTask:
             max_irls_iterations=meta.get("max_irls_iterations", 30),
             use_preconditioner=meta.get("use_preconditioner", True),
             l1_ratio=meta.get("l1_ratio", 0.5),
+            beta_selection=meta.get("beta_selection", "discrepancy"),
+            beta_sweep=meta.get("beta_sweep"),
+            beta_sweep_factors=tuple(meta.get("beta_sweep_factors",
+                                              InversionTask.beta_sweep_factors)),
             bounds_lower=meta.get("bounds_lower"),
             bounds_upper=meta.get("bounds_upper"),
             noise_pct=meta.get("noise_pct", 0.05),

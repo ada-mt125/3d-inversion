@@ -84,109 +84,54 @@ def _get_method(task: InversionTask):
     return _make_method(task.method_type, task.method_kwargs)
 
 
-def run_smooth_inversion(task: InversionTask, mesh=None) -> dict:
-    """L2 smooth inversion (backward-compatible with existing tasks)."""
+def _single_problem(task: InversionTask, mesh, sim=None):
+    """Fresh data misfit, regularization, optimizer and start model for a task.
+
+    The regularization and optimizer carry IRLS state, so every run needs
+    new ones; pass ``sim`` to reuse a simulation (and its sensitivities).
+
+    Returns a namespace with ``kind`` ("smooth", "sparse" or "l1l2"), sim,
+    dmis, reg, opt, m0 and the bounds ``lo``/``hi`` (None when unbounded).
+    """
+    from types import SimpleNamespace
+
     from ..datamodel.survey import SurveyData
-    from ..methods.directives import IterationCollector
-    from simpeg import (
-        optimization, inverse_problem, inversion,
-        directives, regularization,
-    )
+    from ..methods.regularization import ElasticNet
+    from simpeg import optimization, regularization
 
-    if mesh is None:
-        mesh = _build_mesh(task)
+    kind = task.regularization_type if task.regularization_type in ("sparse", "l1l2") \
+        else "smooth"
     method = _get_method(task)
-
     survey = SurveyData(
         locations=task.station_locations,
         observed=task.observed_data,
         std=task.data_std,
         method=canonical_method(task.method_type),
     )
-
     has_active = task.active_cells is not None
-    if has_active:
-        sim = method.make_simulation_active(mesh, survey, task.active_cells)
-    else:
-        sim = method.make_simulation_full(mesh, survey)
-
+    if sim is None:
+        if has_active:
+            sim = method.make_simulation_active(mesh, survey, task.active_cells)
+        else:
+            sim = method.make_simulation_full(mesh, survey)
     dmis = method.make_dmis(survey, sim)
     dmesh = mesh.to_discretize()
 
-    reg_kwargs = dict(
-        alpha_s=task.alpha_s,
-        alpha_x=task.alpha_x,
-        alpha_y=task.alpha_y,
-        alpha_z=task.alpha_z,
-    )
-    if has_active:
-        reg_kwargs["active_cells"] = task.active_cells
-    reg = regularization.WeightedLeastSquares(dmesh, **reg_kwargs)
-
-    opt = optimization.InexactGaussNewton(maxIter=task.max_iter, cg_maxiter=20)
-    inv_prob = inverse_problem.BaseInvProblem(dmis, reg, opt)
-
-    collector = IterationCollector()
-    directive_list = [
-        collector,
-        directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio),
-        directives.BetaSchedule(coolingFactor=task.cooling_factor, coolingRate=1),
-        directives.TargetMisfit(),
-    ]
-    if task.use_preconditioner:
-        directive_list.insert(1, directives.UpdatePreconditioner())
-
-    inv = inversion.BaseInversion(inv_prob, directiveList=directive_list)
     m0 = task.initial_model
     if has_active:
         n_active = int(task.active_cells.sum())
         if len(m0) != n_active:
             m0 = np.zeros(n_active)
-    m_recovered = inv.run(m0)
 
-    return _collect_result(task, collector, m_recovered, inv_prob, "smooth_L2")
-
-
-def run_sparse_inversion(task: InversionTask, mesh=None) -> dict:
-    """Sparse IRLS inversion with deep-mesh production settings.
-
-    ``regularization_type == "l1l2"`` swaps the lp-norm ``Sparse``
-    regularization for the L1–L2 elastic net of Utsugi (2019), with its
-    ``||g_j||^(1/2)`` depth weighting; norms and alpha_x/y/z do not apply.
-    """
-    from ..datamodel.survey import SurveyData
-    from ..methods.directives import (
-        IterationCollector, ElasticNetSensitivityWeights, DampedUpdateIRLS,
-    )
-    from ..methods.regularization import ElasticNet
-    from simpeg import (
-        optimization, inverse_problem, inversion,
-        directives, regularization,
-    )
-
-    if mesh is None:
-        mesh = _build_mesh(task)
-    method = _get_method(task)
-
-    survey = SurveyData(
-        locations=task.station_locations,
-        observed=task.observed_data,
-        std=task.data_std,
-        method=canonical_method(task.method_type),
-    )
-
-    has_active = task.active_cells is not None
-    if has_active:
-        sim = method.make_simulation_active(mesh, survey, task.active_cells)
-    else:
-        sim = method.make_simulation_full(mesh, survey)
-
-    dmis = method.make_dmis(survey, sim)
-    dmesh = mesh.to_discretize()
-
-    elastic_net = task.regularization_type == "l1l2"
-    if elastic_net:
-        reg_kwargs = dict(l1_ratio=task.l1_ratio)
+    if kind == "smooth":
+        reg_kwargs = dict(
+            alpha_s=task.alpha_s,
+            alpha_x=task.alpha_x,
+            alpha_y=task.alpha_y,
+            alpha_z=task.alpha_z,
+        )
+    elif kind == "l1l2":
+        reg_kwargs = dict(l1_ratio=task.l1_ratio, reference_model=np.zeros_like(m0))
     else:
         reg_kwargs = dict(
             alpha_s=task.alpha_s,
@@ -194,22 +139,20 @@ def run_sparse_inversion(task: InversionTask, mesh=None) -> dict:
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
             norms=list(task.norms),
+            reference_model=np.zeros_like(m0),
         )
     if has_active:
         reg_kwargs["active_cells"] = task.active_cells
-    m0 = task.initial_model
-    if has_active:
-        n_active = int(task.active_cells.sum())
-        if len(m0) != n_active:
-            m0 = np.zeros(n_active)
-    reg_kwargs["reference_model"] = np.zeros_like(m0)
-    if elastic_net:
-        reg = ElasticNet(dmesh, **reg_kwargs)
-    else:
-        reg = regularization.Sparse(dmesh, **reg_kwargs)
+    reg = {
+        "smooth": regularization.WeightedLeastSquares,
+        "l1l2": ElasticNet,
+        "sparse": regularization.Sparse,
+    }[kind](dmesh, **reg_kwargs)
 
-    bounded = task.bounds_lower is not None or task.bounds_upper is not None
-    if bounded:
+    lo = hi = None
+    if kind == "smooth":
+        opt = optimization.InexactGaussNewton(maxIter=task.max_iter, cg_maxiter=20)
+    elif task.bounds_lower is not None or task.bounds_upper is not None:
         lo = task.bounds_lower if task.bounds_lower is not None else -np.inf
         hi = task.bounds_upper if task.bounds_upper is not None else np.inf
         # A start exactly on a bound (e.g. m0 = 0 with lower = 0) leaves every
@@ -226,36 +169,216 @@ def run_sparse_inversion(task: InversionTask, mesh=None) -> dict:
         opt = optimization.InexactGaussNewton(
             maxIter=task.max_iter, maxIterLS=20, maxIterCG=30, tolCG=1e-4,
         )
+    return SimpleNamespace(kind=kind, sim=sim, dmis=dmis, reg=reg, opt=opt, m0=m0,
+                           lo=lo, hi=hi)
 
-    inv_prob = inverse_problem.BaseInvProblem(dmis, reg, opt)
 
-    collector = IterationCollector()
-    directive_list = [
-        ElasticNetSensitivityWeights() if elastic_net
-        else directives.UpdateSensitivityWeights(),
-        directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio, random_seed=42),
-        directives.TargetMisfit(chifact=1.0),
-        DampedUpdateIRLS(
-            f_min_change=1e-4,
-            max_irls_iterations=task.max_irls_iterations,
-            chifact_start=3.0,
-            irls_cooling_factor=task.irls_cooling_factor,
-            cooling_factor=task.cooling_factor,
-        ),
-        collector,
-    ]
-    if task.use_preconditioner or bounded:
-        directive_list.append(directives.UpdatePreconditioner())
+def _regularization_label(kind: str) -> str:
+    return {"smooth": "smooth_L2", "sparse": "sparse_IRLS", "l1l2": "elastic_net_IRLS"}[kind]
 
-    inv = inversion.BaseInversion(inv_prob, directiveList=directive_list)
-    m_recovered = inv.run(m0)
 
-    if elastic_net:
-        result = _collect_result(task, collector, m_recovered, inv_prob, "elastic_net_IRLS")
+def _finish_result(task, p, collector, m_recovered, inv_prob) -> dict:
+    result = _collect_result(task, collector, m_recovered, inv_prob,
+                             _regularization_label(p.kind))
+    if p.kind == "l1l2":
         result["l1_ratio"] = task.l1_ratio
         result.pop("norms")
-        return result
-    return _collect_result(task, collector, m_recovered, inv_prob, "sparse_IRLS")
+    return result
+
+
+def _run_problem(task, p, beta=None, irls_thresholds=None):
+    """Run a prepared problem: discrepancy-principle schedule, or fixed ``beta``.
+
+    ``irls_thresholds`` (fixed-beta IRLS only) fixes eps; see FixedBetaIRLS.
+    """
+    from ..methods.directives import (
+        IterationCollector, ElasticNetSensitivityWeights, DampedUpdateIRLS,
+    )
+    from ..methods.regparam import FixedBetaIRLS
+    from simpeg import inverse_problem, inversion, directives
+
+    inv_prob = inverse_problem.BaseInvProblem(p.dmis, p.reg, p.opt)
+    collector = IterationCollector()
+    if p.kind == "smooth":
+        directive_list = [collector]
+        if beta is None:
+            directive_list += [
+                directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio),
+                directives.BetaSchedule(coolingFactor=task.cooling_factor, coolingRate=1),
+                directives.TargetMisfit(),
+            ]
+        if task.use_preconditioner:
+            directive_list.insert(1, directives.UpdatePreconditioner())
+    else:
+        weights = (ElasticNetSensitivityWeights() if p.kind == "l1l2"
+                   else directives.UpdateSensitivityWeights())
+        if beta is None:
+            directive_list = [
+                weights,
+                directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio, random_seed=42),
+                directives.TargetMisfit(chifact=1.0),
+                DampedUpdateIRLS(
+                    f_min_change=1e-4,
+                    max_irls_iterations=task.max_irls_iterations,
+                    chifact_start=3.0,
+                    irls_cooling_factor=task.irls_cooling_factor,
+                    cooling_factor=task.cooling_factor,
+                ),
+                collector,
+            ]
+        else:
+            directive_list = [
+                weights,
+                FixedBetaIRLS(
+                    irls_thresholds=irls_thresholds,
+                    f_min_change=1e-4,
+                    max_irls_iterations=task.max_irls_iterations,
+                    irls_cooling_factor=task.irls_cooling_factor,
+                ),
+                collector,
+            ]
+        if task.use_preconditioner or p.lo is not None:
+            directive_list.append(directives.UpdatePreconditioner())
+    if beta is not None:
+        inv_prob.beta = float(beta)
+
+    inv = inversion.BaseInversion(inv_prob, directiveList=directive_list)
+    m_recovered = inv.run(p.m0)
+    return _finish_result(task, p, collector, m_recovered, inv_prob), inv_prob
+
+
+def run_smooth_inversion(task: InversionTask, mesh=None) -> dict:
+    """L2 smooth inversion (backward-compatible with existing tasks)."""
+    if mesh is None:
+        mesh = _build_mesh(task)
+    return _run_problem(task, _single_problem(task, mesh))[0]
+
+
+def run_sparse_inversion(task: InversionTask, mesh=None) -> dict:
+    """Sparse IRLS inversion with deep-mesh production settings.
+
+    ``regularization_type == "l1l2"`` swaps the lp-norm ``Sparse``
+    regularization for the L1–L2 elastic net of Utsugi (2019), with its
+    ``||g_j||^(1/2)`` depth weighting; norms and alpha_x/y/z do not apply.
+    """
+    if mesh is None:
+        mesh = _build_mesh(task)
+    return _run_problem(task, _single_problem(task, mesh))[0]
+
+
+def run_fixed_beta(task: InversionTask, beta: float, mesh=None, sim=None,
+                   irls_thresholds=None):
+    """Run the task's inversion at a constant ``beta`` (IRLS for sparse/L1–L2).
+
+    Returns ``(result, problem, inv_prob)``; pass ``sim`` to reuse sensitivities
+    and ``irls_thresholds`` to fix eps (see FixedBetaIRLS).
+    """
+    from ..methods.regparam import sparse_terms
+
+    if mesh is None:
+        mesh = _build_mesh(task)
+    p = _single_problem(task, mesh, sim)
+    result, inv_prob = _run_problem(task, p, beta=beta, irls_thresholds=irls_thresholds)
+    result["irls_thresholds"] = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
+        if p.kind != "smooth" else None
+    return result, p, inv_prob
+
+
+def _selection_point(p, inv_prob, m) -> dict:
+    """phi_d, phi_m and the GCV ingredients of a fixed-beta solution."""
+    from ..methods.regparam import gcv_score, influence_trace
+
+    phi_d = float(p.dmis(m))
+    reg = p.reg
+    phi_m = float(reg.elastic_net_value(m) if hasattr(reg, "elastic_net_value") else reg(m))
+    point = {"beta": float(inv_prob.beta), "phi_d": phi_d, "phi_m": phi_m}
+    G = getattr(p.sim, "G", None)
+    if G is not None:
+        J = np.asarray(G, dtype=float) * (1.0 / p.dmis.data.standard_deviation)[:, None]
+        free = None
+        if p.lo is not None:
+            span = p.hi - p.lo if np.isfinite(p.hi - p.lo) else 1.0
+            tol = 1e-8 * span
+            free = (m > p.lo + tol) & (m < p.hi - tol)
+        trace = influence_trace(J, reg.deriv2(m) / 2.0, point["beta"], free=free)
+        point["trace_A"] = trace
+        point["gcv"] = gcv_score(phi_d, trace, J.shape[0])
+    return point
+
+
+def run_beta_selection(task: InversionTask, mesh=None) -> dict:
+    """Choose beta by L-curve or GCV, then return the inversion at that beta.
+
+    First runs the usual discrepancy-principle inversion; its final beta
+    centres the sweep ``beta_disc * task.beta_sweep_factors`` (or the explicit
+    ``task.beta_sweep``).  Every sweep point is a fixed-beta inversion (IRLS
+    for sparse/L1–L2) sharing one set of sensitivities.  The result is that
+    of the chosen beta, plus ``beta_selection`` with the whole curve.
+    GCV needs a simulation with an explicit sensitivity matrix (potential
+    fields); the L-curve works for any method.
+
+    For IRLS the sweep reuses the discrepancy run's final eps (IRLS
+    threshold) and does not cool it, so all betas minimize the same objective
+    and the trade-off curve is monotone.
+    """
+    from ..methods.regparam import gcv_minimum, lcurve_corner, sparse_terms
+
+    criterion = task.beta_selection
+    if criterion not in ("lcurve", "gcv"):
+        raise ValueError(f"Unknown beta_selection '{criterion}'")
+    if mesh is None:
+        mesh = _build_mesh(task)
+
+    p = _single_problem(task, mesh)
+    base, _ = _run_problem(task, p)
+    beta_disc = base["iterations"][-1]["beta"]
+    sim = p.sim
+    eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] if p.kind != "smooth" \
+        else None
+    if task.beta_sweep is not None:
+        betas = np.asarray(task.beta_sweep, dtype=float)
+    else:
+        betas = beta_disc * np.asarray(task.beta_sweep_factors, dtype=float)
+    betas = np.sort(betas)[::-1]
+
+    points, models = [], []
+    for beta in betas:
+        result, p_fixed, inv_prob = run_fixed_beta(task, beta, mesh, sim=sim,
+                                                   irls_thresholds=eps)
+        m = np.asarray(result["recovered_model"])
+        points.append(_selection_point(p_fixed, inv_prob, m))
+        models.append(result)
+        print(f"[beta sweep] beta={beta:.3e} phi_d={points[-1]['phi_d']:.4g} "
+              f"phi_m={points[-1]['phi_m']:.4g}"
+              + (f" GCV={points[-1]['gcv']:.4g}" if "gcv" in points[-1] else ""))
+
+    curve = {k: [pt.get(k) for pt in points] for k in ("beta", "phi_d", "phi_m",
+                                                        "trace_A", "gcv")}
+    selection = {"criterion": criterion, "beta_discrepancy": float(beta_disc),
+                 "n_data": int(len(task.observed_data)), "irls_thresholds": eps, **curve}
+    selection["beta_lcurve"] = lcurve_corner(curve["beta"], curve["phi_d"], curve["phi_m"])
+    warnings = []
+    # A corner in the outermost sweep intervals means the curve has none inside
+    inner = np.sort(betas)[[1, -2]]
+    if not inner[0] * 1.001 < selection["beta_lcurve"] < inner[1] / 1.001:
+        warnings.append("L-curve corner is at the edge of the sweep; the curve has no "
+                        "clear corner in this beta range")
+    if all(g is not None for g in curve["gcv"]):
+        selection["beta_gcv"] = gcv_minimum(curve["beta"], curve["gcv"])
+    elif criterion == "gcv":
+        raise ValueError("GCV needs a simulation with an explicit sensitivity matrix")
+    if "beta_gcv" in selection and selection["beta_gcv"] in (betas.min(), betas.max()):
+        warnings.append("GCV minimum is at the edge of the sweep; widen beta_sweep")
+    selection["warnings"] = warnings
+    for w in warnings:
+        print(f"[beta sweep] Warning: {w}")
+    chosen = selection[f"beta_{criterion}"]
+    selection["beta_chosen"] = chosen
+
+    result, _, _ = run_fixed_beta(task, chosen, mesh, sim=sim, irls_thresholds=eps)
+    result["beta_selection"] = selection
+    result["discrepancy_model"] = base["recovered_model"]
+    return result
 
 
 def _collect_result(task, collector, m_recovered, inv_prob, method_label):
@@ -287,7 +410,14 @@ def _collect_result(task, collector, m_recovered, inv_prob, method_label):
 
 
 def run_single_inversion(task: InversionTask, mesh=None) -> dict:
-    """Route to smooth or sparse (lp-norm or L1–L2) based on task config."""
+    """Route to smooth or sparse (lp-norm or L1–L2) based on task config.
+
+    ``task.beta_selection`` "lcurve" or "gcv" chooses beta by that criterion
+    (see :func:`run_beta_selection`); the default "discrepancy" cools beta
+    to the target misfit.
+    """
+    if task.beta_selection != "discrepancy":
+        return run_beta_selection(task, mesh)
     if task.regularization_type in ("sparse", "l1l2"):
         return run_sparse_inversion(task, mesh)
     return run_smooth_inversion(task, mesh)
@@ -406,14 +536,14 @@ _MANUAL_KEYS = (
     "norms", "alpha_s", "alpha_x", "alpha_y", "alpha_z", "beta0_ratio",
     "cooling_factor", "use_preconditioner",
     "bounds_lower", "bounds_upper", "joint_weights", "cross_gradient_weight",
-    "l1_ratio",
+    "l1_ratio", "beta_selection", "beta_sweep",
 )
 # params key -> InversionTask field for the regularization/optimizer settings
 _REG_PARAM_KEYS = (
     "max_iter", "beta0_ratio", "cooling_factor",
     "alpha_s", "alpha_x", "alpha_y", "alpha_z",
     "irls_cooling_factor", "max_irls_iterations", "use_preconditioner",
-    "bounds_lower", "bounds_upper", "l1_ratio",
+    "bounds_lower", "bounds_upper", "l1_ratio", "beta_selection", "beta_sweep",
 )
 
 
@@ -768,6 +898,9 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                 max_iter, max_irls_iterations, use_preconditioner, bounds_*).
             regularization_type: "sparse" (lp-norm IRLS), "l1l2" (L1–L2
                 elastic net, Utsugi 2019; mixing set by l1_ratio) or "l2".
+            beta_selection: "discrepancy" (default), "lcurve" or "gcv"
+                (manual mode, single inversions); beta_sweep optionally
+                lists the betas to try.
             joint_weights, cross_gradient_weight: joint data weights and
                 structural coupling (auto: all 1).
             mesh_type: "tensor" (default) or "octree"; plus core_cell_m,
@@ -894,6 +1027,9 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                          "are not applied")
         if task.bounds_lower is not None or task.bounds_upper is not None:
             notes.append("Joint inversion does not apply bounds")
+        if task.beta_selection != "discrepancy":
+            notes.append("Joint inversion chooses beta by the discrepancy principle; "
+                         f"beta_selection='{task.beta_selection}' is not applied")
     else:
         ds = datasets[0]
         task = InversionTask(
