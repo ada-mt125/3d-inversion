@@ -99,13 +99,53 @@ def _sweep_numpy(X, xtx, beta, r, lam1, lam2, lo, hi, active_only):
 _sweep = njit(cache=True)(_sweep_loop) if njit is not None else _sweep_numpy
 
 
+def _polish(X, f, beta, lam1, lam2, lo, hi):
+    """Exact solution for the current active set and signs, or None.
+
+    With the non-zero set A (free part F, the rest held at bounds) and the
+    signs of b fixed, the optimality conditions are linear:
+    ``(X_F^T X_F + lam2 I) b_F = X_F^T (f - X_B b_B) - lam1 sign(b_F)``.
+    The solution is accepted only if it keeps the signs and the bounds; the
+    caller's next full CDA sweep then confirms (or corrects) optimality.
+    """
+    active = beta != 0.0
+    free = active & (beta > lo) & (beta < hi)
+    if not free.any():
+        return None
+    held = active & ~free
+    XF = X[:, free]
+    rhs_data = f - X[:, held] @ beta[held] if held.any() else f
+    sign = np.sign(beta[free])
+    H = XF.T @ XF
+    H[np.diag_indices_from(H)] += lam2
+    try:
+        new = np.linalg.solve(H, XF.T @ rhs_data - lam1 * sign)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(np.isfinite(new)) or np.any(np.sign(new) != sign) \
+            or np.any(new < lo[free]) or np.any(new > hi[free]):
+        return None
+    out = beta.copy()
+    out[free] = new
+    return out
+
+
 def coordinate_descent(X, f, lam: float, alpha: float, beta0=None, lower=None, upper=None,
-                       xtx=None, tol: float = 1e-5, max_sweeps: int = 100_000):
+                       xtx=None, tol: float = 1e-5, max_sweeps: int = 100_000,
+                       polish_every: int = 20):
     """Minimize ``1/2 ||f - X b||^2 + lam [(1-a)/2 ||b||^2 + a ||b||_1]`` by CDA.
 
     Full sweeps alternate with sweeps over the non-zero coefficients (the
     active set) until a full sweep changes the solution by less than ``tol``
-    relative to its norm.
+    relative to its norm (the paper uses 1e-5).
+
+    Columns of potential-field kernels are strongly correlated, so CDA can
+    need many thousands of sweeps near a = 1.  Every ``polish_every`` active
+    sweeps the active-set optimality conditions are solved directly (see
+    :func:`_polish`); a candidate is kept only if it preserves signs and
+    bounds and, as always, only a full sweep that changes nothing ends the
+    iteration, so the result is the same minimizer.  ``polish_every=0``
+    gives plain CDA.
 
     Args:
         X: (N, M) matrix; Fortran order is fastest.
@@ -128,17 +168,28 @@ def coordinate_descent(X, f, lam: float, alpha: float, beta0=None, lower=None, u
     r = f - X @ beta
     lam1, lam2 = lam * alpha, lam * (1.0 - alpha)
 
+    def converged(change2):
+        return change2 <= tol**2 * max(beta @ beta, 1e-300)
+
     sweeps = 0
     while sweeps < max_sweeps:
         change2 = _sweep(X, xtx, beta, r, lam1, lam2, lo, hi, False)
         sweeps += 1
-        if change2 <= tol**2 * max(beta @ beta, 1e-300):
+        if converged(change2):
             break
+        inner = 0
         while sweeps < max_sweeps:  # converge on the active set first
             change2 = _sweep(X, xtx, beta, r, lam1, lam2, lo, hi, True)
             sweeps += 1
-            if change2 <= tol**2 * max(beta @ beta, 1e-300):
+            inner += 1
+            if converged(change2):
                 break
+            if polish_every and inner % polish_every == 0:
+                polished = _polish(X, f, beta, lam1, lam2, lo, hi)
+                if polished is not None:
+                    beta[:] = polished
+                    r[:] = f - X @ beta
+                    break  # let a full sweep check optimality
     return beta, sweeps
 
 

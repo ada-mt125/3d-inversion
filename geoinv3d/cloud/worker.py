@@ -90,17 +90,18 @@ def _single_problem(task: InversionTask, mesh, sim=None):
     The regularization and optimizer carry IRLS state, so every run needs
     new ones; pass ``sim`` to reuse a simulation (and its sensitivities).
 
-    Returns a namespace with ``kind`` ("smooth", "sparse" or "l1l2"), sim,
+    Returns a namespace with ``kind`` ("smooth", "sparse", "l1l2", "mgs" or
+    "tv"), sim,
     dmis, reg, opt, m0 and the bounds ``lo``/``hi`` (None when unbounded).
     """
     from types import SimpleNamespace
 
     from ..datamodel.survey import SurveyData
-    from ..methods.regularization import ElasticNet
+    from ..methods.regularization import ElasticNet, Focusing
     from simpeg import optimization, regularization
 
-    kind = task.regularization_type if task.regularization_type in ("sparse", "l1l2") \
-        else "smooth"
+    kind = task.regularization_type \
+        if task.regularization_type in ("sparse", "l1l2", "mgs", "tv") else "smooth"
     method = _get_method(task)
     survey = SurveyData(
         locations=task.station_locations,
@@ -138,15 +139,22 @@ def _single_problem(task: InversionTask, mesh, sim=None):
             length_scale_x=task.alpha_x,
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
-            norms=list(task.norms),
             reference_model=np.zeros_like(m0),
         )
+        if kind == "sparse":
+            reg_kwargs["norms"] = list(task.norms)
+        else:
+            reg_kwargs.update(stabilizer=kind,
+                              threshold_percentile=task.focusing_percentile,
+                              threshold_scale=task.focusing_scale)
     if has_active:
         reg_kwargs["active_cells"] = task.active_cells
     reg = {
         "smooth": regularization.WeightedLeastSquares,
         "l1l2": ElasticNet,
         "sparse": regularization.Sparse,
+        "mgs": Focusing,
+        "tv": Focusing,
     }[kind](dmesh, **reg_kwargs)
 
     lo = hi = None
@@ -174,7 +182,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
 
 
 def _regularization_label(kind: str) -> str:
-    return {"smooth": "smooth_L2", "sparse": "sparse_IRLS", "l1l2": "elastic_net_IRLS"}[kind]
+    return {"smooth": "smooth_L2", "sparse": "sparse_IRLS", "l1l2": "elastic_net_IRLS",
+            "mgs": "focusing_MGS", "tv": "total_variation"}[kind]
 
 
 def _finish_result(task, p, collector, m_recovered, inv_prob) -> dict:
@@ -183,6 +192,9 @@ def _finish_result(task, p, collector, m_recovered, inv_prob) -> dict:
     if p.kind == "l1l2":
         result["l1_ratio"] = task.l1_ratio
         result.pop("norms")
+    elif p.kind in ("mgs", "tv"):
+        result.pop("norms")
+        result["focusing_threshold"] = p.reg.focusing_threshold
     return result
 
 
@@ -267,17 +279,20 @@ def run_sparse_inversion(task: InversionTask, mesh=None) -> dict:
 
 
 def run_fixed_beta(task: InversionTask, beta: float, mesh=None, sim=None,
-                   irls_thresholds=None):
+                   irls_thresholds=None, focusing_threshold=None):
     """Run the task's inversion at a constant ``beta`` (IRLS for sparse/L1–L2).
 
     Returns ``(result, problem, inv_prob)``; pass ``sim`` to reuse sensitivities
-    and ``irls_thresholds`` to fix eps (see FixedBetaIRLS).
+    and ``irls_thresholds`` to fix eps (see FixedBetaIRLS); for MGS/TV,
+    ``focusing_threshold`` fixes e.
     """
     from ..methods.regparam import sparse_terms
 
     if mesh is None:
         mesh = _build_mesh(task)
     p = _single_problem(task, mesh, sim)
+    if focusing_threshold is not None and p.kind in ("mgs", "tv"):
+        p.reg.focusing_threshold = float(focusing_threshold)
     result, inv_prob = _run_problem(task, p, beta=beta, irls_thresholds=irls_thresholds)
     result["irls_thresholds"] = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
         if p.kind != "smooth" else None
@@ -335,6 +350,7 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     sim = p.sim
     eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] if p.kind != "smooth" \
         else None
+    focus_e = getattr(p.reg, "focusing_threshold", None)
     if task.beta_sweep is not None:
         betas = np.asarray(task.beta_sweep, dtype=float)
     else:
@@ -344,7 +360,8 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     points, models = [], []
     for beta in betas:
         result, p_fixed, inv_prob = run_fixed_beta(task, beta, mesh, sim=sim,
-                                                   irls_thresholds=eps)
+                                                   irls_thresholds=eps,
+                                                   focusing_threshold=focus_e)
         m = np.asarray(result["recovered_model"])
         points.append(_selection_point(p_fixed, inv_prob, m))
         models.append(result)
@@ -375,7 +392,8 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     chosen = selection[f"beta_{criterion}"]
     selection["beta_chosen"] = chosen
 
-    result, _, _ = run_fixed_beta(task, chosen, mesh, sim=sim, irls_thresholds=eps)
+    result, _, _ = run_fixed_beta(task, chosen, mesh, sim=sim, irls_thresholds=eps,
+                                  focusing_threshold=focus_e)
     result["beta_selection"] = selection
     result["discrepancy_model"] = base["recovered_model"]
     return result
@@ -509,7 +527,7 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
                              "(expected 'cda' or 'irls')")
     if task.beta_selection not in ("auto", "discrepancy"):
         return run_beta_selection(task, mesh)
-    if task.regularization_type in ("sparse", "l1l2"):
+    if task.regularization_type in ("sparse", "l1l2", "mgs", "tv"):
         return run_sparse_inversion(task, mesh)
     return run_smooth_inversion(task, mesh)
 
@@ -629,6 +647,7 @@ _MANUAL_KEYS = (
     "bounds_lower", "bounds_upper", "joint_weights", "cross_gradient_weight",
     "l1_ratio", "beta_selection", "beta_sweep",
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
+    "focusing_percentile", "focusing_scale",
 )
 # params key -> InversionTask field for the regularization/optimizer settings
 _REG_PARAM_KEYS = (
@@ -637,6 +656,7 @@ _REG_PARAM_KEYS = (
     "irls_cooling_factor", "max_irls_iterations", "use_preconditioner",
     "bounds_lower", "bounds_upper", "l1_ratio", "beta_selection", "beta_sweep",
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
+    "focusing_percentile", "focusing_scale",
 )
 
 
@@ -990,7 +1010,10 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                 "manual" (norms, alpha_*, beta0_ratio, cooling_factor,
                 max_iter, max_irls_iterations, use_preconditioner, bounds_*).
             regularization_type: "sparse" (lp-norm IRLS), "l1l2" (L1–L2
-                elastic net, Utsugi 2019; mixing set by l1_ratio) or "l2".
+                elastic net, Utsugi 2019; mixing set by l1_ratio), "mgs"
+                (minimum gradient support focusing), "tv" (total variation)
+                or "l2".  focusing_percentile / focusing_scale set the
+                MGS/TV focusing parameter.
             beta_selection: "auto" (default), "discrepancy", "lcurve" or
                 "gcv" (manual mode, single inversions); beta_sweep optionally
                 lists the betas to try.
@@ -1118,6 +1141,9 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
         if task.regularization_type == "l1l2":
             notes.append("Joint inversion uses L2 regularization; the L1–L2 "
                          "regularization is not applied")
+        elif task.regularization_type in ("mgs", "tv"):
+            notes.append("Joint inversion uses L2 regularization; MGS/TV focusing is "
+                         "not applied")
         elif task.regularization_type == "sparse" and tuple(task.norms) != (2.0,) * 4:
             notes.append("Joint inversion uses L2 regularization; norms/IRLS settings "
                          "are not applied")

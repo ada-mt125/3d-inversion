@@ -145,3 +145,125 @@ class ElasticNet(Sparse):
 
     def elastic_net_value(self, m) -> float:
         return self.objfcts[0].elastic_net_value(m)
+
+
+# ── Focusing: minimum gradient support and total variation ──────────────
+
+
+class Focusing(Sparse):
+    """Minimum gradient support (MGS) or total variation (TV) regularization.
+
+    Both stabilizers act on the isotropic gradient magnitude at cell centres,
+    ``s_c = sum_axis A_axis (G_axis m)^2`` (face gradients squared and
+    averaged to cells):
+
+    * MGS (Portniaguine & Zhdanov 1999, 2002):
+      ``S(m) = sum_c v_c e^2 s_c / (s_c + e^2)``, which counts the cells where
+      the gradient exceeds the focusing parameter e: blocky, sharp-edged
+      models.
+    * TV (Rudin et al. 1992): ``S(m) = sum_c v_c 2 e sqrt(s_c + e^2)``,
+      an L1 norm of the gradient: piecewise-constant models, less aggressive.
+
+    (Scaled so that both equal ``sum v s`` for small gradients, like L2
+    smoothness.)  Both are concave in ``s``, so linearizing in ``s`` at the
+    current model gives a quadratic majorizer, i.e. first-order smoothness
+    with cell weights ``w = S'(s)``: ``e^4 / (s + e^2)^2`` (MGS) or
+    ``e / sqrt(s + e^2)`` (TV).  They are passed to the x/y/z smoothness terms
+    as face weights ``A^T (v w) / (A_cc2f v)``, so the quadratic form is
+    exactly ``sum_c v_c w_c s_c`` (times alpha).  SimPEG's ``UpdateIRLS``
+    (or :class:`DampedUpdateIRLS`) drives it: an L2 warm-up, then reweighting.
+
+    The focusing parameter e is set once, when IRLS starts, to
+    ``threshold_scale`` times the ``threshold_percentile`` percentile of
+    ``sqrt(s)`` of the L2 model (scale 1 for MGS, where e sets which
+    gradients count as edges; 0.1 for TV, where e is only a smoothing
+    constant and TV acts as an L1 norm for gradients above it), and then
+    kept fixed (as in Zhdanov's
+    method; the directive's eps cooling does not apply).  The smallness term
+    stays L2 (weight ``alpha_s``).
+
+    Args:
+        mesh: discretize mesh or RegularizationMesh.
+        stabilizer: "mgs" or "tv".
+        threshold_percentile, threshold_scale: set e (see above);
+            ``threshold_scale=None`` takes the stabilizer's default.
+        **kwargs: Passed to ``Sparse`` (active_cells, alpha_s, length scales,
+            reference_model, ...); ``norms`` is managed here.
+    """
+
+    STABILIZERS = ("mgs", "tv")
+    DEFAULT_SCALE = {"mgs": 1.0, "tv": 0.1}
+
+    def __init__(self, mesh, stabilizer: str = "mgs", threshold_percentile: float = 95.0,
+                 threshold_scale: float | None = None, **kwargs):
+        if stabilizer not in self.STABILIZERS:
+            raise ValueError(f"stabilizer must be one of {self.STABILIZERS}, "
+                             f"got {stabilizer!r}")
+        # The smoothness "norm" only marks the stage: 2 = L2 warm-up, 1 = focusing
+        kwargs["norms"] = [2.0, 1.0, 1.0, 1.0]
+        kwargs.setdefault("irls_scaled", False)
+        super().__init__(mesh, **kwargs)
+        self.stabilizer = stabilizer
+        self.threshold_percentile = threshold_percentile
+        self.threshold_scale = (self.DEFAULT_SCALE[stabilizer] if threshold_scale is None
+                                else float(threshold_scale))
+        self.focusing_threshold: float | None = None
+
+    @property
+    def smoothness_terms(self) -> list:
+        from simpeg.regularization import SmoothnessFirstOrder
+        return [o for o in self.objfcts if isinstance(o, SmoothnessFirstOrder)]
+
+    def _cell_average(self, orientation: str):
+        return getattr(self.regularization_mesh, f"aveF{orientation}2CC")
+
+    def gradient_magnitude2(self, m) -> np.ndarray:
+        """s_c: squared isotropic gradient magnitude at the cell centres."""
+        s = np.zeros(self.regularization_mesh.nC)
+        for term in self.smoothness_terms:
+            s += self._cell_average(term.orientation) @ term.f_m(m) ** 2
+        return s
+
+    def _rho(self, s, e2):
+        if self.stabilizer == "mgs":
+            return e2 * s / (s + e2)
+        return 2.0 * np.sqrt(e2) * np.sqrt(s + e2)
+
+    def cell_weights(self, s, e2) -> np.ndarray:
+        """w = dS/ds per cell (1 for a vanishing gradient)."""
+        if self.stabilizer == "mgs":
+            return e2**2 / (s + e2) ** 2
+        return np.sqrt(e2 / (s + e2))
+
+    def stabilizer_value(self, m) -> float:
+        """The MGS / TV stabilizer itself (not its quadratic majorizer).
+
+        Includes each smoothness term's alpha (equal for all axes when the
+        length scales are equal).
+        """
+        if self.focusing_threshold is None:
+            raise ValueError("The focusing threshold is set when IRLS starts")
+        e2 = self.focusing_threshold**2
+        v = self.regularization_mesh.vol
+        return float(self.alpha_x * np.sum(v * self._rho(self.gradient_magnitude2(m), e2)))
+
+    def update_weights(self, model):
+        for term in self.objfcts:
+            if term not in self.smoothness_terms:
+                term.update_weights(model)
+        terms = self.smoothness_terms
+        if all(np.all(t.norm == 2.0) for t in terms):  # L2 warm-up
+            for t in terms:
+                t.set_weights(irls=np.ones(self.regularization_mesh.nC))
+            return
+        s = self.gradient_magnitude2(model)
+        if self.focusing_threshold is None:
+            e = self.threshold_scale * np.percentile(np.sqrt(s), self.threshold_percentile)
+            self.focusing_threshold = float(max(e, 1e-12 * max(np.sqrt(s).max(), 1e-300)))
+        w = self.cell_weights(s, self.focusing_threshold**2)
+        vw = self.regularization_mesh.vol * w
+        v = self.regularization_mesh.vol
+        for t in terms:
+            A = self._cell_average(t.orientation)            # faces -> cells
+            face_vol = getattr(self.regularization_mesh, f"aveCC2F{t.orientation}") @ v
+            t.set_weights(irls=(A.T @ vw) / face_vol)

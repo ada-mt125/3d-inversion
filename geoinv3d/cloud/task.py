@@ -37,8 +37,9 @@ class InversionTask:
     method_type: str = "gravity"
     method_kwargs: dict = field(default_factory=dict)
 
-    # Regularization: "sparse" (lp-norm IRLS), "l1l2" (elastic net, Utsugi 2019)
-    # or anything else for smooth L2
+    # Regularization: "sparse" (lp-norm IRLS), "l1l2" (elastic net, Utsugi 2019),
+    # "mgs" (minimum gradient support), "tv" (total variation) or anything else
+    # for smooth L2
     regularization_type: str = "sparse"
 
     # Shared inversion parameters
@@ -65,6 +66,12 @@ class InversionTask:
     l1l2_weighting: str = "S2"
     lambda_decades: float = 4.0
     lambda_step: float = 0.1
+
+    # MGS / TV focusing parameter e: focusing_scale (None: 1 for MGS, 0.1 for
+    # TV) times this percentile of the L2 model's gradient magnitude, fixed
+    # once IRLS starts
+    focusing_percentile: float = 95.0
+    focusing_scale: Optional[float] = None
 
     # Choice of beta: "auto" (L-curve for the L1–L2 CDA path, as in Utsugi
     # 2019; discrepancy otherwise), "discrepancy" (chi^2 = N), "lcurve" or
@@ -129,6 +136,8 @@ class InversionTask:
             "lambda_decades": self.lambda_decades,
             "lambda_step": self.lambda_step,
             "beta_selection": self.beta_selection,
+            "focusing_percentile": self.focusing_percentile,
+            "focusing_scale": self.focusing_scale,
             "beta_sweep_factors": [float(f) for f in self.beta_sweep_factors],
             "noise_pct": self.noise_pct,
             "noise_floor": self.noise_floor,
@@ -223,6 +232,8 @@ def unpack_task(archive_path: str) -> InversionTask:
             lambda_decades=meta.get("lambda_decades", 4.0),
             lambda_step=meta.get("lambda_step", 0.1),
             beta_selection=meta.get("beta_selection", "auto"),
+            focusing_percentile=meta.get("focusing_percentile", 95.0),
+            focusing_scale=meta.get("focusing_scale"),
             beta_sweep=meta.get("beta_sweep"),
             beta_sweep_factors=tuple(meta.get("beta_sweep_factors",
                                               InversionTask.beta_sweep_factors)),

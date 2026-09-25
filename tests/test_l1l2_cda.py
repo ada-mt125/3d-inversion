@@ -83,6 +83,18 @@ class TestCoordinateDescent:
         obj = _objective(X, f, lam, 0.9)
         assert obj(b) <= obj(ref) + 1e-9 * abs(obj(ref))
 
+    @pytest.mark.parametrize("alpha, bounds", [(0.99, (None, None)), (0.9, (0.0, 1.2)),
+                                               (0.5, (None, None))])
+    def test_polishing_gives_same_minimizer(self, correlated, alpha, bounds):
+        X, f = correlated
+        lam = 0.02 * lambda_max(X, f, alpha)
+        plain, n_plain = coordinate_descent(X, f, lam, alpha, lower=bounds[0],
+                                            upper=bounds[1], tol=1e-12, polish_every=0)
+        fast, n_fast = coordinate_descent(X, f, lam, alpha, lower=bounds[0],
+                                          upper=bounds[1], tol=1e-12, polish_every=5)
+        np.testing.assert_allclose(fast, plain, atol=1e-7 * abs(plain).max())
+        assert n_fast <= n_plain
+
     def test_single_variable_soft_threshold(self):
         """The paper's Eq. (26) for one column: S(x^T f, lam a) / (x^T x + lam(1-a))."""
         x = np.array([[1.0], [2.0], [-0.5]])
