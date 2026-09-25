@@ -7,6 +7,7 @@ RUN pip install --no-cache-dir \
     scipy \
     simpeg \
     discretize \
+    numba \
     boto3
 
 COPY geoinv3d/ /app/geoinv3d/

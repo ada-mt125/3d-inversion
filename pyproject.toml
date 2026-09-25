@@ -15,6 +15,7 @@ dependencies = [
     "SimPEG>=0.21",
     "discretize>=0.10",
     "matplotlib>=3.7",
+    "numba>=0.57",
 ]
 
 [project.optional-dependencies]

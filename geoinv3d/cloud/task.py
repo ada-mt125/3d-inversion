@@ -58,11 +58,19 @@ class InversionTask:
 
     # L1–L2 (elastic net) mixing: 1 = pure L1, 0 = pure L2 smallness
     l1_ratio: float = 0.5
+    # L1–L2 solver: "cda" (Utsugi 2019: coordinate descent along a lambda path,
+    # lambda from the L-curve; potential fields) or "irls" (SimPEG IRLS).
+    # Weighting "S2" (1/||k_j||, recommended by Utsugi) or "S1" (||k_j||^-1/2).
+    l1l2_solver: str = "cda"
+    l1l2_weighting: str = "S2"
+    lambda_decades: float = 4.0
+    lambda_step: float = 0.1
 
-    # Choice of beta: "discrepancy" (cool to chi^2 = N), "lcurve" or "gcv".
-    # The sweep is beta_sweep if given, else the discrepancy beta times
-    # beta_sweep_factors.
-    beta_selection: str = "discrepancy"
+    # Choice of beta: "auto" (L-curve for the L1–L2 CDA path, as in Utsugi
+    # 2019; discrepancy otherwise), "discrepancy" (chi^2 = N), "lcurve" or
+    # "gcv".  IRLS/smooth sweeps use beta_sweep if given, else the discrepancy
+    # beta times beta_sweep_factors.
+    beta_selection: str = "auto"
     beta_sweep: Optional[list[float]] = None
     beta_sweep_factors: tuple[float, ...] = tuple(np.logspace(-2, 2, 13))
 
@@ -116,6 +124,10 @@ class InversionTask:
             "max_irls_iterations": self.max_irls_iterations,
             "use_preconditioner": self.use_preconditioner,
             "l1_ratio": self.l1_ratio,
+            "l1l2_solver": self.l1l2_solver,
+            "l1l2_weighting": self.l1l2_weighting,
+            "lambda_decades": self.lambda_decades,
+            "lambda_step": self.lambda_step,
             "beta_selection": self.beta_selection,
             "beta_sweep_factors": [float(f) for f in self.beta_sweep_factors],
             "noise_pct": self.noise_pct,
@@ -206,7 +218,11 @@ def unpack_task(archive_path: str) -> InversionTask:
             max_irls_iterations=meta.get("max_irls_iterations", 30),
             use_preconditioner=meta.get("use_preconditioner", True),
             l1_ratio=meta.get("l1_ratio", 0.5),
-            beta_selection=meta.get("beta_selection", "discrepancy"),
+            l1l2_solver=meta.get("l1l2_solver", "cda"),
+            l1l2_weighting=meta.get("l1l2_weighting", "S2"),
+            lambda_decades=meta.get("lambda_decades", 4.0),
+            lambda_step=meta.get("lambda_step", 0.1),
+            beta_selection=meta.get("beta_selection", "auto"),
             beta_sweep=meta.get("beta_sweep"),
             beta_sweep_factors=tuple(meta.get("beta_sweep_factors",
                                               InversionTask.beta_sweep_factors)),

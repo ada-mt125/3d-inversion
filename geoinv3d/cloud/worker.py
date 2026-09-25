@@ -409,14 +409,105 @@ def _collect_result(task, collector, m_recovered, inv_prob, method_label):
     }
 
 
+def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
+    """L1–L2 inversion as in Utsugi (2019): CDA along a lambda path.
+
+    The elastic net is solved by coordinate descent with warm starts from
+    lambda_max down ``task.lambda_decades`` decades in steps of
+    ``task.lambda_step`` (log10), with ``task.l1l2_weighting`` depth weighting
+    and ``l1_ratio`` fixed a priori; lambda is chosen by ``beta_selection``
+    ("auto" = L-curve, as in the paper; also "discrepancy" or "gcv").  Needs
+    an explicit sensitivity matrix (gravity, magnetics).  Magnetic models are
+    solved in magnetization (A/m) as in the paper and returned as
+    susceptibility.
+
+    Each path point is reported as an "iteration" with ``beta`` = lambda,
+    ``phi_d`` = chi^2 and ``phi_m`` = P(b; a).
+    """
+    from ..methods.l1l2_cda import invert_l1l2
+
+    if mesh is None:
+        mesh = _build_mesh(task)
+    p = _single_problem(task, mesh)
+    G = getattr(p.sim, "G", None)
+    if G is None:
+        raise ValueError("l1l2_solver='cda' needs a potential-field method with an "
+                         "explicit sensitivity matrix; use l1l2_solver='irls'")
+    model_unit = 1.0
+    if canonical_method(task.method_type) == "magnetics":
+        amplitude_nT = _get_method(task).inducing_field[0]
+        model_unit = amplitude_nT * 1e-9 / (4e-7 * np.pi)  # SI -> A/m
+    criterion = "lcurve" if task.beta_selection == "auto" else task.beta_selection
+    res, scale = invert_l1l2(
+        np.asarray(G), task.observed_data, task.l1_ratio,
+        weighting=task.l1l2_weighting, model_unit=model_unit, std=task.data_std,
+        criterion=criterion, lower=task.bounds_lower, upper=task.bounds_upper,
+        n_decades=task.lambda_decades, step=task.lambda_step,
+    )
+    path = res.path
+    chi2 = res.chi2
+    iterations = []
+    for i, (lam, beta) in enumerate(zip(path.lambdas, path.betas)):
+        m = beta / (scale * model_unit)
+        iterations.append({
+            "iteration": i,
+            "phi_d": float(chi2[i]),
+            "phi_m": float(path.penalty[i]),
+            "phi_total": float(chi2[i] + lam * path.penalty[i]),
+            "beta": float(lam),
+            "model_min": float(m.min()),
+            "model_max": float(m.max()),
+            "model_mean": float(m.mean()),
+        })
+    resid = (np.asarray(G) @ res.model - task.observed_data) / task.data_std
+    for w in res.warnings:
+        print(f"[L1–L2 CDA] Warning: {w}")
+    return {
+        "task_id": task.task_id,
+        "method": task.method_type,
+        "regularization": "elastic_net_CDA",
+        "converged": True,
+        "n_iterations": len(iterations),
+        "iterations": iterations,
+        "recovered_model": res.model,
+        "l1_ratio": task.l1_ratio,
+        "l1l2": {
+            "solver": "cda",
+            "weighting": task.l1l2_weighting,
+            "criterion": criterion,
+            "model_unit": model_unit,
+            "lambda_opt": res.lambda_opt,
+            "lambda_lcurve": res.lambda_lcurve,
+            "lambda_discrepancy": res.lambda_discrepancy,
+            "lambda_gcv": res.lambda_gcv,
+            "chi2_opt": float(resid @ resid),
+            "lambdas": path.lambdas,
+            "residual_norm": path.residual_norm,
+            "penalty": path.penalty,
+            "chi2": chi2,
+            "gcv": res.gcv,
+            "sweeps": path.sweeps,
+            "warnings": res.warnings,
+        },
+    }
+
+
 def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     """Route to smooth or sparse (lp-norm or L1–L2) based on task config.
 
+    L1–L2 with ``l1l2_solver="cda"`` (the default) runs Utsugi's (2019)
+    coordinate-descent path (:func:`run_l1l2_cda`).  Otherwise
     ``task.beta_selection`` "lcurve" or "gcv" chooses beta by that criterion
-    (see :func:`run_beta_selection`); the default "discrepancy" cools beta
-    to the target misfit.
+    (see :func:`run_beta_selection`); "auto"/"discrepancy" cools beta to the
+    target misfit.
     """
-    if task.beta_selection != "discrepancy":
+    if task.regularization_type == "l1l2":
+        if task.l1l2_solver == "cda":
+            return run_l1l2_cda(task, mesh)
+        if task.l1l2_solver != "irls":
+            raise ValueError(f"Unknown l1l2_solver '{task.l1l2_solver}' "
+                             "(expected 'cda' or 'irls')")
+    if task.beta_selection not in ("auto", "discrepancy"):
         return run_beta_selection(task, mesh)
     if task.regularization_type in ("sparse", "l1l2"):
         return run_sparse_inversion(task, mesh)
@@ -537,6 +628,7 @@ _MANUAL_KEYS = (
     "cooling_factor", "use_preconditioner",
     "bounds_lower", "bounds_upper", "joint_weights", "cross_gradient_weight",
     "l1_ratio", "beta_selection", "beta_sweep",
+    "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
 )
 # params key -> InversionTask field for the regularization/optimizer settings
 _REG_PARAM_KEYS = (
@@ -544,6 +636,7 @@ _REG_PARAM_KEYS = (
     "alpha_s", "alpha_x", "alpha_y", "alpha_z",
     "irls_cooling_factor", "max_irls_iterations", "use_preconditioner",
     "bounds_lower", "bounds_upper", "l1_ratio", "beta_selection", "beta_sweep",
+    "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
 )
 
 
@@ -898,9 +991,12 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                 max_iter, max_irls_iterations, use_preconditioner, bounds_*).
             regularization_type: "sparse" (lp-norm IRLS), "l1l2" (L1–L2
                 elastic net, Utsugi 2019; mixing set by l1_ratio) or "l2".
-            beta_selection: "discrepancy" (default), "lcurve" or "gcv"
-                (manual mode, single inversions); beta_sweep optionally
+            beta_selection: "auto" (default), "discrepancy", "lcurve" or
+                "gcv" (manual mode, single inversions); beta_sweep optionally
                 lists the betas to try.
+            l1l2_solver: "cda" (default; Utsugi 2019 lambda path with the
+                L-curve) or "irls"; l1l2_weighting "S2" (default) or "S1";
+                lambda_decades, lambda_step set the lambda path.
             joint_weights, cross_gradient_weight: joint data weights and
                 structural coupling (auto: all 1).
             mesh_type: "tensor" (default) or "octree"; plus core_cell_m,
@@ -1027,7 +1123,7 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                          "are not applied")
         if task.bounds_lower is not None or task.bounds_upper is not None:
             notes.append("Joint inversion does not apply bounds")
-        if task.beta_selection != "discrepancy":
+        if task.beta_selection not in ("auto", "discrepancy"):
             notes.append("Joint inversion chooses beta by the discrepancy principle; "
                          f"beta_selection='{task.beta_selection}' is not applied")
     else:

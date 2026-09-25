@@ -134,8 +134,8 @@ class TestBetaSelection:
     @pytest.mark.parametrize("criterion", ["lcurve", "gcv"])
     def test_selection_through_worker(self, gravity_task, criterion):
         factors = tuple(np.logspace(-2, 2, 7))
-        task = gravity_task(regularization_type="l1l2", l1_ratio=0.5, bounds_lower=0.0,
-                            bounds_upper=1.0, beta_selection=criterion,
+        task = gravity_task(regularization_type="l1l2", l1l2_solver="irls", l1_ratio=0.5,
+                            bounds_lower=0.0, bounds_upper=1.0, beta_selection=criterion,
                             beta_sweep_factors=factors)
         result = run_single_inversion(task)
         sel = result["beta_selection"]

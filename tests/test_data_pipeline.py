@@ -538,8 +538,8 @@ class TestElasticNetEndToEnd:
         return run_data_pipeline(params, str(tmp_path))
 
     def test_l1_ratio_controls_compactness(self, tmp_path):
-        smooth = self._run(tmp_path, 0.0)
-        sparse = self._run(tmp_path, 1.0, max_irls_iterations=20)
+        smooth = self._run(tmp_path, 0.0, l1l2_solver="irls")
+        sparse = self._run(tmp_path, 1.0, max_irls_iterations=20, l1l2_solver="irls")
         for r in (smooth, sparse):
             assert r["regularization"] == "elastic_net_IRLS"
             assert "norms" not in r
