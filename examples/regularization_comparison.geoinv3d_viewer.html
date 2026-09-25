@@ -134,6 +134,49 @@ svg#dag:active{cursor:grabbing;}
 .up-submit:disabled{opacity:.5;cursor:not-allowed;}
 .up-status{margin-top:14px;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:12px;line-height:1.7;}
 .up-err{color:var(--red);font-size:12px;}
+.up-stepper{display:flex;gap:6px;margin-bottom:18px;}
+.up-stp{flex:1;display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--text3);font-size:12px;cursor:pointer;text-align:left;}
+.up-stp .up-step{background:var(--bg3);color:var(--text3);}
+.up-stp.done{color:var(--text2);}
+.up-stp.done .up-step{background:var(--green);color:#0e131a;}
+.up-stp.active{border-color:var(--accent);color:var(--text);}
+.up-stp.active .up-step{background:var(--accent);color:#0e131a;}
+.up-stp:disabled{cursor:not-allowed;opacity:.55;}
+.up-nav{display:flex;align-items:center;gap:10px;margin-top:6px;}
+.up-nav-msg{flex:1;font-size:11px;color:var(--text3);text-align:center;}
+.up-btn{padding:9px 18px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--text);font-size:13px;cursor:pointer;}
+.up-btn-primary{background:var(--accent);border-color:var(--accent);color:#0e131a;font-weight:600;}
+.up-btn:disabled{opacity:.5;cursor:not-allowed;}
+.up-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+.up-tbl th{text-align:left;color:var(--text3);font-weight:500;padding:4px 6px;border-bottom:1px solid var(--border);}
+.up-tbl td{padding:6px;border-bottom:1px solid var(--border-soft);vertical-align:top;}
+.up-tbl td.num{text-align:right;font-variant-numeric:tabular-nums;}
+.up-rec{font-size:12px;color:var(--text2);line-height:1.6;display:flex;gap:10px;align-items:flex-start;}
+.up-rec>div{flex:1;}
+.up-rec b{color:var(--text);}
+.up-est{font-size:12px;margin-top:12px;line-height:1.6;color:var(--text2);}
+.up-warn{color:var(--accent2);}
+.up-review{display:grid;grid-template-columns:150px 1fr;gap:8px 14px;font-size:12px;}
+.up-review dt{color:var(--text3);}
+.up-review dd{margin:0;color:var(--text);line-height:1.5;}
+.up-btn-sm{padding:5px 12px;font-size:11px;text-decoration:none;display:inline-block;}
+.up-btn-danger{border-color:var(--red);color:#e8837a;}
+.up-job{margin-bottom:10px;}
+.up-job-h{display:flex;align-items:center;gap:8px;font-size:13px;}
+.up-badge{margin-left:auto;font-size:10px;font-weight:600;padding:2px 9px;border-radius:10px;border:1px solid var(--border);color:var(--text2);white-space:nowrap;}
+.up-badge.run{border-color:var(--blue);color:#8fb3f0;}
+.up-badge.ok{border-color:var(--green);color:#6fd0c3;}
+.up-badge.fail{border-color:var(--red);color:#e8837a;}
+.up-phases{display:flex;gap:4px;margin:10px 0 6px;}
+.up-ph{flex:1;font-size:10px;color:var(--text3);border-top:3px solid var(--bg3);padding-top:4px;}
+.up-ph.done{border-top-color:var(--green);color:var(--text2);}
+.up-ph.now{border-top-color:var(--accent);color:var(--text);}
+.up-job-meta{font-size:11px;color:var(--text3);line-height:1.6;}
+.up-job-meta code{font-size:10px;}
+.up-job-stage{font-size:12px;color:var(--text2);margin-top:6px;}
+.up-bar{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;margin:6px 0 2px;}
+.up-bar>i{display:block;height:100%;background:var(--accent);}
+.up-logs{max-height:240px;overflow:auto;font-size:10px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:10px;white-space:pre-wrap;}
 .chart-box{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px;flex:none;}
 .chart-title{font-size:12px;font-weight:600;margin-bottom:10px;}
 .chart-row{display:flex;gap:14px;flex-wrap:wrap;}
@@ -308,58 +351,95 @@ svg#dag:active{cursor:grabbing;}
     <div class="up-scroll">
       <div class="up-wrap">
         <h2 class="up-title">New Inversion Job</h2>
-        <p class="up-sub">Upload observed data by type plus optional topography, configure the inversion, and submit it to AWS</p>
+        <p class="up-sub">Upload your data, check the mesh against the data resolution, choose the regularization, submit to AWS, and follow the job</p>
 
-        <section class="up-sec">
-          <div class="up-sec-h"><span class="up-step">1</span>Observed data<span class="up-hint">One card per data type — at least one; two or more can be inverted jointly</span></div>
-          <div class="up-grid" id="up-datasets"></div>
-        </section>
+        <nav class="up-stepper" id="up-stepper">
+          <button type="button" class="up-stp active" data-go="1"><span class="up-step">1</span>Data</button>
+          <button type="button" class="up-stp" data-go="2" disabled><span class="up-step">2</span>Mesh</button>
+          <button type="button" class="up-stp" data-go="3" disabled><span class="up-step">3</span>Inversion</button>
+          <button type="button" class="up-stp" data-go="4" disabled><span class="up-step">4</span>Review &amp; submit</button>
+          <button type="button" class="up-stp" data-go="5"><span class="up-step">5</span>Jobs</button>
+        </nav>
 
-        <section class="up-sec">
-          <div class="up-sec-h"><span class="up-step">2</span>Topography<span class="up-hint">optional</span></div>
-          <div class="up-card" id="up-topo">
-            <div class="up-drop" id="up-topo-drop">
-              <input type="file" id="up-topo-file" accept=".xyz,.csv,.txt,.dat,.asc,.tif,.tiff" hidden>
-              <div class="up-drop-t">Drop a topography file here, or click to browse</div>
-              <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
-            </div>
-            <div class="up-files" id="up-topo-list"></div>
-            <div class="up-flat" id="up-topo-flat">
-              No topography uploaded → using <b>flat topography</b> at elevation
-              <input type="number" id="up-flat-elev" value="0" step="1" class="up-in up-in-sm"> m
-            </div>
-          </div>
-        </section>
+        <div class="up-pane" data-pane="1">
+          <section class="up-sec">
+            <div class="up-sec-h">Observed data<span class="up-hint">One card per data type — at least one; two or more can be inverted jointly</span></div>
+            <div class="up-grid" id="up-datasets"></div>
+          </section>
 
-        <section class="up-sec">
-          <div class="up-sec-h"><span class="up-step">3</span>Inversion setup</div>
-          <div class="up-card">
-            <label class="up-lbl" for="upload-method">Inversion method</label>
-            <select id="upload-method" class="up-in" disabled><option>Upload observed data first</option></select>
-            <div class="up-method-desc" id="up-method-desc"></div>
-            <div class="up-row">
-              <div class="up-col">
-                <label class="up-lbl" for="upload-mesh">Mesh type</label>
-                <select id="upload-mesh" class="up-in">
-                  <option value="tensor">Tensor Mesh</option>
-                  <option value="octree" selected>OcTree Mesh</option>
-                </select>
+          <section class="up-sec">
+            <div class="up-sec-h">Topography<span class="up-hint">optional</span></div>
+            <div class="up-card" id="up-topo">
+              <div class="up-drop" id="up-topo-drop">
+                <input type="file" id="up-topo-file" accept=".xyz,.csv,.txt,.dat,.asc,.tif,.tiff" hidden>
+                <div class="up-drop-t">Drop a topography file here, or click to browse</div>
+                <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
               </div>
-              <div class="up-col">
-                <label class="up-lbl" for="upload-instance">Instance type</label>
-                <select id="upload-instance" class="up-in">
-                  <option value="c5.xlarge">c5.xlarge (4 vCPU, ~$0.17/hr)</option>
-                  <option value="c5.2xlarge" selected>c5.2xlarge (8 vCPU, ~$0.34/hr)</option>
-                  <option value="c5.4xlarge">c5.4xlarge (16 vCPU, ~$0.68/hr)</option>
-                  <option value="c5.9xlarge">c5.9xlarge (36 vCPU, ~$1.53/hr)</option>
-                </select>
+              <div class="up-files" id="up-topo-list"></div>
+              <div class="up-flat" id="up-topo-flat">
+                No topography uploaded → using <b>flat topography</b> at elevation
+                <input type="number" id="up-flat-elev" value="0" step="1" class="up-in up-in-sm"> m
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <section class="up-sec">
-          <div class="up-sec-h"><span class="up-step">4</span>Regularization &amp; inversion parameters</div>
+          <section class="up-sec">
+            <div class="up-sec-h">What to invert</div>
+            <div class="up-card">
+              <label class="up-lbl" for="upload-method">Inversion method</label>
+              <select id="upload-method" class="up-in" disabled><option>Upload observed data first</option></select>
+              <div class="up-method-desc" id="up-method-desc"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="up-pane" data-pane="2" hidden>
+          <section class="up-sec">
+            <div class="up-sec-h">Data resolution<span class="up-hint">read from your files in the browser</span></div>
+            <div class="up-card" id="up-res"></div>
+          </section>
+
+          <section class="up-sec">
+            <div class="up-sec-h">Mesh</div>
+            <div class="up-card">
+              <div class="up-rec" id="up-mesh-rec"></div>
+              <div class="up-row">
+                <div class="up-col">
+                  <label class="up-lbl" for="upload-mesh">Mesh type</label>
+                  <select id="upload-mesh" class="up-in">
+                    <option value="tensor">Tensor mesh</option>
+                    <option value="octree" selected>OcTree mesh (refined near the surface)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl" for="up-mesh-h">Horizontal cell (m)</label><input id="up-mesh-h" type="number" class="up-in" min="0" step="any" value="500"></div>
+                <div class="up-col"><label class="up-lbl" for="up-mesh-dz">Vertical cell (m)</label><input id="up-mesh-dz" type="number" class="up-in" min="0" step="any" value="250"></div>
+                <div class="up-col"><label class="up-lbl" for="up-mesh-depth">Core depth (m)</label><input id="up-mesh-depth" type="number" class="up-in" min="0" step="any" value="3000"></div>
+                <div class="up-col"><label class="up-lbl" for="up-mesh-pad">Padding distance (m)</label><input id="up-mesh-pad" type="number" class="up-in" min="0" step="any" value="2000"></div>
+              </div>
+              <div class="up-est" id="up-mesh-est"></div>
+            </div>
+          </section>
+
+          <section class="up-sec">
+            <div class="up-sec-h">Compute</div>
+            <div class="up-card">
+              <label class="up-lbl" for="upload-instance">Instance type</label>
+              <select id="upload-instance" class="up-in">
+                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8 GB RAM, ~$0.17/hr)</option>
+                <option value="c5.2xlarge" selected>c5.2xlarge (8 vCPU, 16 GB RAM, ~$0.34/hr)</option>
+                <option value="c5.4xlarge">c5.4xlarge (16 vCPU, 32 GB RAM, ~$0.68/hr)</option>
+                <option value="c5.9xlarge">c5.9xlarge (36 vCPU, 72 GB RAM, ~$1.53/hr)</option>
+              </select>
+              <div class="up-method-desc">The recommended mesh keeps the sensitivity matrix within half of the instance's RAM.</div>
+            </div>
+          </section>
+        </div>
+
+        <div class="up-pane" data-pane="3" hidden>
+          <section class="up-sec">
+            <div class="up-sec-h">Regularization &amp; inversion parameters</div>
           <div class="up-card">
             <div class="up-seg" id="up-pmode">
               <button type="button" data-mode="auto" class="active">Auto (recommended)</button>
@@ -491,14 +571,34 @@ svg#dag:active{cursor:grabbing;}
               </div>
             </div>
           </div>
-        </section>
+          </section>
+        </div>
 
-        <section class="up-sec">
-          <label class="up-lbl" for="upload-note">Note (optional)</label>
-          <input id="upload-note" type="text" class="up-in" placeholder="e.g. Karnataka 70 km deep inversion">
-        </section>
+        <div class="up-pane" data-pane="4" hidden>
+          <section class="up-sec">
+            <div class="up-sec-h">Review</div>
+            <div class="up-card"><dl class="up-review" id="up-review"></dl></div>
+          </section>
+          <section class="up-sec">
+            <label class="up-lbl" for="upload-note">Note (optional)</label>
+            <input id="upload-note" type="text" class="up-in" placeholder="e.g. Karnataka 70 km deep inversion">
+          </section>
+          <button id="upload-submit" class="up-submit">🚀 Submit inversion job to AWS</button>
+        </div>
 
-        <button id="upload-submit" class="up-submit" disabled>🚀 Submit inversion job to AWS</button>
+        <div class="up-pane" data-pane="5" hidden>
+          <section class="up-sec">
+            <div class="up-sec-h">Jobs<span class="up-hint" id="up-jobs-api"></span>
+              <button type="button" class="up-btn up-btn-sm" id="up-jobs-refresh" style="margin-left:auto">↻ Refresh</button></div>
+            <div id="up-jobs"></div>
+          </section>
+        </div>
+
+        <div class="up-nav">
+          <button type="button" class="up-btn" id="up-back" hidden>← Back</button>
+          <div class="up-nav-msg" id="up-nav-msg"></div>
+          <button type="button" class="up-btn up-btn-primary" id="up-next" disabled>Next: Mesh →</button>
+        </div>
         <div id="upload-status" class="up-status" hidden></div>
       </div>
     </div>
@@ -1804,7 +1904,244 @@ if(!tryEmbed()){
 window.addEventListener('resize',()=>{if(W)renderDAG();});
 
 // ══════════════════════════════════════════
-// UPLOAD PAGE
+// MESH DESIGN — data spacing and recommended cells.
+// Mirrors geoinv3d/cloud/meshing.py (tests/test_meshing.py); keep the two in step.
+// ══════════════════════════════════════════
+const GeoMesh=(function(){
+  const PAD_FACTOR=1.3, MIN_PAD_CELLS=3, MIN_CORE_CELLS=4, MAX_CELLS=500000;
+  const BYTES_PER_ENTRY=4, NN_SAMPLE=2000, MANTISSAS=[1,2,2.5,5];
+  const clean=v=>+v.toPrecision(12);
+
+  function niceNumber(x){
+    const k=Math.floor(Math.log10(x)); let best=null, bd=Infinity;
+    for(const e of [k-1,k,k+1])for(const m of MANTISSAS){
+      const c=m*10**e, d=Math.abs(Math.log(c/x)); if(d<bd){bd=d;best=c;}
+    }
+    return clean(best);
+  }
+  function nextNiceNumber(x){
+    const k=Math.floor(Math.log10(x));
+    for(const e of [k,k+1])for(const m of MANTISSAS){const c=m*10**e;if(c>x*(1+1e-9))return clean(c);}
+    return clean(10**(k+2));
+  }
+  function paddingCells(h,pad){
+    let n=0,t=0; while(t<pad&&n<200){n++;t+=h*PAD_FACTOR**n;}
+    return Math.max(MIN_PAD_CELLS,n);
+  }
+  function tensorShape(ext,h,dz,depth,pad){
+    const np=paddingCells(h,pad);
+    return [Math.max(MIN_CORE_CELLS,Math.ceil((ext[1]-ext[0])/h))+2*np,
+            Math.max(MIN_CORE_CELLS,Math.ceil((ext[3]-ext[2])/h))+2*np,
+            Math.max(MIN_CORE_CELLS,Math.ceil(depth/dz))+np];
+  }
+  function recommend(ext,spacing,nData,maxCells=MAX_CELLS,maxBytes=8e9){
+    const width=Math.max(ext[1]-ext[0],ext[3]-ext[2],MIN_CORE_CELLS*spacing);
+    let h=niceNumber(spacing); const h0=h, pad=niceNumber(0.5*width);
+    let dz,depth,shape,cells,bytes;
+    for(;;){
+      dz=h/2; depth=Math.ceil(0.5*width/dz)*dz;
+      shape=tensorShape(ext,h,dz,depth,pad); cells=shape[0]*shape[1]*shape[2];
+      bytes=nData*cells*BYTES_PER_ENTRY;
+      if((cells<=maxCells&&bytes<=maxBytes)||h>=width)break;
+      h=nextNiceNumber(h);
+    }
+    return {core_cell_m:h,core_cell_z_m:dz,depth_core_m:depth,pad_distance_m:pad,shape,
+      n_cells:cells,sensitivity_bytes:bytes,data_spacing_m:spacing,survey_width_m:width,
+      coarsened_from:h!==h0?h0:null};
+  }
+
+  // ── Station spacing (see station_spacing in meshing.py) ──
+  function convexHull(xs,ys){
+    const idx=Array.from(xs.keys()).sort((a,b)=>xs[a]-xs[b]||ys[a]-ys[b]);
+    const cross=(o,a,b)=>(xs[a]-xs[o])*(ys[b]-ys[o])-(ys[a]-ys[o])*(xs[b]-xs[o]);
+    const lo=[],up=[];
+    for(const i of idx){while(lo.length>=2&&cross(lo[lo.length-2],lo[lo.length-1],i)<=0)lo.pop();lo.push(i);}
+    for(let k=idx.length-1;k>=0;k--){const i=idx[k];
+      while(up.length>=2&&cross(up[up.length-2],up[up.length-1],i)<=0)up.pop();up.push(i);}
+    lo.pop();up.pop();return lo.concat(up);
+  }
+  function median(a){const s=[...a].sort((p,q)=>p-q),n=s.length;return n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2;}
+  function nearestMedian(xs,ys,cell){
+    const n=xs.length, step=Math.ceil(n/NN_SAMPLE), buckets=new Map();
+    let x0=Infinity,y0=Infinity; for(let i=0;i<n;i++){if(xs[i]<x0)x0=xs[i];if(ys[i]<y0)y0=ys[i];}
+    const bi=i=>[Math.floor((xs[i]-x0)/cell),Math.floor((ys[i]-y0)/cell)];
+    for(let i=0;i<n;i++){const [a,b]=bi(i),k=a+','+b;if(!buckets.has(k))buckets.set(k,[]);buckets.get(k).push(i);}
+    const out=[];
+    for(let s=0;s<n;s+=step){
+      const [a,b]=bi(s); let best=Infinity;
+      for(let r=0;r<=64;r++){
+        for(let da=-r;da<=r;da++)for(let db=-r;db<=r;db++){
+          if(Math.max(Math.abs(da),Math.abs(db))!==r)continue;
+          const list=buckets.get((a+da)+','+(b+db)); if(!list)continue;
+          for(const j of list){const d=Math.hypot(xs[j]-xs[s],ys[j]-ys[s]);if(d>0&&d<best)best=d;}
+        }
+        if(best<=r*cell)break;
+      }
+      if(best<Infinity)out.push(best);
+    }
+    return out.length?median(out):null;
+  }
+  function stationSpacing(xs,ys){
+    const n=xs.length;
+    if(n<2)throw new Error('need at least two stations');
+    let xmin=Infinity,xmax=-Infinity,ymin=Infinity,ymax=-Infinity;
+    for(let i=0;i<n;i++){const x=xs[i],y=ys[i];if(x<xmin)xmin=x;if(x>xmax)xmax=x;if(y<ymin)ymin=y;if(y>ymax)ymax=y;}
+    let area=0, perim=2*Math.max(xmax-xmin,ymax-ymin);
+    if(n>=3){
+      const h=convexHull(xs,ys);
+      if(h.length>=3){
+        area=0;perim=0;
+        for(let k=0;k<h.length;k++){const i=h[k],j=h[(k+1)%h.length];
+          area+=xs[i]*ys[j]-xs[j]*ys[i]; perim+=Math.hypot(xs[j]-xs[i],ys[j]-ys[i]);}
+        area=Math.abs(area)/2;
+      }
+    }
+    if(!(perim>0))throw new Error('all stations are at the same position');
+    const a=(perim/2+Math.sqrt(perim*perim/4+4*(n-1)*area))/(2*(n-1));
+    const nn=nearestMedian(xs,ys,a)||a, across=a*a/nn;
+    return {area_spacing:a,nn_spacing:nn,across_spacing:across,spacing:Math.max(a,across/2),
+      extent:[xmin,xmax,ymin,ymax],n};
+  }
+
+  // ── Reading coordinates in the browser (formats of the upload page) ──
+  const X_NAMES=['x','easting','east','e','utm_e','utme','utmx','x_m','lon','long','longitude'];
+  const Y_NAMES=['y','northing','north','n','utm_n','utmn','utmy','y_m','lat','latitude'];
+  const isNum=t=>t!==''&&Number.isFinite(Number(t));
+
+  function parseTable(text){
+    let header=null,lastComment=null,delim=null; const xs=[],ys=[]; let xi=0,yi=1,width=null;
+    for(const raw of text.split(/\r?\n/)){
+      const line=raw.trim(); if(!line)continue;
+      if('#/!%'.includes(line[0])){lastComment=line.replace(/^[#/!%\s]+/,'').replace(/,/g,' ').split(/\s+/);continue;}
+      if(delim===null)delim=line.includes(',')?',':line.includes(';')?';':null;
+      const tok=(delim?line.split(delim):line.split(/\s+/)).map(t=>t.trim().replace(/^["']|["']$/g,'')).filter(t=>t);
+      if(!xs.length&&header===null&&!isNum(tok[0])){header=tok;continue;}
+      if(!tok.every(isNum))continue;
+      if(width===null){
+        width=tok.length;
+        const names=(header&&header.length>=width?header:(lastComment&&lastComment.length>=width?lastComment:null));
+        if(names){const lc=names.slice(0,width).map(s=>s.toLowerCase());
+          const f=c=>{for(const nm of c){const i=lc.indexOf(nm);if(i>=0)return i;}return -1;};
+          const a=f(X_NAMES),b=f(Y_NAMES); if(a>=0&&b>=0){xi=a;yi=b;}}
+      }
+      xs.push(+tok[xi]); ys.push(+tok[yi]);
+    }
+    return {xs,ys};
+  }
+  function parseUbcObs(text){
+    const rows=text.split(/\r?\n/).map(l=>l.split('!')[0].trim().split(/\s+/).filter(Boolean)).filter(r=>r.length);
+    if(!rows.length)throw new Error('empty .obs file');
+    const start=rows[0].length===1?1:(rows[0].length>=3&&rows.length>2&&rows[2].length===1?3:null);
+    if(start===null)throw new Error('not a UBC-GIF .obs file');
+    const xs=[],ys=[];
+    for(const r of rows.slice(start))if(r.length>=4){xs.push(+r[0]);ys.push(+r[1]);}
+    return {xs,ys};
+  }
+  function gridInfo(nx,ny,x0,x1,y0,y1,format){
+    const dx=nx>1?Math.abs(x1-x0)/(nx-1):0, dy=ny>1?Math.abs(y1-y0)/(ny-1):0;
+    return {kind:'grid',format,n:nx*ny,nx,ny,dx,dy,spacing:Math.max(dx,dy),
+      extent:[Math.min(x0,x1),Math.max(x0,x1),Math.min(y0,y1),Math.max(y0,y1)]};
+  }
+  async function readGrd(file){
+    const b=await file.slice(0,64).arrayBuffer(), v=new DataView(b);
+    const tag=String.fromCharCode(...new Uint8Array(b,0,4));
+    if(tag==='DSAA'){
+      const l=(await file.slice(0,400).text()).split(/\r?\n/).map(s=>s.trim().split(/\s+/).map(Number));
+      return gridInfo(l[1][0],l[1][1],l[2][0],l[2][1],l[3][0],l[3][1],'Surfer ASCII grid');
+    }
+    if(tag==='DSBB')return gridInfo(v.getUint16(4,true),v.getUint16(6,true),v.getFloat64(8,true),
+      v.getFloat64(16,true),v.getFloat64(24,true),v.getFloat64(32,true),'Surfer 6 grid');
+    if(tag==='DSRB'){
+      const ny=v.getUint32(20,true),nx=v.getUint32(24,true),x0=v.getFloat64(28,true),y0=v.getFloat64(36,true);
+      const dx=v.getFloat64(44,true),dy=v.getFloat64(52,true);
+      return gridInfo(nx,ny,x0,x0+(nx-1)*dx,y0,y0+(ny-1)*dy,'Surfer 7 grid');
+    }
+    throw new Error('unknown .grd header '+JSON.stringify(tag));
+  }
+  async function readTiff(file){
+    const head=new DataView(await file.slice(0,16).arrayBuffer());
+    const le=head.getUint16(0)===0x4949;
+    const magic=head.getUint16(2,le);
+    if(magic===43)throw new Error('BigTIFF — resolution is read on the server');
+    if(magic!==42)throw new Error('not a TIFF file');
+    const ifd=head.getUint32(4,le);
+    const cnt=new DataView(await file.slice(ifd,ifd+2).arrayBuffer()).getUint16(0,le);
+    const ent=new DataView(await file.slice(ifd+2,ifd+2+12*cnt).arrayBuffer());
+    const tags={};
+    for(let k=0;k<cnt;k++){const o=12*k;
+      tags[ent.getUint16(o,le)]={type:ent.getUint16(o+2,le),count:ent.getUint32(o+4,le),at:o+8};}
+    const scalar=t=>{const e=tags[t];if(!e)return null;return e.type===3?ent.getUint16(e.at,le):ent.getUint32(e.at,le);};
+    const doubles=async t=>{const e=tags[t];if(!e)return null;
+      const off=ent.getUint32(e.at,le), dv=new DataView(await file.slice(off,off+8*e.count).arrayBuffer());
+      return Array.from({length:e.count},(_,i)=>dv.getFloat64(8*i,le));};
+    const w=scalar(256),h=scalar(257);
+    let sx,sy,X0,Y0;
+    const scale=await doubles(33550), tie=await doubles(33922), mt=await doubles(34264);
+    if(scale&&tie){sx=scale[0];sy=scale[1];X0=tie[3]-tie[0]*sx;Y0=tie[4]+tie[1]*sy;}
+    else if(mt){sx=mt[0];sy=-mt[5];X0=mt[3];Y0=mt[7];}
+    else throw new Error('no GeoTIFF georeferencing tags');
+    return gridInfo(w,h,X0+sx/2,X0+(w-0.5)*sx,Y0-sy/2,Y0-(h-0.5)*sy,'GeoTIFF');
+  }
+  function parseNpy(buf){
+    const u8=new Uint8Array(buf), dv=new DataView(buf);
+    if(u8[0]!==0x93||String.fromCharCode(...u8.slice(1,6))!=='NUMPY')throw new Error('bad .npy entry');
+    const major=u8[6], hlen=major===1?dv.getUint16(8,true):dv.getUint32(8,true), hstart=major===1?10:12;
+    const hdr=new TextDecoder().decode(u8.slice(hstart,hstart+hlen));
+    const descr=/'descr':\s*'([^']+)'/.exec(hdr)[1], fortran=/'fortran_order':\s*True/.test(hdr);
+    const shape=/'shape':\s*\(([^)]*)\)/.exec(hdr)[1].split(',').map(s=>s.trim()).filter(Boolean).map(Number);
+    const data=buf.slice(hstart+hlen);
+    const T={'<f8':Float64Array,'<f4':Float32Array,'<i4':Int32Array,'<i8':BigInt64Array}[descr];
+    if(!T)throw new Error('unsupported dtype '+descr);
+    let arr=new T(data); if(T===BigInt64Array)arr=Float64Array.from(arr,Number);
+    return {arr,shape,fortran};
+  }
+  async function readNpz(file){
+    const buf=await file.arrayBuffer(), dv=new DataView(buf), u8=new Uint8Array(buf);
+    let eocd=-1; for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-65557);i--)if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}
+    if(eocd<0)throw new Error('not a zip archive');
+    const entries={}; let p=dv.getUint32(eocd+16,true);
+    for(let k=0,n=dv.getUint16(eocd+10,true);k<n;k++){
+      const method=dv.getUint16(p+10,true), csize=dv.getUint32(p+20,true);
+      const nl=dv.getUint16(p+28,true),el=dv.getUint16(p+30,true),cl=dv.getUint16(p+32,true),lho=dv.getUint32(p+42,true);
+      const name=new TextDecoder().decode(u8.slice(p+46,p+46+nl)).replace(/\.npy$/,'');
+      const start=lho+30+dv.getUint16(lho+26,true)+dv.getUint16(lho+28,true);
+      entries[name]={method,raw:buf.slice(start,start+csize)};
+      p+=46+nl+el+cl;
+    }
+    const get=async k=>{const e=entries[k];if(!e)return null;
+      if(e.method===0)return parseNpy(e.raw);
+      if(e.method!==8)throw new Error('unsupported zip compression');
+      const s=new Blob([e.raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      return parseNpy(await new Response(s).arrayBuffer());};
+    for(const k of ['locations','xyz','locs','receiver_locations']){
+      const a=await get(k); if(!a)continue;
+      const n=a.shape[0], c=a.shape[1]||1, xs=new Float64Array(n), ys=new Float64Array(n);
+      for(let i=0;i<n;i++){xs[i]=a.fortran?a.arr[i]:a.arr[i*c];ys[i]=a.fortran?a.arr[n+i]:a.arr[i*c+1];}
+      return {xs,ys};
+    }
+    const x=await get('x'),y=await get('y');
+    if(x&&y)return {xs:x.arr,ys:y.arr};
+    throw new Error("no 'locations' or 'x'/'y' arrays");
+  }
+  async function inspectFile(file){
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    let pts,format;
+    if(ext==='grd')return await readGrd(file);
+    if(ext==='tif'||ext==='tiff')return await readTiff(file);
+    if(ext==='obs'){pts=parseUbcObs(await file.text());format='UBC-GIF .obs';}
+    else if(ext==='npz'){pts=await readNpz(file);format='NumPy .npz';}
+    else if(['csv','txt','dat','xyz'].includes(ext)){pts=parseTable(await file.text());format='Table (.'+ext+')';}
+    else throw new Error('unsupported format .'+ext);
+    const xs=[],ys=[];
+    for(let i=0;i<pts.xs.length;i++){const x=+pts.xs[i],y=+pts.ys[i];if(Number.isFinite(x)&&Number.isFinite(y)){xs.push(x);ys.push(y);}}
+    return {kind:'points',format,...stationSpacing(xs,ys)};
+  }
+  return {niceNumber,nextNiceNumber,paddingCells,tensorShape,recommend,stationSpacing,inspectFile,MAX_CELLS};
+})();
+window.GeoMesh=GeoMesh;
+
+// ══════════════════════════════════════════
+// UPLOAD PAGE — a four-step wizard: data → mesh → inversion → review & submit
 // ══════════════════════════════════════════
 (function(){
   const $u=id=>document.getElementById(id);
@@ -1912,7 +2249,7 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
     $u('up-norm-custom').hidden=v!=='custom';
     if(v!=='custom'){const p=v.split(',');['s','x','y','z'].forEach((a,i)=>$u('up-p-'+a).value=p[i]);}
   });
-  $u('upload-method').addEventListener('change',()=>{methodPicked=true;updateMode();});
+  $u('upload-method').addEventListener('change',()=>{methodPicked=true;updateMode();dataChanged();});
 
   // ── Method list follows the uploaded data types ──
   function loadedTypes(){return UP_TYPES.filter(t=>files[t.key].length);}
@@ -1948,8 +2285,8 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
       const vals=opts.map(o=>o[0]);
       sel.value=methodPicked&&vals.includes(prev)?prev:(L.length>=2?`joint:${L.map(t=>t.key).join('+')}`:vals[0]);
     }
-    $u('upload-submit').disabled=!L.length;
     updateMode();
+    dataChanged();
   }
 
   function selection(){
@@ -1974,6 +2311,324 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
       box.innerHTML=s.types.map(t=>`<div class="up-col"><label class="up-lbl" for="up-jw-${t.key}">${t.label} data weight</label>`+
         `<input id="up-jw-${t.key}" type="number" step="any" min="0" class="up-in" value="${keep['up-jw-'+t.key]??1}"></div>`).join('');
     }
+  }
+
+  // ── Wizard: data → mesh → inversion → review & submit ──
+  const STEP_NEXT={1:'Next: Mesh →',2:'Next: Inversion →',3:'Next: Review →'};
+  let step=1, maxStep=1;
+
+  function showStep(n){
+    step=n; if(n<=4)maxStep=Math.max(maxStep,n);
+    if(n!==5)clearTimeout(jobsTimer);
+    document.querySelectorAll('#panel-upload .up-pane').forEach(p=>p.hidden=+p.dataset.pane!==n);
+    document.querySelectorAll('#up-stepper .up-stp').forEach(b=>{
+      const k=+b.dataset.go;
+      b.classList.toggle('active',k===n); b.classList.toggle('done',k<n&&k<=maxStep);
+      b.disabled=k!==5&&k>maxStep;
+    });
+    $u('up-back').hidden=n===1;
+    $u('up-back').textContent=n===5?'← Back to the job setup':'← Back';
+    $u('up-next').hidden=n>=4;
+    $u('up-next').textContent=STEP_NEXT[n]||'';
+    $u('up-next').disabled=n===1&&!loadedTypes().length;
+    $u('up-nav-msg').textContent=n===1&&!loadedTypes().length?'Upload observed data to continue':'';
+    $u('panel-upload').querySelector('.up-scroll').scrollTop=0;
+  }
+
+  // Leaving a step validates it; entering the mesh step reads the files
+  async function goTo(n){
+    if(n===step)return;
+    if(n<=4){
+      try{
+        if(step<=1&&n>=2){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();}
+        if(step<=2&&n>=3)meshParams();
+        if(n===4)renderReview(buildJobs());
+      }catch(err){showStatus(`<div class="up-err">⚠ ${escH(err.message)}</div>`);return;}
+    }
+    $u('upload-status').hidden=true;
+    showStep(n);
+    if(n===2)renderMesh();
+    if(n===5)loadJobs();
+  }
+  $u('up-next').addEventListener('click',()=>goTo(step+1));
+  $u('up-back').addEventListener('click',()=>goTo(step===5?maxStep:step-1));
+  $u('up-stepper').addEventListener('click',e=>{
+    const b=e.target.closest('[data-go]'); if(b&&!b.disabled)goTo(+b.dataset.go);
+  });
+
+  // Changing the data or the method invalidates the mesh analysis
+  function dataChanged(){
+    if(selectionKey()!==analysisKey)maxStep=1;
+    showStep(Math.min(step,maxStep));
+  }
+
+  // ── Step 2: data resolution and mesh design ──
+  const INSTANCE_RAM_GB={'c5.xlarge':8,'c5.2xlarge':16,'c5.4xlarge':32,'c5.9xlarge':72};
+  const MESH_INPUTS=[['core_cell_m','up-mesh-h','horizontal cell'],['core_cell_z_m','up-mesh-dz','vertical cell'],
+    ['depth_core_m','up-mesh-depth','core depth'],['pad_distance_m','up-mesh-pad','padding distance']];
+  let analysis=null, analysisKey='', recommended=null, meshEdited=false;
+  const fileInfo=new WeakMap();
+  const inspect=f=>{if(!fileInfo.has(f))fileInfo.set(f,GeoMesh.inspectFile(f).catch(e=>({error:e.message||String(e)})));return fileInfo.get(f);};
+  const fmtLen=m=>m==null||!isFinite(m)?'—':m>=1000?+(m/1000).toPrecision(4)+' km':+m.toPrecision(4)+' m';
+  const fmtInt=n=>Math.round(n).toLocaleString('en-US');
+  const fmtBytes=b=>b>=1e9?(b/1e9).toFixed(1)+' GB':(b/1e6).toFixed(b>=1e7?0:1)+' MB';
+  const ramBytes=()=>(INSTANCE_RAM_GB[$u('upload-instance').value]||16)*1e9;
+
+  function selectionKey(){
+    const s=selection(); if(!s)return '';
+    return s.mode+'|'+s.types.map(t=>t.key+':'+files[t.key].map(f=>f.name+'/'+f.size).join(',')).join(';');
+  }
+
+  async function analyse(){
+    const key=selectionKey(); if(analysis&&key===analysisKey)return;
+    $u('up-res').innerHTML='<div class="up-hint">Reading files…</div>';
+    const s=selection(), rows=[];
+    for(const t of s.types)for(const f of files[t.key])rows.push({t,f,info:await inspect(f)});
+    const ds=s.types.map(t=>{
+      const ok=rows.filter(r=>r.t===t&&!r.info.error);
+      const best=ok.filter(r=>r.info.spacing>0).sort((a,b)=>a.info.spacing-b.info.spacing)[0];
+      const ext=ok.map(r=>r.info.extent);
+      return {t,n:ok.reduce((a,r)=>a+r.info.n,0),spacing:best?best.info.spacing:null,kind:best?best.info.kind:'',
+        extent:ext.length?[Math.min(...ext.map(e=>e[0])),Math.max(...ext.map(e=>e[1])),Math.min(...ext.map(e=>e[2])),Math.max(...ext.map(e=>e[3]))]:null};
+    });
+    const ex=ds.map(d=>d.extent).filter(Boolean), sp=ds.map(d=>d.spacing).filter(v=>v>0);
+    analysis={rows,ds,nData:ds.reduce((a,d)=>a+d.n,0),spacing:sp.length?Math.min(...sp):null,
+      extent:ex.length?[Math.min(...ex.map(e=>e[0])),Math.max(...ex.map(e=>e[1])),Math.min(...ex.map(e=>e[2])),Math.max(...ex.map(e=>e[3]))]:null};
+    analysisKey=key;
+    renderResolution();
+    recommend();
+  }
+
+  function renderResolution(){
+    const cells=r=>{
+      const i=r.info;
+      if(i.error)return `<td colspan="4" class="up-err">Could not read in the browser: ${escH(i.error)}. The server will still read it.</td>`;
+      const w=i.extent[1]-i.extent[0], h=i.extent[3]-i.extent[2];
+      const sp=i.kind==='grid'?`${fmtLen(i.spacing)} <span class="up-en">grid ${fmtLen(i.dx)} × ${fmtLen(i.dy)}</span>`
+        :`${fmtLen(i.spacing)} <span class="up-en">`+(i.across_spacing>10*i.nn_spacing   // random scatter gives ~4.5, lines far more
+          ?`line spacing ≈ ${fmtLen(i.across_spacing)}, along-line ${fmtLen(i.nn_spacing)}`
+          :`nearest neighbour ${fmtLen(i.nn_spacing)}`)+'</span>';
+      const deg=Math.abs(i.extent[0])<=360&&Math.abs(i.extent[2])<=90&&w<20&&h<20
+        ?' <span class="up-warn">coordinates look like degrees — use projected metres</span>':'';
+      return `<td>${escH(i.format)}</td><td class="num">${fmtInt(i.n)}${i.kind==='grid'?' nodes':''}</td>`+
+        `<td class="num">${fmtLen(w)} × ${fmtLen(h)}</td><td>${sp}${deg}</td>`;
+    };
+    $u('up-res').innerHTML=`<table class="up-tbl"><thead><tr><th>Data</th><th>File</th><th>Format</th>
+      <th style="text-align:right">Points</th><th style="text-align:right">Extent (E × N)</th><th>Data spacing</th></tr></thead><tbody>`+
+      analysis.rows.map(r=>`<tr><td><span class="up-dot" style="--c:${r.t.color};display:inline-block;margin-right:5px"></span>${r.t.label}</td>`+
+        `<td>${escH(r.f.name)}</td>${cells(r)}</tr>`).join('')+'</tbody></table>';
+  }
+
+  function setMeshInputs(v){MESH_INPUTS.forEach(([k,id])=>{$u(id).value=v[k];});}
+
+  function recommend(){
+    recommended=analysis&&analysis.extent&&analysis.spacing
+      ?GeoMesh.recommend(analysis.extent,analysis.spacing,analysis.nData,GeoMesh.MAX_CELLS,0.5*ramBytes()):null;
+    if(recommended&&!meshEdited)setMeshInputs(recommended);
+    renderMesh();
+  }
+
+  function renderMesh(){
+    const box=$u('up-mesh-rec'), est=$u('up-mesh-est');
+    if(!analysis){box.innerHTML='';est.innerHTML='';return;}
+    if(recommended){
+      const r=recommended, finest=analysis.ds.find(d=>d.spacing===analysis.spacing);
+      box.innerHTML=`<div>Recommended: <b>${fmtLen(r.core_cell_m)}</b> horizontal × <b>${fmtLen(r.core_cell_z_m)}</b> vertical cells, `+
+        `core <b>${fmtLen(r.depth_core_m)}</b> deep, <b>${fmtLen(r.pad_distance_m)}</b> padding.<br>`+
+        `<span class="up-en">Cells match the ${fmtLen(analysis.spacing)} data spacing${finest&&analysis.ds.length>1?' of '+finest.t.label.toLowerCase():''}; `+
+        `core depth and padding are half the ${fmtLen(r.survey_width_m)} survey width.`+
+        (r.coarsened_from?` Cells were enlarged from ${fmtLen(r.coarsened_from)} to stay within the budget (≤ ${fmtInt(GeoMesh.MAX_CELLS)} cells, sensitivities ≤ half the instance RAM).`:'')+
+        (analysis.ds.length>1&&selection().mode==='separate'?' Separate jobs all use these settings.':'')+
+        `</span></div><button type="button" class="up-btn" id="up-mesh-reset"${meshEdited?'':' disabled'}>Use recommended</button>`;
+      $u('up-mesh-reset').onclick=()=>{meshEdited=false;setMeshInputs(recommended);renderMesh();};
+    }else{
+      box.innerHTML='<div class="up-warn">No data spacing could be read in the browser — enter the mesh by hand, or leave it for the server to design from the data.</div>';
+    }
+    let v; try{v=readMesh();}catch(err){est.innerHTML=`<span class="up-err">${escH(err.message)}</span>`;return;}
+    if(!analysis.extent){est.innerHTML='';return;}
+    const shape=GeoMesh.tensorShape(analysis.extent,v.core_cell_m,v.core_cell_z_m,v.depth_core_m,v.pad_distance_m);
+    const n=shape[0]*shape[1]*shape[2], g=analysis.nData*n*4, ram=ramBytes();
+    const octree=$u('upload-mesh').value==='octree';
+    const warn=[];
+    if(g>0.5*ram)warn.push(`the sensitivity matrix (${fmtBytes(g)}) exceeds half of the ${$u('upload-instance').value} RAM — use larger cells or a bigger instance`);
+    if(n>GeoMesh.MAX_CELLS)warn.push(`more than ${fmtInt(GeoMesh.MAX_CELLS)} cells — runs will be slow`);
+    if(v.core_cell_m<0.5*analysis.spacing)warn.push('cells much finer than the data spacing add cost but little resolution');
+    est.innerHTML=`${octree?'Tensor-equivalent size':'Mesh size'}: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `+
+      `sensitivity matrix ≈ <b>${fmtBytes(g)}</b> for ${fmtInt(analysis.nData)} data`+
+      (octree?'<br><span class="up-en">OcTree keeps the finest cells only near the surface, so it uses fewer cells than this.</span>':'')+
+      (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
+      warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
+  }
+
+  function readMesh(){
+    const v={};
+    for(const [k,id,label] of MESH_INPUTS){
+      v[k]=num(id,label,{min:0});
+      if(k!=='pad_distance_m'&&!(v[k]>0))throw new Error(`The ${label} must be greater than 0`);
+    }
+    if(v.depth_core_m<v.core_cell_z_m)throw new Error('The core depth must be at least one vertical cell');
+    return v;
+  }
+
+  // Mesh settings sent with every job, with how they were chosen
+  function meshParams(){
+    const v=readMesh();
+    return {...v,mesh_design:{
+      edited:meshEdited,
+      recommended:recommended&&Object.fromEntries(MESH_INPUTS.map(([k])=>[k,recommended[k]]).concat([['coarsened_from',recommended.coarsened_from]])),
+      data_spacing:analysis?analysis.ds.map(d=>({type:d.t.key,spacing_m:d.spacing,kind:d.kind,n:d.n})):[]}};
+  }
+
+  MESH_INPUTS.forEach(([,id])=>$u(id).addEventListener('input',()=>{meshEdited=true;renderMesh();}));
+  $u('upload-instance').addEventListener('change',recommend);
+  $u('upload-mesh').addEventListener('change',renderMesh);
+
+  // ── Step 5: jobs — status, progress, logs, stop, results ──
+  const apiBase=()=>window.GEOINV3D_API||'http://localhost:8000';
+  const PHASES=['Submitted','Queued','Starting','Running','Done'];
+  const STATUS={
+    SUBMITTED:{label:'Submitted',cls:'q',phase:0}, PENDING:{label:'Submitted',cls:'q',phase:0},
+    RUNNABLE:{label:'Waiting for an instance',cls:'q',phase:1},
+    STARTING:{label:'Starting container',cls:'q',phase:2}, RUNNING:{label:'Running',cls:'run',phase:3},
+    SUCCEEDED:{label:'Finished',cls:'ok',phase:4}, FAILED:{label:'Failed',cls:'fail',phase:4},
+    CANCELLED:{label:'Stopped',cls:'off',phase:4}, UNKNOWN:{label:'Unknown',cls:'off',phase:0}};
+  const STAGES={starting:'Starting the worker',downloading:'Downloading data from S3',loading_data:'Reading the data',
+    building_mesh:'Building the mesh',inverting:'Inverting',uploading:'Uploading results',done:'Done',failed:'Failed'};
+  const PRICE_PER_HOUR={'c5.xlarge':0.17,'c5.2xlarge':0.34,'c5.4xlarge':0.68,'c5.9xlarge':1.53};
+  const ACTIVE=s=>!['SUCCEEDED','FAILED','CANCELLED','UNKNOWN'].includes(s);
+  const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000));
+    return s<60?s+' s':s<3600?Math.floor(s/60)+' min '+(s%60)+' s':Math.floor(s/3600)+' h '+Math.floor(s%3600/60)+' min';};
+  let jobsTimer=null, jobsCache=[];
+
+  async function loadJobs(){
+    clearTimeout(jobsTimer);
+    const note=$u('up-jobs-api');
+    try{
+      const r=await fetch(apiBase()+'/api/jobs');
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      jobsCache=(await r.json()).jobs||[];
+      note.innerHTML=`<span style="color:var(--green)">●</span> ${escH(apiBase())} · updated ${new Date().toLocaleTimeString()}`;
+      renderJobs();
+      if(step===5&&jobsCache.some(j=>ACTIVE(j.display_status)))jobsTimer=setTimeout(loadJobs,15000);
+    }catch(err){
+      note.innerHTML=`<span class="up-err">● API not reachable at ${escH(apiBase())}</span>`;
+      $u('up-jobs').innerHTML=`<div class="up-card up-note">The job list comes from the GeoInv3D API server on this machine. `+
+        `Start it with <code>python -m geoinv3d.api</code> (it uses this machine's AWS credentials), then press Refresh.</div>`;
+    }
+  }
+
+  function renderJobs(){
+    const box=$u('up-jobs');
+    if(!jobsCache.length){box.innerHTML='<div class="up-card up-note">No jobs submitted from this machine yet.</div>';return;}
+    const openLogs=new Set([...box.querySelectorAll('.up-logs:not([hidden])')].map(p=>p.dataset.job));
+    box.innerHTML=jobsCache.map(jobCard).join('');
+    openLogs.forEach(id=>showLogs(id));
+  }
+
+  function jobCard(j){
+    const st=STATUS[j.display_status]||STATUS.UNKNOWN, now=Date.now();
+    const phases=PHASES.map((p,i)=>`<span class="up-ph${i<st.phase||(i===st.phase&&st.phase===4)?' done':''}${i===st.phase&&st.phase<4?' now':''}">${p}</span>`).join('');
+    const started=j.started, stopped=j.stopped;
+    const runMs=started?(stopped||now)-started:0, price=PRICE_PER_HOUR[j.instance_type];
+    const meta=[`Job <code>${escH(j.job_id)}</code>`, j.instance_type&&escH(j.instance_type),
+      j.submitted_at&&`submitted ${new Date(j.submitted_at).toLocaleString()}`,
+      started&&`${stopped||!ACTIVE(j.display_status)?'ran':'running for'} ${fmtDur(runMs)}`+(price?` · ≈ $${(price*runMs/3.6e6).toFixed(2)}`:''),
+      !started&&ACTIVE(j.display_status)&&j.created&&`waiting ${fmtDur(now-j.created)}`].filter(Boolean).join(' · ');
+    let body='';
+    const p=j.progress;
+    if(p&&ACTIVE(j.display_status)){
+      body+=`<div class="up-job-stage">${escH(STAGES[p.stage]||p.stage)}${p.message?': '+escH(p.message):''}</div>`;
+      if(p.stage==='inverting'&&p.iteration!=null&&p.max_iter){
+        const pct=Math.min(100,100*p.iteration/p.max_iter);
+        body+=`<div class="up-bar"><i style="width:${pct}%"></i></div><div class="up-job-meta">iteration ${p.iteration} of at most ${p.max_iter}`+
+          (p.phi_d!=null?` · φ<sub>d</sub> = ${fmtN(p.phi_d)}`+(p.phi_d_target?` (target ${fmtN(p.phi_d_target)})`:''):'')+'</div>';
+      }
+    }else if(j.display_status==='RUNNABLE'){
+      body+='<div class="up-job-meta">AWS Batch is starting an instance for the job; this usually takes a few minutes.</div>';
+    }
+    const s=j.summary;
+    if(j.display_status==='SUCCEEDED'&&s){
+      body+=`<div class="up-job-stage">${s.n_iterations} iterations`+(s.final_phi_d!=null?` · final φ<sub>d</sub> = ${fmtN(s.final_phi_d)}`+(s.n_data?` (χ²/N = ${(s.final_phi_d/s.n_data).toFixed(2)})`:''):'')+'</div>';
+      (s.notes||[]).forEach(n=>{body+=`<div class="up-warn" style="font-size:11px">⚠ ${escH(n)}</div>`;});
+    }
+    if(j.display_status==='FAILED'){
+      body+=`<div class="up-err">${escH((s&&s.error)||j.reason||'The job failed')}</div>`;
+    }
+    if(j.refresh_error)body+=`<div class="up-warn" style="font-size:11px">Could not refresh from AWS: ${escH(j.refresh_error)}</div>`;
+    const title=[j.inversion_mode==='joint'?'Joint':j.method, j.regularization_type].filter(Boolean).join(' · ');
+    return `<div class="up-card up-job">
+      <div class="up-job-h"><b>${escH(title||'Inversion')}</b>${j.note?`<span class="up-en">${escH(j.note)}</span>`:''}
+        <span class="up-badge ${st.cls}">${st.label}</span></div>
+      <div class="up-phases">${phases}</div>
+      <div class="up-job-meta">${meta}</div>
+      ${body}
+      <div class="up-row">
+        ${ACTIVE(j.display_status)?`<button type="button" class="up-btn up-btn-sm up-btn-danger" data-stop="${escH(j.job_id)}">■ Stop job</button>`:''}
+        <button type="button" class="up-btn up-btn-sm" data-logs="${escH(j.job_id)}">Log</button>
+        ${j.display_status==='SUCCEEDED'?`<a class="up-btn up-btn-sm" href="${escH(apiBase())}/api/inversion/${encodeURIComponent(j.job_id)}/result" download>⬇ Download result</a>`:''}
+      </div>
+      <pre class="up-logs" data-job="${escH(j.job_id)}" hidden></pre>
+    </div>`;
+  }
+
+  async function showLogs(id){
+    const pre=[...$u('up-jobs').querySelectorAll('.up-logs')].find(p=>p.dataset.job===id); if(!pre)return;
+    pre.hidden=false; pre.textContent='Loading…';
+    try{
+      const r=await fetch(`${apiBase()}/api/inversion/${encodeURIComponent(id)}/logs?limit=200`);
+      if(!r.ok)throw new Error('HTTP '+r.status+' '+((await r.json().catch(()=>({}))).detail||''));
+      const d=await r.json();
+      pre.textContent=d.lines.length?d.lines.join('\n'):(d.message||'(empty)');
+      pre.scrollTop=pre.scrollHeight;
+    }catch(err){pre.textContent='Could not load the log: '+err.message;}
+  }
+
+  async function stopJob(id){
+    const j=jobsCache.find(x=>x.job_id===id);
+    const running=j&&['STARTING','RUNNING'].includes(j.display_status);
+    if(!confirm(`Stop job ${id}?\n\n`+(running
+      ?'The running inversion is terminated and its results are lost. AWS stops charging once the instance shuts down.'
+      :'The job is removed from the queue before it starts.')))return;
+    try{
+      const r=await fetch(`${apiBase()}/api/inversion/${encodeURIComponent(id)}`,{method:'DELETE'});
+      if(!r.ok)throw new Error('HTTP '+r.status+' '+((await r.json().catch(()=>({}))).detail||''));
+    }catch(err){showStatus(`<div class="up-err">⚠ Could not stop ${escH(id)}: ${escH(err.message)}</div>`);}
+    loadJobs();
+  }
+
+  $u('up-jobs').addEventListener('click',e=>{
+    const stop=e.target.closest('[data-stop]'), logs=e.target.closest('[data-logs]');
+    if(stop)stopJob(stop.dataset.stop);
+    if(logs){
+      const pre=[...$u('up-jobs').querySelectorAll('.up-logs')].find(p=>p.dataset.job===logs.dataset.logs);
+      if(pre&&!pre.hidden)pre.hidden=true; else showLogs(logs.dataset.logs);
+    }
+  });
+  $u('up-jobs-refresh').addEventListener('click',loadJobs);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&step===5)loadJobs();});
+
+  // ── Step 4: review ──
+  function renderReview(jobs){
+    const s=selection(), p=jobs[0].params, m=meshParams();
+    const modeTxt={single:'Single inversion',separate:`Separate inversions (${jobs.length} jobs)`,joint:'Joint inversion with cross-gradient coupling'}[s.mode];
+    const dataTxt=s.types.map(t=>{
+      const d=analysis&&analysis.ds.find(x=>x.t===t);
+      return `${t.label}: ${files[t.key].length} file${files[t.key].length>1?'s':''}`+(d?`, ${fmtInt(d.n)} points, spacing ${fmtLen(d.spacing)}`:'');
+    }).join('<br>');
+    const shape=analysis&&analysis.extent?GeoMesh.tensorShape(analysis.extent,m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m):null;
+    const regTxt=p.param_mode==='auto'?'Auto — sparse IRLS, p = [0, 2, 2, 1], β by χ² = N'
+      :`${escH(regSummary(p))} · β/λ: ${escH(p.beta_selection||'auto')}`+(p.bounds_lower!=null||p.bounds_upper!=null?` · bounds [${p.bounds_lower??'−∞'}, ${p.bounds_upper??'∞'}]`:'');
+    const rows=[
+      ['Data',dataTxt],
+      ['Inversion',modeTxt],
+      ['Topography',topoFile?`DEM: ${escH(topoFile.name)}`:`Flat at ${escH(p.topography.flat_elevation)} m`],
+      ['Mesh',`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
+        (shape?` · ≈ ${fmtInt(shape[0]*shape[1]*shape[2])} cells`:'')+(meshEdited?' (edited)':recommended?' (recommended)':'')],
+      ['Compute',escH($u('upload-instance').selectedOptions[0].textContent)],
+      ['Regularization',regTxt],
+      ['Iterations',`max ${p.max_iter??30} · IRLS max ${p.max_irls_iterations??30}`],
+    ];
+    $u('up-review').innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
   }
 
   // ── Build the job specs sent to the API ──
@@ -2042,7 +2697,7 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
     const s=selection(), reg=regParams();
     const topography=topoFile?{file:topoFile.name}:{flat_elevation:num('up-flat-elev','flat topography elevation')};
     const extra=topoFile?[topoFile]:[];
-    const regularization_type=reg.regularization_type;
+    const regularization_type=reg.regularization_type, mesh=meshParams();
     if(s.mode==='joint'){
       const specs=s.types.map(datasetSpec);
       const jointP=paramMode==='manual'?{
@@ -2051,14 +2706,14 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
       return [{method:'joint',files:[...s.types.flatMap(t=>files[t.key]),...extra],params:{
         method_type:'joint',inversion_mode:'joint',regularization_type,datasets:specs,
         joint_methods:specs.map(d=>d.method),joint_kwargs_list:specs.map(d=>d.method_kwargs||{}),
-        topography,...reg,...jointP}}];
+        topography,...reg,...jointP,...mesh}}];
     }
     return s.types.map(t=>{
       const d=datasetSpec(t);
       return {method:d.method,files:[...files[t.key],...extra],params:{
         method_type:d.method,inversion_mode:'single',regularization_type,datasets:[d],
         data_file:d.files[0],noise_pct:d.noise_pct,noise_floor:d.noise_floor,
-        method_kwargs:d.method_kwargs||{},topography,...reg}};
+        method_kwargs:d.method_kwargs||{},topography,...reg,...mesh}};
     });
   }
 
@@ -2090,12 +2745,14 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
         rows.push(`<div class="up-err">⚠ ${escH(job.method)} submission failed: ${escH(err.message)}</div>`);
       }
     }
-    const failed=rows.some(r=>r.includes('up-err'));
+    const failed=rows.some(r=>r.includes('up-err')), anyOk=rows.some(r=>!r.includes('up-err'));
+    btn.textContent=label; btn.disabled=false;
+    if(anyOk){await goTo(5);}
     showStatus(rows.join('')+(failed?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Make sure the backend API is running (python -m geoinv3d.api)</div>':''));
-    btn.textContent=label; btn.disabled=!loadedTypes().length;
   });
 
   refresh();
+  showStep(1);
 })();
 </script>
 

@@ -322,3 +322,60 @@ conclusion revised in the report).
 Not run after the last changes: the full test suite (the user will test locally).
 Last full run: 137 passed; since then the affected suites passed (regparam, l1l2_cda,
 regularized_node, pipeline choices/positivity).
+
+---
+
+## 2026-09-26 — Data-Driven Mesh Design and a Step-by-Step Upload Page
+
+**Mesh from the data** (`cloud/meshing.py`, mirrored as `GeoMesh` in `viz/dag_interactive.html`;
+both implement the same rules and must be changed together; `tests/test_meshing.py`):
+- Data spacing: grid spacing for grids; for stations the area per station
+  (N s² = A + P s/2 + s² on the convex hull: exact for grids, L/(N−1) on a line), but at
+  least half the across-line spacing (area² / nearest-neighbour median), so 5 m along-line
+  airborne sampling does not ask for 5 m cells.
+- Recommended: horizontal cell = nice(spacing), vertical = half, core depth and padding =
+  half the survey width; cells are stepped up while > 500 k cells or the float32
+  sensitivity matrix > half the instance RAM (8 GB on the server).
+- The pipeline fills missing `core_cell_m` / `core_cell_z_m` / `depth_core_m` /
+  `pad_distance_m` from the recommendation and reports `mesh_design`
+  (source auto / user / mixed, per-dataset spacing, recommended vs used).
+- Fix: padding cell count ignored the 1.3 expansion (100 m cells, 2 km padding → 20 cells
+  reaching ~80 km); it now stops once the expanding cells reach the padding distance.
+
+**Upload page as a wizard**: 1 Data (cards, topography, what to invert) → 2 Mesh (data
+resolution read in the browser from .csv/.xyz/.txt/.dat, UBC .obs, Surfer 6/7/ASCII .grd,
+GeoTIFF and .npz; recommended mesh, editable, live cell and memory estimate; instance type)
+→ 3 Inversion (regularization) → 4 Review & submit. Changing the data re-locks later steps.
+Browser parsers and recommendations were checked against Python on nine files in every
+format and five recommendation cases (identical).
+
+---
+
+## 2026-09-26 — Job Monitoring (Upload Step 5) and AWS Fixes
+
+**What Submit does**: the page POSTs each job to the local API (`python -m geoinv3d.api`,
+127.0.0.1:8000). The API uploads the files and `params.json` to
+`s3://<bucket>/geoinv3d/jobs/<task_id>/`, submits an AWS Batch job (image from the job
+definition) and records the job in `~/.geoinv3d/jobs.json`. The worker downloads the data, runs
+`run_data_pipeline`, and writes `progress.json` (stage, iteration, φd vs target; at most
+every 10 s), then `result.zip` and `result.json`.
+
+**Step 5 "Jobs"**: lists jobs with Batch lifecycle (Submitted → Queued/RUNNABLE → Starting →
+Running → Done), stage and iteration progress, run time and cost estimate, worker log
+(CloudWatch), Stop (confirmation), and result download; polls every 15 s while a job is active.
+
+**Fixes**:
+- Stop used `CancelJob`, which does nothing to STARTING/RUNNING jobs (the instance kept
+  running and billing); now `TerminateJob`, and the job shows as Stopped.
+- The worker exited 0 after an error, so failed inversions showed as SUCCEEDED; it now uploads
+  the error and exits 1.
+- The instance type chosen on the page was ignored; it now sets the job's vCPU/memory request
+  (`INSTANCE_RESOURCES`).
+- Job records lived only in server memory; the API listened on 0.0.0.0 (anyone on the network
+  could start jobs with this machine's AWS credentials; now 127.0.0.1); upload file names are
+  reduced to their base name (no `../`).
+- Docker image lacked rasterio (GeoTIFF uploads).
+
+**Deploying**: the worker code is baked into the Docker image, so every change under
+`geoinv3d/` needs the image rebuilt and pushed to ECR before AWS runs it. Tests use fake
+S3/Batch/Logs clients only (`tests/test_aws_jobs.py` refuses real boto3 clients).

@@ -21,7 +21,8 @@ dependencies = [
 [project.optional-dependencies]
 viz = ["pyvista>=0.40", "vtk>=9.2"]
 full = ["pyvista>=0.40", "vtk>=9.2", "networkx>=3.0"]
-dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
+dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0", "httpx>=0.24"]
+cloud = ["boto3>=1.28", "fastapi>=0.100", "uvicorn>=0.23", "python-multipart>=0.0.6"]
 
 [project.scripts]
 geoinv3d = "geoinv3d.app:main"

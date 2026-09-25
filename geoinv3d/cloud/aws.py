@@ -31,6 +31,26 @@ from typing import Any, Optional
 
 from .task import InversionTask, pack_task, unpack_task
 
+# vCPUs and memory (MiB) requested for each instance choice on the upload page.
+# Batch places the job on an instance of its compute environment that fits the
+# request; memory stays below the instance's RAM to leave room for the agent.
+INSTANCE_RESOURCES = {
+    "c5.xlarge": (4, 7000),
+    "c5.2xlarge": (8, 14500),
+    "c5.4xlarge": (16, 29500),
+    "c5.9xlarge": (36, 68000),
+}
+TERMINAL_STATUSES = ("SUCCEEDED", "FAILED")
+LOG_GROUP = "/aws/batch/geoinv3d"   # deploy/batch-job-definition.json
+
+
+def task_id_from_job_name(name: str) -> str | None:
+    """Task id encoded in the Batch job name (geoinv3d[-pipeline]-<task_id>)."""
+    for prefix in ("geoinv3d-pipeline-", "geoinv3d-"):
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return None
+
 
 class AWSRunner:
     """Submit and manage inversion jobs on AWS."""
@@ -50,6 +70,7 @@ class AWSRunner:
         self.prefix = prefix
         self._s3 = None
         self._batch = None
+        self._logs = None
 
     @property
     def s3(self):
@@ -64,6 +85,13 @@ class AWSRunner:
             import boto3
             self._batch = boto3.client("batch", region_name=self.region)
         return self._batch
+
+    @property
+    def logs(self):
+        if self._logs is None:
+            import boto3
+            self._logs = boto3.client("logs", region_name=self.region)
+        return self._logs
 
     # ---- Workflow 1: Pre-packed task ----
 
@@ -138,6 +166,7 @@ class AWSRunner:
         task_id: str,
         data_prefix: str,
         params: dict,
+        instance_type: Optional[str] = None,
     ) -> str:
         """Submit a raw-data pipeline job.
 
@@ -147,6 +176,8 @@ class AWSRunner:
         Args:
             task_id: Task identifier (from upload_data).
             data_prefix: S3 prefix where data files live.
+            instance_type: One of INSTANCE_RESOURCES; requests that many vCPUs
+                and that much memory (else the job definition's defaults).
             params: Inversion parameters dict. Keys:
                 method_type: "gravity" or "magnetics"
                 regularization_type: "smooth" or "sparse" (default "sparse")
@@ -181,20 +212,30 @@ class AWSRunner:
         finally:
             os.unlink(params_path)
 
+        overrides = {
+            "environment": [
+                {"name": "TASK_BUCKET", "value": self.bucket},
+                {"name": "TASK_ID", "value": task_id},
+                {"name": "RESULT_PREFIX", "value": f"{self.prefix}/{task_id}"},
+                {"name": "PIPELINE_MODE", "value": "data"},
+                {"name": "PIPELINE_PARAMS", "value": params_key},
+                {"name": "DATA_PREFIX", "value": data_prefix},
+            ],
+        }
+        if instance_type is not None:
+            if instance_type not in INSTANCE_RESOURCES:
+                raise ValueError(f"Unknown instance type '{instance_type}' "
+                                 f"(expected one of {sorted(INSTANCE_RESOURCES)})")
+            vcpus, memory = INSTANCE_RESOURCES[instance_type]
+            overrides["resourceRequirements"] = [
+                {"type": "VCPU", "value": str(vcpus)},
+                {"type": "MEMORY", "value": str(memory)},
+            ]
         response = self.batch.submit_job(
             jobName=f"geoinv3d-pipeline-{task_id}",
             jobQueue=self.job_queue,
             jobDefinition=self.job_definition,
-            containerOverrides={
-                "environment": [
-                    {"name": "TASK_BUCKET", "value": self.bucket},
-                    {"name": "TASK_ID", "value": task_id},
-                    {"name": "RESULT_PREFIX", "value": f"{self.prefix}/{task_id}"},
-                    {"name": "PIPELINE_MODE", "value": "data"},
-                    {"name": "PIPELINE_PARAMS", "value": params_key},
-                    {"name": "DATA_PREFIX", "value": data_prefix},
-                ],
-            },
+            containerOverrides=overrides,
         )
 
         job_id = response["jobId"]
@@ -230,7 +271,14 @@ class AWSRunner:
     # ---- Common operations ----
 
     def poll(self, job_id: str) -> dict:
-        """Check job status.  Returns {status, started, stopped, reason}."""
+        """Check job status.
+
+        Returns {status, name, task_id, created, started, stopped (ms since
+        the epoch), reason, log_stream, exit_code}; missing ones are omitted.
+        Batch statuses: SUBMITTED, PENDING, RUNNABLE (waiting for an
+        instance), STARTING (pulling the image), RUNNING, SUCCEEDED, FAILED
+        (also after a cancel or terminate).
+        """
         resp = self.batch.describe_jobs(jobs=[job_id])
         if not resp["jobs"]:
             return {"status": "UNKNOWN"}
@@ -240,12 +288,20 @@ class AWSRunner:
             "status": job["status"],
             "name": job.get("jobName", ""),
         }
-        if "startedAt" in job:
-            result["started"] = job["startedAt"]
-        if "stoppedAt" in job:
-            result["stopped"] = job["stoppedAt"]
+        task_id = task_id_from_job_name(result["name"])
+        if task_id:
+            result["task_id"] = task_id
+        for key, name in (("createdAt", "created"), ("startedAt", "started"),
+                          ("stoppedAt", "stopped")):
+            if key in job:
+                result[name] = job[key]
         if job.get("statusReason"):
             result["reason"] = job["statusReason"]
+        container = job.get("container") or {}
+        if container.get("logStreamName"):
+            result["log_stream"] = container["logStreamName"]
+        if container.get("exitCode") is not None:
+            result["exit_code"] = container["exitCode"]
         return result
 
     def wait(
@@ -313,6 +369,40 @@ class AWSRunner:
         ]
 
     def cancel(self, job_id: str, reason: str = "Cancelled by user") -> None:
-        """Cancel a running or pending job."""
-        self.batch.cancel_job(jobId=job_id, reason=reason)
-        print(f"[AWS] Cancelled job {job_id}")
+        """Stop a job in any state: queued jobs are cancelled, running ones killed.
+
+        Uses TerminateJob: CancelJob only affects jobs that have not reached
+        STARTING, and for a running job it succeeds without stopping it, so
+        the instance would keep running (and billing).  The job then ends as
+        FAILED with ``reason`` as its status reason.
+        """
+        self.batch.terminate_job(jobId=job_id, reason=reason)
+        print(f"[AWS] Terminated job {job_id}")
+
+    def _read_json(self, key: str) -> Optional[dict]:
+        """A small JSON object from S3, or None if it does not exist (yet)."""
+        try:
+            body = self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+        except Exception as e:
+            code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404", "NotFound"):
+                return None
+            raise
+        return json.loads(body)
+
+    def progress(self, task_id: str) -> Optional[dict]:
+        """The worker's progress report (see worker.S3Progress), or None."""
+        return self._read_json(f"{self.prefix}/{task_id}/progress.json")
+
+    def result_summary(self, task_id: str) -> Optional[dict]:
+        """result.json of a finished job (no model arrays), or None."""
+        return self._read_json(f"{self.prefix}/{task_id}/result.json")
+
+    def tail_logs(self, log_stream: str, limit: int = 100,
+                  log_group: str = LOG_GROUP) -> list[str]:
+        """The last ``limit`` lines the worker printed (CloudWatch Logs)."""
+        resp = self.logs.get_log_events(
+            logGroupName=log_group, logStreamName=log_stream,
+            limit=limit, startFromHead=False,
+        )
+        return [e["message"] for e in resp.get("events", [])]

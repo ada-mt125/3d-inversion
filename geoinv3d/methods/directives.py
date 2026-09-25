@@ -19,7 +19,12 @@ class IterationCollector(InversionDirective):
         inv = BaseInversion(inv_prob, directiveList=directive_list)
         inv.run(m0)
         snapshots = collector.snapshots
+
+    ``IterationCollector.on_iteration``, if set, is called with each new
+    snapshot (the cloud worker uses it to report progress).
     """
+
+    on_iteration = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -47,7 +52,13 @@ class IterationCollector(InversionDirective):
             )
             self.snapshots.append(snap)
         except Exception:
-            pass
+            return
+        callback = IterationCollector.on_iteration
+        if callback is not None:
+            try:
+                callback(snap)
+            except Exception as e:   # progress reporting must never stop an inversion
+                print(f"[IterationCollector] on_iteration failed: {e}")
 
 
 class ElasticNetSensitivityWeights(InversionDirective):

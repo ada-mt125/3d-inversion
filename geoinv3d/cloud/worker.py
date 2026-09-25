@@ -11,6 +11,10 @@ Reads environment variables set by the Batch job:
     PIPELINE_PARAMS — S3 key for pipeline parameters JSON (data mode)
     DATA_PREFIX     — S3 prefix where raw data files live (data mode)
 
+Writes to RESULT_PREFIX: progress.json while running (see S3Progress),
+then result.zip and result.json.  Exits with status 1 when the inversion
+failed (after uploading the error), so AWS Batch marks the job FAILED.
+
 Usage (on the cloud instance):
     python -m geoinv3d.cloud.worker
 """
@@ -21,6 +25,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -707,6 +712,8 @@ class PipelineDataset:
     files: list
     noise_pct: float
     noise_floor: float
+    spacing: float | None = None      # data spacing (m) of the finest file
+    spacing_kind: str = ""            # "grid" or "points"
 
 
 def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
@@ -731,7 +738,11 @@ def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
         x, y, values = x[::stride], y[::stride], values[::stride, ::stride]
         xx, yy = np.meshgrid(x, y)
         locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, np.nan)])
-        return locs, values.ravel(), grid.metadata
+        steps = [abs(float(a[1] - a[0])) for a in (x, y) if len(a) > 1]
+        meta = dict(grid.metadata)
+        if steps:
+            meta["grid_spacing"] = max(steps)
+        return locs, values.ravel(), meta
 
     if fmt == "csv":
         points = read_station_table(path, value_name=component)
@@ -760,6 +771,19 @@ def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
                 & (locs[:, 1] >= south) & (locs[:, 1] <= north))
         locs, values = locs[keep], values[keep]
     return locs, values, points.metadata
+
+
+def _file_spacing(locs, values, meta) -> tuple:
+    """(spacing in m, "grid" | "points") of one data file; (None, "") if unknown."""
+    from .meshing import points_spacing
+
+    if meta.get("grid_spacing"):
+        return float(meta["grid_spacing"]), "grid"
+    valid = np.isfinite(values) & np.isfinite(locs[:, :2]).all(axis=1)
+    try:
+        return points_spacing(locs[valid, :2]), "points"
+    except ValueError:
+        return None, ""
 
 
 def _dataset_specs(params: dict, data_dir: str, exclude: set) -> list:
@@ -816,7 +840,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
 
     stride = int(params.get("decimate_stride", 1) or 1)
     aoi = params.get("aoi")
-    locs_all, values_all = [], []
+    locs_all, values_all, spacings = [], [], []
     for fname in files:
         path = os.path.join(data_dir, fname)
         print(f"[Pipeline] Loading {method} ({component}) data from {fname}")
@@ -826,6 +850,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
             kwargs["inducing_field"] = tuple(meta["inducing_field"])
         locs_all.append(locs)
         values_all.append(values)
+        spacings.append(_file_spacing(locs, values, meta))
 
     locs = np.vstack(locs_all)
     dobs = np.concatenate(values_all)
@@ -843,9 +868,13 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
             f"set a noise floor > 0"
         )
 
+    known = [sp for sp in spacings if sp[0]]
+    spacing, spacing_kind = min(known) if known else (None, "")
+
     return PipelineDataset(
         method=method, component=component, locations=locs, observed=dobs, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
+        spacing=spacing, spacing_kind=spacing_kind,
     )
 
 
@@ -951,13 +980,17 @@ def _padded_widths(n_core: int, dh: float, n_pad: int, factor: float) -> np.ndar
 def _build_tensor_mesh(extent, surface, has_dem, dx, dz, depth_core, pad_distance):
     """Padded tensor mesh over `extent` whose top follows the ground surface."""
     from ..datamodel.mesh import Mesh3D
+    from .meshing import PAD_FACTOR, padding_cells
 
     xmin, xmax, ymin, ymax = extent
     nx_core = max(4, int(np.ceil((xmax - xmin) / dx)))
     ny_core = max(4, int(np.ceil((ymax - ymin) / dx)))
     nz_depth = max(4, int(np.ceil(depth_core / dz)))
-    n_pad = max(3, int(np.ceil(pad_distance / dx)))
-    pad_factor = 1.3
+    # Enough expanding cells (dx*1.3, dx*1.3^2, ...) to reach pad_distance.
+    # (Counting pad_distance / dx cells ignored the expansion: 100 m cells with
+    # 2 km padding gave 20 cells reaching ~80 km.)
+    n_pad = padding_cells(dx, pad_distance, PAD_FACTOR)
+    pad_factor = PAD_FACTOR
 
     hx = _padded_widths(nx_core, dx, n_pad, pad_factor)
     hy = _padded_widths(ny_core, dx, n_pad, pad_factor)
@@ -1041,7 +1074,38 @@ def _outside_core_share(dmesh, active, model, extent, margin, z_bottom) -> float
     return float(moment[~core].sum() / total) if total > 0 else 0.0
 
 
-def run_data_pipeline(params: dict, data_dir: str) -> dict:
+MESH_KEYS = ("core_cell_m", "core_cell_z_m", "depth_core_m", "pad_distance_m")
+# Used only when neither the params nor the data give the mesh settings
+_FALLBACK_MESH = {"core_cell_m": 500.0, "core_cell_z_m": 250.0,
+                  "depth_core_m": 3000.0, "pad_distance_m": 2000.0}
+
+
+def _mesh_design(params: dict, datasets, extent, n_data: int) -> dict:
+    """Mesh settings: those given in params, the rest recommended from the data.
+
+    Returns {"source": "user" | "auto" | "mixed" | "fallback",
+             "data_spacing": [{method, spacing_m, kind}], "recommended": dict | None,
+             "used": {core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m}}.
+    """
+    from .meshing import recommend_mesh
+
+    given = {k: float(params[k]) for k in MESH_KEYS if params.get(k) is not None}
+    spacing = [{"method": ds.method, "spacing_m": ds.spacing, "kind": ds.spacing_kind}
+               for ds in datasets]
+    known = [ds.spacing for ds in datasets if ds.spacing]
+    recommended = recommend_mesh(extent, min(known), n_data) if known else None
+    base = {k: recommended[k] for k in MESH_KEYS} if recommended else _FALLBACK_MESH
+    if len(given) == len(MESH_KEYS):
+        source = "user"
+    elif not given:
+        source = "auto" if recommended else "fallback"
+    else:
+        source = "mixed"
+    return {"source": source, "data_spacing": spacing, "recommended": recommended,
+            "used": {**base, **given}, "client": params.get("mesh_design")}
+
+
+def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     """Full pipeline: raw data files -> mesh -> inversion -> result.
 
     This is the 'data' mode worker: it reads raw survey files from
@@ -1081,10 +1145,17 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                 core_cell_z_m, depth_core_m, pad_distance_m, octree_levels,
                 decimate_stride, aoi.
         data_dir: Local directory containing the downloaded data files.
+        progress: Optional callable ``progress(stage, message="", **fields)``
+            told about the stages and each inversion iteration (the cloud
+            worker passes an S3Progress).
 
     Returns:
         Result dict compatible with pack_result().
     """
+    from ..methods.directives import IterationCollector
+
+    report = progress or (lambda stage, message="", **fields: None)
+    report("loading_data")
     params = dict(params)
     param_mode = params.get("param_mode")
     if param_mode == "auto":
@@ -1119,14 +1190,21 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
                 surface(ds.locations[missing, 0], ds.locations[missing, 1]) + station_height
             )
 
+    report("building_mesh")
+
     # ── Mesh over the union of all survey extents ──
     all_locs = np.vstack([ds.locations for ds in datasets])
     extent = (float(all_locs[:, 0].min()), float(all_locs[:, 0].max()),
               float(all_locs[:, 1].min()), float(all_locs[:, 1].max()))
-    core_cell_m = params.get("core_cell_m", 500.0)
-    core_cell_z_m = params.get("core_cell_z_m", 250.0)
-    depth_core_m = params.get("depth_core_m", 3000.0)
-    pad_distance_m = params.get("pad_distance_m", 2000.0)
+    n_data = int(sum(ds.observed.size for ds in datasets))
+    mesh_design = _mesh_design(params, datasets, extent, n_data)
+    core_cell_m = mesh_design["used"]["core_cell_m"]
+    core_cell_z_m = mesh_design["used"]["core_cell_z_m"]
+    depth_core_m = mesh_design["used"]["depth_core_m"]
+    pad_distance_m = mesh_design["used"]["pad_distance_m"]
+    print(f"[Pipeline] Mesh design ({mesh_design['source']}): "
+          f"{core_cell_m:g} m x {core_cell_z_m:g} m cells, core {depth_core_m:g} m deep, "
+          f"padding {pad_distance_m:g} m")
 
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
     if mesh_type == "octree":
@@ -1150,7 +1228,6 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
         if not active.any():
             raise ValueError("No mesh cells lie below the topography surface")
     n_params = int(active.sum()) if active is not None else mesh.n_cells
-    n_data = int(sum(ds.observed.size for ds in datasets))
     print(f"[Pipeline] {mesh_type} mesh: {mesh.n_cells} cells "
           f"({n_params} active), {n_data} observations, "
           f"topography: {topo_info['source']}")
@@ -1226,13 +1303,21 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
     for note in notes:
         print(f"[Pipeline] Note: {note}")
 
-    result = execute_task(task, mesh=mesh)
+    report("inverting", max_iter=task.max_iter, phi_d_target=n_data, n_data=n_data,
+           n_cells=n_params, regularization=task.regularization_type)
+    IterationCollector.on_iteration = lambda snap: report(
+        "inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta)
+    try:
+        result = execute_task(task, mesh=mesh)
+    finally:
+        IterationCollector.on_iteration = None
 
     result.update({
         "inversion_mode": mode,
         "param_mode": param_mode or "legacy",
         "regularization_type": task.regularization_type,
         "mesh_type": mesh_type,
+        "mesh_design": mesh_design,
         "mesh_shape": tuple(mesh.shape),
         "mesh": _jsonable(dmesh.to_dict()),
         "n_cells": mesh.n_cells,
@@ -1276,6 +1361,46 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
     return result
 
 
+def result_metadata_json(result: dict) -> str:
+    """result.json: everything in a result except the model arrays."""
+    meta = {k: v for k, v in result.items()
+            if k not in ("recovered_model", "recovered_models", "active_cells")}
+    return json.dumps(_jsonable(meta), indent=2, default=str)
+
+
+class S3Progress:
+    """Progress report the worker keeps in S3 (``progress.json``) for the API.
+
+    Called as ``progress(stage, message="", **fields)``; fields persist
+    between calls.  Stages: starting, downloading, loading_data,
+    building_mesh, inverting, uploading, done, failed.  The report is written
+    on every stage change and otherwise at most every ``min_interval``
+    seconds, so per-iteration updates stay cheap.  Failures to write are
+    printed, never raised.
+    """
+
+    def __init__(self, s3, bucket: str, key: str, min_interval: float = 10.0,
+                 clock=time.time) -> None:
+        self.s3, self.bucket, self.key = s3, bucket, key
+        self.min_interval, self.clock = min_interval, clock
+        self.state: dict = {"stage": None, "started_at": clock()}
+        self._last_write = -float("inf")
+
+    def __call__(self, stage: str, message: str = "", **fields) -> None:
+        now = self.clock()
+        changed = stage != self.state["stage"]
+        self.state.update(fields)
+        self.state.update(stage=stage, message=message, updated_at=now)
+        if changed or now - self._last_write >= self.min_interval:
+            self._last_write = now
+            try:
+                self.s3.put_object(Bucket=self.bucket, Key=self.key,
+                                   Body=json.dumps(_jsonable(self.state)).encode(),
+                                   ContentType="application/json")
+            except Exception as e:
+                print(f"[Worker] Could not update progress: {e}")
+
+
 def pack_result(result: dict, output_path: str) -> str:
     """Pack inversion result into a .zip archive."""
     import io
@@ -1283,9 +1408,7 @@ def pack_result(result: dict, output_path: str) -> str:
 
     path = Path(output_path)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
-        meta = {k: v for k, v in result.items()
-                if k not in ("recovered_model", "recovered_models", "active_cells")}
-        zf.writestr("result.json", json.dumps(_jsonable(meta), indent=2, default=str))
+        zf.writestr("result.json", result_metadata_json(result))
 
         if result.get("active_cells") is not None:
             buf = io.BytesIO()
@@ -1320,11 +1443,15 @@ def main():
 
     import boto3
     s3 = boto3.client("s3")
+    progress = S3Progress(s3, bucket, f"{result_prefix}/progress.json")
+    progress("starting")
 
     print(f"[Worker] Starting task {task_id} (mode={pipeline_mode})")
 
+    failed = False
     with tempfile.TemporaryDirectory() as tmpdir:
         try:
+            progress("downloading")
             if pipeline_mode == "data":
                 params_key = os.environ.get("PIPELINE_PARAMS", "")
                 data_prefix = os.environ.get("DATA_PREFIX", "")
@@ -1348,7 +1475,7 @@ def main():
                             print(f"[Worker] Downloading {key}")
                             s3.download_file(bucket, key, local)
 
-                result = run_data_pipeline(params, data_dir)
+                result = run_data_pipeline(params, data_dir, progress=progress)
 
             else:
                 if not task_key:
@@ -1365,26 +1492,44 @@ def main():
                       f"norms={task.norms}, "
                       f"max_iter={task.max_iter}")
 
-                result = execute_task(task)
+                from ..methods.directives import IterationCollector
+                progress("inverting", max_iter=task.max_iter)
+                IterationCollector.on_iteration = lambda snap: progress(
+                    "inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta)
+                try:
+                    result = execute_task(task)
+                finally:
+                    IterationCollector.on_iteration = None
 
             print(f"[Worker] Inversion complete: "
                   f"{result.get('n_iterations', 0)} iterations")
 
         except Exception as e:
+            failed = True
             result = {
                 "task_id": task_id,
                 "error": str(e),
                 "traceback": traceback.format_exc(),
             }
             print(f"[Worker] ERROR: {e}")
+            progress("failed", message=str(e))
 
+        if not failed:
+            progress("uploading")
         result_path = os.path.join(tmpdir, "result.zip")
         pack_result(result, result_path)
 
         result_key = f"{result_prefix}/result.zip"
         s3.upload_file(result_path, bucket, result_key)
+        s3.put_object(Bucket=bucket, Key=f"{result_prefix}/result.json",
+                      Body=result_metadata_json(result).encode(),
+                      ContentType="application/json")
         print(f"[Worker] Uploaded result to s3://{bucket}/{result_key}")
 
+    if failed:
+        # The error is in result.json; a non-zero exit marks the Batch job FAILED
+        sys.exit(1)
+    progress("done", message=f"{result.get('n_iterations', 0)} iterations")
     print(f"[Worker] Done")
 
 

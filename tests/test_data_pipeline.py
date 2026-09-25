@@ -381,6 +381,44 @@ class TestPipelinePlumbing:
         result = run_data_pipeline(params, str(tmp_path))
         assert any("L1–L2 regularization is not applied" in n for n in result["notes"])
 
+    def test_mesh_recommended_from_data_spacing(self, grav_grid_dir, capture):
+        """Without mesh settings the mesh follows the data (100 m grid, 600 m wide)."""
+        params = _single("gravity", ["grav.grd"])
+        for key in SMALL_MESH:
+            params.pop(key)
+        result = run_data_pipeline(params, str(grav_grid_dir))
+        design = result["mesh_design"]
+        assert design["source"] == "auto"
+        assert design["data_spacing"] == [
+            {"method": "gravity", "spacing_m": 100.0, "kind": "grid"}]
+        assert design["used"] == {"core_cell_m": 100.0, "core_cell_z_m": 50.0,
+                                  "depth_core_m": 300.0, "pad_distance_m": 250.0}
+        assert list(capture["mesh"].shape) == design["recommended"]["shape"]
+
+    def test_mesh_user_and_mixed_settings(self, grav_grid_dir, capture):
+        user = run_data_pipeline(_single("gravity", ["grav.grd"]), str(grav_grid_dir))
+        assert user["mesh_design"]["source"] == "user"
+        assert user["mesh_design"]["used"]["core_cell_m"] == SMALL_MESH["core_cell_m"]
+
+        params = _single("gravity", ["grav.grd"], mesh_design={"note": "from the page"})
+        for key in ("core_cell_z_m", "depth_core_m", "pad_distance_m"):
+            params.pop(key)
+        mixed = run_data_pipeline(params, str(grav_grid_dir))["mesh_design"]
+        assert mixed["source"] == "mixed"
+        assert mixed["used"]["core_cell_m"] == 100.0        # given
+        assert mixed["used"]["depth_core_m"] == 300.0       # recommended
+        assert mixed["client"] == {"note": "from the page"}
+
+    def test_point_data_spacing(self, tmp_path, capture):
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        params = _single("gravity", ["g.csv"])
+        for key in SMALL_MESH:
+            params.pop(key)
+        design = run_data_pipeline(params, str(tmp_path))["mesh_design"]
+        assert design["data_spacing"][0]["kind"] == "points"
+        assert design["data_spacing"][0]["spacing_m"] == pytest.approx(100.0)
+
     def test_topography_file_not_used_as_data(self, grav_grid_dir, capture):
         """Legacy auto-detect must skip the DEM file."""
         _write_dem_asc(grav_grid_dir / "a_dem.asc")
