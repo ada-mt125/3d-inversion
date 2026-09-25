@@ -32,6 +32,14 @@ class TestLCurve:
             lcurve_corner(betas, phi_d, phi_m))
         assert lcurve_corner(betas, phi_d, phi_m) == pytest.approx(10.0, rel=0.05)
 
+    def test_coinciding_points_do_not_fake_a_corner(self):
+        """A plateau (model pinned at a bound for large beta) is ignored."""
+        betas = np.logspace(-3, 3, 13)
+        phi_d, phi_m = 1 + betas**2, 1 + betas**-2.0
+        phi_d[-3:] = phi_d[-3] * (1 + 1e-6 * np.arange(3))  # three near-identical points
+        phi_m[-3:] = phi_m[-3] * (1 - 1e-6 * np.arange(3))
+        assert lcurve_corner(betas, phi_d, phi_m) == pytest.approx(1.0, rel=0.1)
+
     def test_needs_four_points(self):
         with pytest.raises(ValueError, match="four"):
             lcurve_corner([1, 2, 3], [1, 2, 3], [3, 2, 1])

@@ -110,15 +110,34 @@ def lcurve_curvature(betas, phi_d, phi_m, n_eval: int = 400):
     return tt, kappa
 
 
+def _distinct_points(betas, phi_d, phi_m, rel_tol: float = 1e-3):
+    """Drop points that barely move along the log-log curve.
+
+    Where the model stops changing (e.g. pinned at a bound for large beta),
+    consecutive points coincide; the spline's derivatives vanish there and
+    the curvature, which divides by them, shows a spurious spike.
+    """
+    order = np.argsort(betas)
+    b, x, y = betas[order], np.log(phi_d[order]), np.log(phi_m[order])
+    extent = np.hypot(np.ptp(x), np.ptp(y))
+    keep = [0]
+    for i in range(1, len(b)):
+        if np.hypot(x[i] - x[keep[-1]], y[i] - y[keep[-1]]) > rel_tol * extent:
+            keep.append(i)
+    return b[keep], phi_d[order][keep], phi_m[order][keep]
+
+
 def lcurve_corner(betas, phi_d, phi_m) -> float:
     """Beta at the corner (maximum curvature) of the L-curve.
 
-    Needs at least four betas.  The two outermost intervals are excluded,
-    where the spline's end conditions dominate the curvature.
+    Needs at least four distinct points (see :func:`_distinct_points`).  The
+    two outermost intervals are excluded, where the spline's end conditions
+    dominate the curvature.
     """
-    betas = np.asarray(betas, dtype=float)
+    betas, phi_d, phi_m = _distinct_points(*(np.asarray(v, dtype=float)
+                                             for v in (betas, phi_d, phi_m)))
     if len(betas) < 4:
-        raise ValueError("The L-curve needs at least four betas")
+        raise ValueError("The L-curve needs at least four betas with distinct points")
     tt, kappa = lcurve_curvature(betas, phi_d, phi_m)
     t_sorted = np.sort(np.log(betas))
     inner = (tt >= t_sorted[1]) & (tt <= t_sorted[-2])
