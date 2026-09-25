@@ -40,6 +40,15 @@ class TestLCurve:
         phi_m[-3:] = phi_m[-3] * (1 - 1e-6 * np.arange(3))
         assert lcurve_corner(betas, phi_d, phi_m) == pytest.approx(1.0, rel=0.1)
 
+    def test_corner_validity(self):
+        from geoinv3d.methods.regparam import lcurve_corner_info
+        betas = np.logspace(-3, 3, 13)
+        good = lcurve_corner_info(betas, 1 + betas**2, 1 + betas**-2.0)
+        assert good["valid"] and good["curvature"] > 0
+        t = np.log(betas)  # bends the wrong way everywhere: no corner
+        bad = lcurve_corner_info(betas, np.exp(t), np.exp(-0.05 * t**2))
+        assert bad["curvature"] <= 0 and not bad["valid"]
+
     def test_needs_four_points(self):
         with pytest.raises(ValueError, match="four"):
             lcurve_corner([1, 2, 3], [1, 2, 3], [3, 2, 1])

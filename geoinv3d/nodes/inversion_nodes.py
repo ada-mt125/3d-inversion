@@ -443,7 +443,7 @@ def selection_summary(result: dict, n_data: int) -> dict | None:
 
     Returns {"parameter": "λ" | "β", "criterion", "selected", "n_data", "values",
     "misfit" (chi^2), "penalty" (phi_m), "gcv" (or None), "chosen":
-    {criterion: value}} or None when the run had no sweep.
+    {criterion: value}, "warnings"} or None when the run had no sweep.
     """
     def floats(v):
         return None if v is None else [float(x) for x in v]
@@ -459,6 +459,7 @@ def selection_summary(result: dict, n_data: int) -> dict | None:
             "penalty": floats(info["penalty"]), "gcv": floats(info.get("gcv")),
             "chosen": {k: float(v) for k, v in chosen.items() if v is not None},
             "weighting": info.get("weighting"),
+            "warnings": list(info.get("warnings", [])),
         }
     sel = result.get("beta_selection")
     if sel is not None:  # IRLS fixed-beta sweep
@@ -471,6 +472,7 @@ def selection_summary(result: dict, n_data: int) -> dict | None:
             "penalty": floats(sel["phi_m"]),
             "gcv": floats(sel["gcv"]) if all(g is not None for g in sel["gcv"]) else None,
             "chosen": {k: float(v) for k, v in chosen.items() if v is not None},
+            "warnings": list(sel.get("warnings", [])),
         }
     return None
 

@@ -127,10 +127,14 @@ def _distinct_points(betas, phi_d, phi_m, rel_tol: float = 1e-3):
     return b[keep], phi_d[order][keep], phi_m[order][keep]
 
 
-def lcurve_corner(betas, phi_d, phi_m) -> float:
-    """Beta at the corner (maximum curvature) of the L-curve.
+def lcurve_corner_info(betas, phi_d, phi_m) -> dict:
+    """The L-curve corner and whether it is a real one.
 
-    Needs at least four distinct points (see :func:`_distinct_points`).  The
+    Returns {"beta", "curvature" (its value), "on_edge" (the maximum sits in
+    the first or last inner interval), "valid"}.  A curve that bends the other
+    way everywhere (curvature <= 0) has no corner, and the maximum then only
+    marks its flattest end; ``valid`` is False in that case or on an edge.
+    Needs at least four distinct points (see :func:`_distinct_points`); the
     two outermost intervals are excluded, where the spline's end conditions
     dominate the curvature.
     """
@@ -141,7 +145,24 @@ def lcurve_corner(betas, phi_d, phi_m) -> float:
     tt, kappa = lcurve_curvature(betas, phi_d, phi_m)
     t_sorted = np.sort(np.log(betas))
     inner = (tt >= t_sorted[1]) & (tt <= t_sorted[-2])
-    return float(np.exp(tt[inner][np.argmax(kappa[inner])]))
+    k = int(np.argmax(kappa[inner]))
+    t_best, k_best = tt[inner][k], float(kappa[inner][k])
+    step = np.min(np.diff(t_sorted))
+    on_edge = bool(t_best - t_sorted[1] < 0.5 * step or t_sorted[-2] - t_best < 0.5 * step)
+    return {"beta": float(np.exp(t_best)), "curvature": k_best, "on_edge": on_edge,
+            "valid": bool(k_best > 0 and not on_edge)}
+
+
+def lcurve_corner(betas, phi_d, phi_m) -> float:
+    """Beta at the corner (maximum curvature) of the L-curve.
+
+    See :func:`lcurve_corner_info`, which also says whether the corner is real.
+    """
+    return lcurve_corner_info(betas, phi_d, phi_m)["beta"]
+
+
+LCURVE_NO_CORNER = ("the L-curve has no corner (its curvature is never positive or peaks at "
+                    "the end of the range)")
 
 
 # ── Generalized cross-validation ────────────────────────────────────────

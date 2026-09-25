@@ -145,6 +145,7 @@ svg#dag:active{cursor:grabbing;}
 .sel-tab tr.sel-on td{font-weight:600;}
 .sel-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;}
 .sel-note{font-size:11px;color:var(--text3);margin-top:8px;}
+.sel-warn{font-size:11px;color:#FFB74D;margin-top:8px;}
 .stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;flex:1;min-width:100px;}
 .stat-card .label{font-size:9px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}
@@ -962,6 +963,7 @@ function renderSelection(sel) {
   });
   t+='</table>';
   if(sel.weighting) t+='<div class="sel-note">Depth weighting: w'+escH(sel.weighting)+'</div>';
+  (sel.warnings||[]).forEach(w=>{t+='<div class="sel-warn">⚠ '+escH(w)+'</div>';});
   $v('cv-seltab').innerHTML=t;
 }
 
@@ -1025,7 +1027,8 @@ function drawXYChart(canvasId, pts, o) {
   const items=(o.vlines||o.marks||[]);
   ctx.font='10px sans-serif'; ctx.textAlign='left'; let lx=pad.l+8;
   items.forEach(it=>{ctx.fillStyle=it.color;ctx.fillRect(lx,pad.t+2,10,3);
-    ctx.fillStyle='#c9d1d9';ctx.fillText(it.label+(it.big?' ✓':''),lx+14,pad.t+8);lx+=ctx.measureText(it.label).width+34;});
+    const txt=it.label+(it.big?' ✓':'');
+    ctx.fillStyle='#c9d1d9';ctx.fillText(txt,lx+14,pad.t+8);lx+=ctx.measureText(txt).width+28;});
 }
 
 function drawLineChart(canvasId, data, series, logScale, xLabel) {
@@ -1076,10 +1079,13 @@ function drawLineChart(canvasId, data, series, logScale, xLabel) {
     const vals=data.map(d=>d[s.key]);
     ctx.strokeStyle=s.color; ctx.lineWidth=2;
     if(s.dash)ctx.setLineDash([5,3]); else ctx.setLineDash([]);
-    ctx.beginPath();
-    vals.forEach((v,i)=>{i===0?ctx.moveTo(toX(i),toY(v)):ctx.lineTo(toX(i),toY(v));});
+    // on a log axis, values <= 0 (e.g. φ_m = 0 at λ_max) are left out
+    const show=v=>v!=null&&(!useLog||v>0);
+    ctx.beginPath(); let started=false;
+    vals.forEach((v,i)=>{if(!show(v)){started=false;return;}
+      started?ctx.lineTo(toX(i),toY(v)):ctx.moveTo(toX(i),toY(v)); started=true;});
     ctx.stroke(); ctx.setLineDash([]);
-    vals.forEach((v,i)=>{ctx.beginPath();ctx.arc(toX(i),toY(v),3,0,Math.PI*2);ctx.fillStyle=s.color;ctx.fill();});
+    vals.forEach((v,i)=>{if(!show(v))return;ctx.beginPath();ctx.arc(toX(i),toY(v),3,0,Math.PI*2);ctx.fillStyle=s.color;ctx.fill();});
   });
 
   // Legend

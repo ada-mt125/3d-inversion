@@ -3,9 +3,11 @@
 脚本：
 - `examples/l1l2_paper_synthetic.py`：Utsugi (2019) 的完整流程，包括 α 扫描、两种深度加权，以及与 Sparse、L2 的对比。66 条 λ 路径，4 核约 47 分钟。
 - `examples/focusing_comparison.py`：MGS、TV、Sparse、L2 与最佳 L1–L2 的对比，约 2 分钟（需先运行上一个脚本）。
-- `examples/lambda_selection.py`：IRLS 类方法（Sparse、Smooth L2、L1–L2 IRLS）上偏差原理、L-curve、GCV 三种 λ 选择方法的比较。
+- `examples/lambda_selection.py`：单个算例上，对 IRLS 类方法（Sparse、Smooth L2、L1–L2 IRLS）比较偏差原理、L-curve、GCV。
+- `examples/lambda_selection_benchmark.py`：3 个模型 × 4 个噪声水平上的 λ 选择对比（第 4 节）。
+- `examples/regularization_viewer_demo.py`：把所有方法做成 DAG 节点，生成可交互查看器 `examples/regularization_comparison.geoinv3d_viewer.html`。
 
-输出：`examples/output/{l1l2_paper_synthetic, focusing_comparison, lambda_selection}/`，每个目录都有 `results.md`、`results.json` 和图。
+输出：`examples/output/{l1l2_paper_synthetic, focusing_comparison, lambda_selection, lambda_selection_benchmark}/`，每个目录都有 `results.md`、`results.json` 和图。
 
 ## 1. 设置
 
@@ -76,9 +78,41 @@ L = ½‖f − Xβ‖² + λ[(1−α)/2·‖β‖² + α‖β‖₁]
 - TV 的效果接近 Sparse：在深度方向拖尾到 14 km，但 ε 比 Sparse、L2 都小。
 - Sparse（worker 默认的 norms (0,2,2,1)、alpha_s = 1e-4）由平滑项主导，异常拉长到 14–15 km。Smooth L2 没有深度加权，异常集中在地表 0–3 km，并且过拟合。
 
-## 4. λ 选择（IRLS 类方法，`examples/lambda_selection.py`）
+## 4. λ 选择：偏差原理、L-curve 与 GCV 的对比
 
-对 SimPEG IRLS 路径，worker 现在支持 `beta_selection = lcurve | gcv`。扫描中所有 β 使用同一个 IRLS 平滑参数 ε（或 MGS/TV 的同一个 e），因此 φ_d 和 φ_m 随 β 单调变化。GCV 的影响矩阵迹采用精确的数据空间形式计算，被边界卡住的单元不计自由度。详细结果见 `output/lambda_selection/results.md`。
+脚本 `examples/lambda_selection_benchmark.py`（36 个任务，4 核约 26 分钟），输出在 `output/lambda_selection_benchmark/`。
+
+**设置**
+- **3 个模型**：单棱柱；深浅两个异常体（浅部小块 1–4 km、χ = 0.03；深部大块 6–14 km、χ = 0.02）；45° 倾斜板状体（2–12 km）。
+- **4 个噪声水平**：σ = 2 / 5 / 10 / 20 nT。
+- **3 种方法**：L1–L2（CDA、wS1、α = 0.8）、Sparse、Smooth L2。
+- **打分方式**：在整条 λ/β 扫描中找出与真模型误差最小的点（"事后最优"，实际中无法得到），用每个准则的模型误差除以这个最优误差，1 表示最好。
+- **σ 估错的影响**：另外测试偏差原理在 σ 被估成一半或两倍时的表现，只在 CDA 路径上做。
+
+![λ 选择对比](output/lambda_selection_benchmark/error_ratio.png)
+
+模型误差 ÷ 事后最优，格式为"中位数、最差；超过 1.25 的算例数"：
+
+| 方法 | 偏差原理 | L-curve | GCV | 偏差原理（σ 估成一半） | 偏差原理（σ 估成两倍） |
+|---|---|---|---|---|---|
+| L1–L2 | 1.01, 1.09; 0/12 | 1.03, 1.30; 1/12 | 1.00, 1.02; 0/12 | 1.09, 1.52; 3/12 | 1.25, 1.72; 3/7（另 5 个达不到 χ² = N） |
+| Sparse | 1.00, 1.02; 0/12 | 1.00, 1.18; 0/12 | 1.05, 1.22; 0/12 | – | – |
+| Smooth L2 | 1.00, 1.00; 0/12 | 1.02, 1.08; 0/12 | 1.01, 1.04; 0/12 | – | – |
+
+各准则选出的 χ²/N（中位数）：
+
+| 方法 | 事后最优 | 偏差原理 | L-curve | GCV |
+|---|---|---|---|---|
+| L1–L2 | 0.74 | 1.00 | 1.07 | 0.64 |
+| Sparse | 0.84 | 0.95 | 0.80 | 0.64 |
+| Smooth L2 | 0.77 | 0.85 | 0.32 | 0.31 |
+
+**结论**
+- **σ 准确时，三种准则的差别很小。** 模型误差都在事后最优的 1.3 倍以内，因为位场反演的模型误差随 λ 变化很平缓，主要受非唯一性限制。偏差原理最稳。GCV 在 L1–L2 上与事后最优几乎一样（最差 1.02），在 Sparse 上稍差（最差 1.22）。L-curve 的最差值最大（L1–L2 两个异常体、σ = 5 时为 1.30）。
+- GCV 选出的 χ²/N 偏低（约 0.64），但事后最优的模型本身也有些过拟合（χ²/N 为 0.74–0.84），所以 GCV 的模型误差并不差。**之前根据单个算例说"GCV 系统性过拟合、不建议单独使用"，这个说法过于悲观。**
+- **σ 估错的代价远大于选哪种准则。** σ 估成两倍时误差可达 1.72 倍，而且 12 个算例里有 5 个在 4 个数量级的 λ 路径范围内达不到 χ² = N；σ 估成一半时最大 1.52 倍。这正是 L-curve 和 GCV 的价值所在：它们都不依赖 σ。
+- **L 曲线有时没有拐角**（曲率处处不为正），例如小规模、容易过拟合的问题。代码会检测这种情况：L1–L2 的 `auto` 模式会自动改用 χ² = N，其他情况给出警告，查看器里也会显示。
+- **建议**：σ 可靠时用偏差原理（worker 默认）；σ 不可靠时，L1–L2 用 GCV 或 L-curve，Sparse 优先用 L-curve，Smooth L2 用两者都可以（GCV 略好）；无论哪种，都要检查 χ²/N 和查看器中的曲线。
 
 ## 5. 局限
 

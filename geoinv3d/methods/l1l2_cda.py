@@ -310,8 +310,8 @@ class L1L2Result:
 
 def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1.0,
                 std=None, criterion: str = "lcurve", lower=None, upper=None,
-                n_decades: float = 4.0, step: float = 0.1, tol: float = 1e-5
-                ) -> tuple[L1L2Result, np.ndarray]:
+                n_decades: float = 4.0, step: float = 0.1, tol: float = 1e-5,
+                fallback: bool = False) -> tuple[L1L2Result, np.ndarray]:
     """Utsugi (2019) L1–L2 inversion with the regularization parameter chosen on the path.
 
     Args:
@@ -330,12 +330,14 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
             std) or "gcv".
         lower, upper: Optional bounds on the model (caller's units).
         n_decades, step: lam sequence from lam_max, in log10 units.
+        fallback: With the L-curve criterion, use the discrepancy principle
+            instead when the L-curve has no real corner (and std is given).
 
     Returns:
         (result, scale) where ``scale`` holds s_j; the weighted variable is
         ``b_j = s_j * model_unit * m_j``.
     """
-    from .regparam import gcv_minimum, gcv_score, lcurve_corner
+    from .regparam import LCURVE_NO_CORNER, gcv_minimum, gcv_score, lcurve_corner_info
 
     if criterion not in ("lcurve", "discrepancy", "gcv"):
         raise ValueError(f"Unknown criterion '{criterion}'")
@@ -366,11 +368,8 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
     # Near lam_max, b ~ 0 and log P -> -inf; such points (P = 0, or a lone
     # coefficient left by rounding) make the spline ring and fake a corner.
     ok = path.penalty > 1e-6 * path.penalty.max()
-    lam_lc = lcurve_corner(path.lambdas[ok], path.residual_norm[ok], path.penalty[ok])
-    inner = np.sort(path.lambdas[ok])[[1, -2]]
-    if not inner[0] * 1.001 < lam_lc < inner[1] / 1.001:
-        warnings.append("L-curve corner is at the edge of the lambda range; "
-                        "extend n_decades")
+    corner = lcurve_corner_info(path.lambdas[ok], path.residual_norm[ok], path.penalty[ok])
+    lam_lc = corner["beta"]
 
     chi2 = None
     lam_disc = None
@@ -386,6 +385,13 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
         gcv = np.array([gcv_score(r**2, df, n_data)
                         for r, df in zip(path.residual_norm, path.dof)])
         lam_gcv = gcv_minimum(path.lambdas, gcv)
+
+    if not corner["valid"]:
+        if criterion == "lcurve" and fallback and lam_disc is not None:
+            warnings.append(LCURVE_NO_CORNER + "; lambda from chi^2 = N instead")
+            criterion = "discrepancy"
+        else:
+            warnings.append(LCURVE_NO_CORNER + "; its lambda is unreliable")
 
     lam_opt = {"lcurve": lam_lc, "discrepancy": lam_disc, "gcv": lam_gcv}[criterion]
     if lam_opt is None:

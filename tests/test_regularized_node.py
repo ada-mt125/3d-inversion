@@ -68,11 +68,17 @@ def test_cda_path_in_viewer_output(inputs):
     assert out["regularization"] == "elastic_net_CDA"
     assert out["n_iterations"] == len(out["iterations"]) == 31  # one per lambda
     sel = out["selection"]
-    assert sel["parameter"] == "λ" and sel["criterion"] == "lcurve"
+    assert sel["parameter"] == "λ"
     assert sel["n_data"] == 49 and sel["weighting"] == "S1"
     assert len(sel["values"]) == len(sel["misfit"]) == len(sel["penalty"]) == 31
-    assert sel["selected"] == pytest.approx(sel["chosen"]["L-curve"])
     assert set(sel["chosen"]) >= {"L-curve", "Discrepancy"}
+    # auto: the L-curve, or chi^2 = N (with a warning) when the curve has no corner
+    if sel["criterion"] == "lcurve":
+        assert sel["selected"] == pytest.approx(sel["chosen"]["L-curve"])
+    else:
+        assert sel["criterion"] == "discrepancy"
+        assert sel["selected"] == pytest.approx(sel["chosen"]["Discrepancy"])
+        assert any("no corner" in w for w in sel["warnings"])
 
 
 def test_irls_sweep_in_viewer_output(inputs):

@@ -293,3 +293,32 @@ stable and blocky. TV ≈ sparse (deep tail), lowest ε after L1–L2.
 Tests: 139 (test_regparam, test_l1l2_cda, test_focusing added).
 
 Next: mesh extensions (scope to be confirmed with the user).
+
+---
+
+## 2026-09-25 — Viewer Integration and λ-Selection Benchmark
+
+**Viewer / upload page**: Manual mode offers L1–L2 (solver CDA/IRLS, weighting wS1/wS2,
+λ range), MGS and TV (focusing parameter), and the trade-off choice (auto / χ² = N /
+L-curve / GCV). `RegularizedInversionNode` runs any worker regularization as a DAG node;
+its output carries `regularization` and `selection` (λ path or β sweep with each
+criterion's pick and warnings). The Convergence tab draws the L-curve, χ²/N and GCV with
+the picks marked. Checked in Chromium (charts, form toggles, submitted params via a stub
+fetch, data fit, depth slices); the 3D tab needs Plotly from cdnjs (blocked in the sandbox).
+Demo: `examples/regularization_viewer_demo.py` → `regularization_comparison.geoinv3d_viewer.html`.
+Viewer 3D arrays run from the top down; discretize order is flipped on export.
+
+**L-curve without a corner**: on small, easily over-fitted problems the curvature is ≤ 0
+everywhere and the maximum only marks the flat end (χ²/N = 0.005). `lcurve_corner_info`
+reports validity; CDA `auto` then falls back to χ² = N, otherwise a warning is shown.
+
+**Benchmark** (`examples/lambda_selection_benchmark.py`, 3 models × 4 noise levels ×
+L1–L2/sparse/L2, scored against the best swept model): with the true σ all criteria are
+within 1.3× (discrepancy ≤ 1.09, GCV ≤ 1.22, L-curve ≤ 1.30); misjudging σ by ×2 costs up
+to 1.72× and χ² = N is then unreachable in 5/12 cases. GCV picks χ²/N ≈ 0.64 but the best
+models themselves sit at 0.74–0.84, so it is not worse in model error (earlier single-case
+conclusion revised in the report).
+
+Not run after the last changes: the full test suite (the user will test locally).
+Last full run: 137 passed; since then the affected suites passed (regparam, l1l2_cda,
+regularized_node, pipeline choices/positivity).

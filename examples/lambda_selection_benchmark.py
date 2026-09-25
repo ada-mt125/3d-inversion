@@ -215,13 +215,13 @@ def plot(rows, path):
     ax.set_xticks(range(len(CRITERIA)))
     ax.set_xticklabels(CRITERIA, fontsize=9)
     ax.set_ylabel("model error ÷ best achievable")
-    ax.set_yscale("log")
-    ax.grid(alpha=0.25, lw=0.5, axis="y", which="both")
+    ax.grid(alpha=0.25, lw=0.5, axis="y")
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     ax.legend(fontsize=8, frameon=False, loc="upper left")
-    ax.set_title("Regularization-parameter choice: 3 models × 4 noise levels per method "
-                 "(bars: medians; σ-misjudged runs for L1–L2 only)", fontsize=10)
+    ax.set_title("Regularization-parameter choice: 3 models × 4 noise levels per method\n"
+                 "(bars: medians; σ-misjudged runs for L1–L2 only; cases where χ² = N is "
+                 "never reached are left out)", fontsize=10)
     fig.tight_layout()
     fig.savefig(path, dpi=150)
     plt.close(fig)

@@ -62,6 +62,11 @@ def _round(a, digits=5):
     return [float(f"{v:.{digits}g}") for v in np.asarray(a, dtype=float)]
 
 
+def viewer_order(values, shape):
+    """discretize order (x fastest, z from the bottom) -> the viewer's (z from the top)."""
+    return np.asarray(values).reshape(shape, order="F")[:, :, ::-1].ravel(order="F")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
@@ -100,9 +105,12 @@ def main():
 
     workflow = graph_to_dict(graph, include_outputs=True)
     # Add the 3D model and data fit the viewer's other tabs display
+    # The viewer's 3D arrays run from the top down (iz = 0 at the surface)
     edges = {"x_edges": _round(dmesh.nodes_x), "y_edges": _round(dmesh.nodes_y),
-             "z_edges": _round(dmesh.nodes_z)}
-    shape = dict(zip(("nx", "ny", "nz"), map(int, dmesh.shape_cells)))
+             "z_edges": _round(dmesh.nodes_z[::-1])}
+    cells = tuple(int(n) for n in dmesh.shape_cells)
+    shape = dict(zip(("nx", "ny", "nz"), cells))
+    true_values = _round(viewer_order(P["m_true"], cells), 4)
     locs = P["locs"]
     by_id = {n.id: n for n in inversions}
     for entry in workflow["nodes"]:
@@ -113,8 +121,9 @@ def main():
         pred = P["G"] @ m
         resid = d_obs - pred
         entry["output"]["final_model"]["unit"] = "SI"
-        entry["output"]["model_3d"] = {**shape, **edges, "values": _round(m, 4),
-                                       "true_values": _round(P["m_true"], 4)}
+        entry["output"]["model_3d"] = {**shape, **edges,
+                                       "values": _round(viewer_order(m, cells), 4),
+                                       "true_values": true_values}
         entry["output"]["data_fit"] = {
             "unit": "nT", "x_stations": _round(locs[:, 0], 6),
             "y_stations": _round(locs[:, 1], 6), "observed": _round(d_obs),

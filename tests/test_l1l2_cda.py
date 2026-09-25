@@ -197,8 +197,11 @@ class TestWorker:
         result = run_single_inversion(task)
         info = result["l1l2"]
         assert result["regularization"] == "elastic_net_CDA"
-        assert info["criterion"] == ("lcurve" if selection == "auto" else selection)
-        assert info["weighting"] == "S2" and not info["warnings"]
+        if selection == "auto":  # L-curve, or chi^2 = N when the curve has no corner
+            assert info["criterion"] in ("lcurve", "discrepancy")
+        else:
+            assert info["criterion"] == selection
+        assert info["weighting"] == "S2"
         lams = np.asarray(info["lambdas"])
         assert lams.min() < info["lambda_opt"] < lams.max()
         assert result["n_iterations"] == len(lams) == 31

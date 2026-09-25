@@ -336,7 +336,9 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     threshold) and does not cool it, so all betas minimize the same objective
     and the trade-off curve is monotone.
     """
-    from ..methods.regparam import gcv_minimum, lcurve_corner, sparse_terms
+    from ..methods.regparam import (
+        LCURVE_NO_CORNER, gcv_minimum, lcurve_corner_info, sparse_terms,
+    )
 
     criterion = task.beta_selection
     if criterion not in ("lcurve", "gcv"):
@@ -373,13 +375,12 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
                                                         "trace_A", "gcv")}
     selection = {"criterion": criterion, "beta_discrepancy": float(beta_disc),
                  "n_data": int(len(task.observed_data)), "irls_thresholds": eps, **curve}
-    selection["beta_lcurve"] = lcurve_corner(curve["beta"], curve["phi_d"], curve["phi_m"])
+    corner = lcurve_corner_info(curve["beta"], curve["phi_d"], curve["phi_m"])
+    selection["beta_lcurve"] = corner["beta"]
     warnings = []
-    # A corner in the outermost sweep intervals means the curve has none inside
-    inner = np.sort(betas)[[1, -2]]
-    if not inner[0] * 1.001 < selection["beta_lcurve"] < inner[1] / 1.001:
-        warnings.append("L-curve corner is at the edge of the sweep; the curve has no "
-                        "clear corner in this beta range")
+    if not corner["valid"]:
+        warnings.append(LCURVE_NO_CORNER + (
+            "; the chosen beta is unreliable" if criterion == "lcurve" else ""))
     if all(g is not None for g in curve["gcv"]):
         selection["beta_gcv"] = gcv_minimum(curve["beta"], curve["gcv"])
     elif criterion == "gcv":
@@ -461,6 +462,7 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
         weighting=task.l1l2_weighting, model_unit=model_unit, std=task.data_std,
         criterion=criterion, lower=task.bounds_lower, upper=task.bounds_upper,
         n_decades=task.lambda_decades, step=task.lambda_step,
+        fallback=task.beta_selection == "auto",
     )
     path = res.path
     chi2 = res.chi2
@@ -492,7 +494,7 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
         "l1l2": {
             "solver": "cda",
             "weighting": task.l1l2_weighting,
-            "criterion": criterion,
+            "criterion": res.criterion,
             "model_unit": model_unit,
             "lambda_opt": res.lambda_opt,
             "lambda_lcurve": res.lambda_lcurve,

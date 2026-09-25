@@ -351,6 +351,21 @@ class TestPipelinePlumbing:
         assert result["regularization_type"] == "l1l2"
         assert any("L1–L2" in n for n in result["notes"])
 
+    @pytest.mark.parametrize("extra", [
+        dict(regularization_type="l1l2", l1_ratio=0.8, l1l2_solver="cda",
+             l1l2_weighting="S1", lambda_decades=3.5, beta_selection="auto"),
+        dict(regularization_type="mgs", focusing_percentile=90, focusing_scale=0.5,
+             bounds_lower=0.0, bounds_upper=0.04, beta_selection="lcurve"),
+        dict(regularization_type="tv", focusing_percentile=95, beta_selection="gcv"),
+    ])
+    def test_upload_page_choices_forwarded(self, grav_grid_dir, capture, extra):
+        """Every regularization / beta choice the upload page sends reaches the task."""
+        params = _single("gravity", ["grav.grd"], param_mode="manual", **extra)
+        run_data_pipeline(params, str(grav_grid_dir))
+        t = capture["task"]
+        for key, value in extra.items():
+            assert getattr(t, key) == value, key
+
     def test_auto_mode_ignores_l1_ratio(self, grav_grid_dir, capture):
         params = _single("gravity", ["grav.grd"], l1_ratio=0.9)
         run_data_pipeline(params, str(grav_grid_dir))
@@ -555,7 +570,7 @@ class TestElasticNetEndToEnd:
         assert n_significant(m_sparse) < 0.5 * n_significant(m_smooth)
         assert m_sparse.max() > m_smooth.max()
 
-    @pytest.mark.parametrize("regularization_type", ["l1l2", "sparse"])
+    @pytest.mark.parametrize("regularization_type", ["l1l2", "sparse", "mgs", "tv"])
     def test_positivity_bound(self, tmp_path, regularization_type):
         """Bounds with m0 on the lower bound used to leave the model at zero."""
         result = self._run(tmp_path, 0.5, bounds_lower=0.0, bounds_upper=1.0,
