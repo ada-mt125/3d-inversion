@@ -138,6 +138,13 @@ svg#dag:active{cursor:grabbing;}
 .chart-title{font-size:12px;font-weight:600;margin-bottom:10px;}
 .chart-row{display:flex;gap:14px;flex-wrap:wrap;}
 .chart-row .chart-box{flex:1;min-width:300px;}
+.chart-row+.chart-row{margin-top:14px;}
+.sel-tab{border-collapse:collapse;font-size:12px;width:100%;}
+.sel-tab th,.sel-tab td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);}
+.sel-tab th{color:var(--text3);font-weight:500;}
+.sel-tab tr.sel-on td{font-weight:600;}
+.sel-dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle;}
+.sel-note{font-size:11px;color:var(--text3);margin-top:8px;}
 .stats-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px;}
 .stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:10px 14px;flex:1;min-width:100px;}
 .stat-card .label{font-size:9px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}
@@ -380,18 +387,40 @@ svg#dag:active{cursor:grabbing;}
                   <select id="up-reg-type" class="up-in">
                     <option value="lp">Lp-norm IRLS (sparse / smooth)</option>
                     <option value="l1l2">L1–L2 elastic net (Utsugi 2019)</option>
+                    <option value="mgs">Focusing: minimum gradient support (MGS)</option>
+                    <option value="tv">Total variation (TV)</option>
                   </select>
                 </div>
               </div>
 
               <div id="up-l1l2-params" hidden>
                 <div class="up-row up-4">
-                  <div class="up-col"><label class="up-lbl" for="up-l1-ratio">L1 ratio a (0–1)</label><input id="up-l1-ratio" type="number" class="up-in" min="0" max="1" step="0.1" value="0.5"></div>
+                  <div class="up-col"><label class="up-lbl" for="up-l1-ratio">Mixing ratio α (0–1)</label><input id="up-l1-ratio" type="number" class="up-in" min="0" max="1" step="0.05" value="0.8"></div>
+                  <div class="up-col"><label class="up-lbl" for="up-l1l2-solver">Solver</label>
+                    <select id="up-l1l2-solver" class="up-in">
+                      <option value="cda">Coordinate descent, λ path (Utsugi)</option>
+                      <option value="irls">SimPEG IRLS</option>
+                    </select></div>
+                  <div class="up-col"><label class="up-lbl" for="up-l1l2-weighting">Depth weighting</label>
+                    <select id="up-l1l2-weighting" class="up-in">
+                      <option value="S1">wS1 = 1/√‖kⱼ‖ (Li &amp; Oldenburg)</option>
+                      <option value="S2">wS2 = 1/‖kⱼ‖ (normalized columns)</option>
+                    </select></div>
+                  <div class="up-col"><label class="up-lbl" for="up-lambda-decades">λ range (decades)</label><input id="up-lambda-decades" type="number" class="up-in" min="1" step="0.5" value="4"></div>
                 </div>
-                <div class="up-note">φ<sub>m</sub> = (1−a)/2·‖m̃‖² + a·‖m̃‖₁ on the depth-weighted model m̃<sub>j</sub> = ‖g<sub>j</sub>‖<sup>½</sup>·m<sub>j</sub>. a = 1 gives compact, sparse bodies; a = 0 gives smooth models with lower amplitudes. There is no smoothness term, so the norm and α<sub>x,y,z</sub> settings do not apply. Joint jobs still use L2.</div>
+                <div class="up-note">φ<sub>m</sub> = (1−α)/2·‖β‖² + α·‖β‖₁ on the depth-weighted model. α → 1 gives compact bodies, α → 0 smooth ones. The coordinate-descent solver computes the whole λ path from λ<sub>max</sub> and picks λ on it (L-curve by default); it needs gravity or magnetic data. On our magnetic synthetic, α ≈ 0.8 with wS1 recovered the body best (wS2 pushed it too deep). There is no smoothness term, so norms and α<sub>x,y,z</sub> do not apply. Joint jobs still use L2.</div>
+              </div>
+
+              <div id="up-focus-params" hidden>
+                <div class="up-row up-4">
+                  <div class="up-col"><label class="up-lbl" for="up-focus-pct">Focusing percentile</label><input id="up-focus-pct" type="number" class="up-in" min="1" max="100" step="1" value="95"></div>
+                  <div class="up-col"><label class="up-lbl" for="up-focus-scale">Focusing scale</label><input id="up-focus-scale" type="number" class="up-in" min="0" step="any" placeholder="default"></div>
+                </div>
+                <div class="up-note">The focusing parameter e = scale × this percentile of |∇m| of the L2 model (default scale: 1 for MGS, 0.1 for TV), fixed once reweighting starts. MGS gives blocky, sharp-edged bodies but is very sensitive to e; set an upper property bound when you can. TV is milder: piecewise-smooth models.</div>
               </div>
 
               <div id="up-lp-params">
+              <div id="up-norm-block">
               <div class="up-grp">Model style (norms)</div>
               <div class="up-row">
                 <div class="up-col">
@@ -409,6 +438,7 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col"><label class="up-lbl">p<sub>y</sub></label><input id="up-p-y" type="number" class="up-in" min="0" max="2" step="0.1" value="2"></div>
                 <div class="up-col"><label class="up-lbl">p<sub>z</sub></label><input id="up-p-z" type="number" class="up-in" min="0" max="2" step="0.1" value="1"></div>
               </div>
+              </div>
 
               <div class="up-grp">Regularization weights α</div>
               <div class="up-row up-4">
@@ -418,6 +448,19 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col"><label class="up-lbl">α<sub>z</sub></label><input id="up-alpha-z" type="number" class="up-in" step="any" value="1"></div>
               </div>
               </div>
+
+              <div class="up-grp">Trade-off parameter (β / λ)</div>
+              <div class="up-row">
+                <div class="up-col">
+                  <select id="up-beta-sel" class="up-in">
+                    <option value="auto">Auto — L-curve for the L1–L2 λ path, χ² = N otherwise</option>
+                    <option value="discrepancy">Discrepancy principle (χ² = N; needs reliable errors)</option>
+                    <option value="lcurve">L-curve corner</option>
+                    <option value="gcv">Generalized cross-validation (GCV)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="up-note">L-curve and GCV do not rely on the data errors; each runs a sweep of fixed-β inversions (about 15 extra runs) unless the L1–L2 λ path already provides it. On our synthetics the L-curve matched χ² = N for sparse models, while GCV tended to over-fit. GCV needs gravity or magnetic data. Joint jobs use χ² = N.</div>
 
               <div class="up-grp">Iteration control</div>
               <div class="up-row up-4">
@@ -469,7 +512,7 @@ const NCOL = {
   ConductivityToResistivityNode:'#00BCD4',
   RegularizationNode:'#009688', CrossGradientNode:'#009688',
   SingleInversionNode:'#e94560', SparseInversionNode:'#E91E63',
-  JointInversionNode:'#e94560',
+  RegularizedInversionNode:'#E91E63', JointInversionNode:'#e94560',
   ModelExportNode:'#8BC34A', ResultExportNode:'#8BC34A',
 };
 const NCAT = {
@@ -479,7 +522,7 @@ const NCAT = {
   ConductivityToResistivityNode:'Transform',
   RegularizationNode:'Regularization', CrossGradientNode:'Regularization',
   SingleInversionNode:'Inversion', SparseInversionNode:'Sparse Inv.',
-  JointInversionNode:'Joint Inv.',
+  RegularizedInversionNode:'Inversion', JointInversionNode:'Joint Inv.',
   ModelExportNode:'Export', ResultExportNode:'Export',
 };
 
@@ -581,7 +624,17 @@ function loadFile(file) {
 // ══════════════════════════════════════════
 // DAG: NODE CONFIG HELPER
 // ══════════════════════════════════════════
-function isInv(t) { return t==='SingleInversionNode'||t==='SparseInversionNode'||t==='JointInversionNode'; }
+function isInv(t) { return t==='SingleInversionNode'||t==='SparseInversionNode'||t==='RegularizedInversionNode'||t==='JointInversionNode'; }
+
+// Human-readable regularization of a RegularizedInversionNode (or a worker result)
+const REG_NAMES = {l1l2:'L1–L2', mgs:'MGS focusing', tv:'Total variation', sparse:'sparse IRLS', l2:'smooth L2'};
+const SEL_NAMES = {auto:'auto', discrepancy:'χ²=N', lcurve:'L-curve', gcv:'GCV'};
+function regSummary(p) {
+  const rt=p.regularization_type;
+  if (rt==='l1l2') return 'L1–L2 α='+p.l1_ratio+' '+(p.l1l2_solver==='irls'?'IRLS':'CDA')+' w'+(p.l1l2_weighting||'S1');
+  if (rt==='sparse') return 'sparse norms=('+(p.norms||[]).join(',')+')';
+  return REG_NAMES[rt]||rt;
+}
 
 function cfgLines(n) {
   const p = n.params||{}, t = n.type;
@@ -592,6 +645,9 @@ function cfgLines(n) {
   }
   if (t === 'SingleInversionNode')
     return [p.method_type+' | smooth L2', 'cool='+p.cooling_factor+' iter='+p.max_iter];
+  if (t === 'RegularizedInversionNode')
+    return [p.method_type+' | '+regSummary(p), 'β/λ: '+(SEL_NAMES[p.beta_selection]||p.beta_selection),
+            'iter='+p.max_iter+(p.bounds&&p.bounds[1]!=null?' χ≤'+p.bounds[1]:'')];
   if (t === 'JointInversionNode')
     return [(p.method_types||[]).join('+'), 'iter='+p.max_iter];
   return [];
@@ -790,6 +846,12 @@ function selectNode(id) {
     h+=dRow('Type',n.output.type);
     if(n.output.n_iterations) h+=dRow('Iterations',n.output.n_iterations);
     if(n.output.converged!=null) h+=dRow('Converged',n.output.converged?'Yes':'No');
+    if(n.output.regularization) h+=dRow('Regularization',escH(n.output.regularization));
+    if(n.output.selection){
+      const sl=n.output.selection;
+      h+=dRow(sl.parameter+' ('+(SEL_NAMES[sl.criterion]||sl.criterion)+')',fmtN(sl.selected));
+      Object.entries(sl.chosen||{}).forEach(([k,v])=>{h+=dRow('&nbsp;&nbsp;'+k,fmtN(v));});
+    }
     if(n.output.final_model){
       const fm=n.output.final_model;
       h+=dRow('Property',fm.prop);
@@ -841,25 +903,132 @@ function renderConvergence(n) {
   const iters=n.output.iterations||[];
   if(!iters.length){ct.innerHTML='<div class="empty-msg">No iteration data</div>';return;}
 
+  // The L1–L2 CDA result reports its λ path (λ decreasing) instead of iterations
+  const isPath=n.output.regularization==='elastic_net_CDA';
+  const xLabel=isPath?'λ path step (λ decreasing)':'Iteration';
+  const sel=n.output.selection;
   let h='<div class="chart-row">';
   h+='<div class="chart-box"><div class="chart-title">Data Misfit (φ_d) & Model Norm (φ_m)</div><canvas id="cv-phidm" height="260"></canvas></div>';
-  h+='<div class="chart-box"><div class="chart-title">Total Objective & Beta</div><canvas id="cv-obj" height="260"></canvas></div>';
+  h+='<div class="chart-box"><div class="chart-title">Total Objective & '+(isPath?'λ':'Beta')+'</div><canvas id="cv-obj" height="260"></canvas></div>';
   h+='</div>';
+  if(sel){
+    const P=sel.parameter;
+    h+='<div class="chart-row">';
+    h+='<div class="chart-box"><div class="chart-title">L-curve: χ² vs '+(P==='λ'?'P(β; α)':'φ_m')+' (log–log)</div><canvas id="cv-lcurve" height="260"></canvas></div>';
+    h+='<div class="chart-box"><div class="chart-title">χ²/N vs '+P+' (dotted: χ² = N)</div><canvas id="cv-chi2" height="260"></canvas></div>';
+    h+='</div>';
+    if(sel.gcv) h+='<div class="chart-row"><div class="chart-box"><div class="chart-title">GCV vs '+P+'</div><canvas id="cv-gcv" height="260"></canvas></div><div class="chart-box sel-table" id="cv-seltab"></div></div>';
+    else h+='<div class="chart-row"><div class="chart-box sel-table" id="cv-seltab"></div></div>';
+  }
   ct.innerHTML=h;
 
   requestAnimationFrame(()=>{
     drawLineChart('cv-phidm', iters, [
       {key:'phi_d',label:'φ_d',color:'#64B5F6'},
       {key:'phi_m',label:'φ_m',color:'#81C784'}
-    ], true);
+    ], true, xLabel);
     drawLineChart('cv-obj', iters, [
       {key:'phi_total',label:'φ_total',color:'#e94560'},
-      {key:'beta',label:'β',color:'#FFB74D',dash:true}
-    ], true);
+      {key:'beta',label:isPath?'λ':'β',color:'#FFB74D',dash:true}
+    ], true, xLabel);
+    if(sel) renderSelection(sel);
   });
 }
 
-function drawLineChart(canvasId, data, series, logScale) {
+// ── β / λ selection curves ──
+// Colours of the three criteria; the chosen one is drawn larger with a ring.
+const CRIT_COLORS = {'L-curve':'#FFB74D', 'GCV':'#81C784', 'Discrepancy':'#64B5F6'};
+const CRIT_KEYS = {lcurve:'L-curve', gcv:'GCV', discrepancy:'Discrepancy'};
+
+function renderSelection(sel) {
+  const P=sel.parameter;
+  const v=sel.values, chi=sel.misfit, pen=sel.penalty;
+  const nData=sel.n_data||1;
+  const chosenKey=CRIT_KEYS[sel.criterion];
+  // Criterion markers on the L-curve, at the nearest swept value
+  const nearest=x=>{let b=0;v.forEach((w,i)=>{if(Math.abs(Math.log(w/x))<Math.abs(Math.log(v[b]/x)))b=i;});return b;};
+  const marks=Object.entries(sel.chosen).map(([k,x])=>{const i=nearest(x);
+    return {x:chi[i],y:pen[i],color:CRIT_COLORS[k]||'#ccc',label:k,big:k===chosenKey};});
+  drawXYChart('cv-lcurve', chi.map((c,i)=>({x:c,y:pen[i]})), {xlog:true,ylog:true,
+    xlabel:'χ² (data misfit)', ylabel:P==='λ'?'P(β; α)':'φ_m', marks});
+  const vlines=Object.entries(sel.chosen).map(([k,x])=>({x,color:CRIT_COLORS[k]||'#ccc',label:k,big:k===chosenKey}));
+  drawXYChart('cv-chi2', v.map((x,i)=>({x,y:chi[i]/nData})), {xlog:true,ylog:true,
+    xlabel:P, ylabel:'χ²/N', vlines, hline:1});
+  if(sel.gcv) drawXYChart('cv-gcv', v.map((x,i)=>({x,y:sel.gcv[i]})), {xlog:true,ylog:true,
+    xlabel:P, ylabel:'GCV', vlines});
+  let t='<div class="chart-title">Selected '+P+'</div><table class="sel-tab"><tr><th>Criterion</th><th>'+P+'</th><th>χ²/N</th></tr>';
+  Object.entries(sel.chosen).forEach(([k,x])=>{
+    t+='<tr'+(k===chosenKey?' class="sel-on"':'')+'><td><span class="sel-dot" style="background:'+(CRIT_COLORS[k]||'#ccc')+'"></span>'+k+(k===chosenKey?' (used)':'')+'</td><td>'+fmtN(x)+'</td><td>'+fmtN(interpChi2(sel,x)/nData)+'</td></tr>';
+  });
+  t+='</table>';
+  if(sel.weighting) t+='<div class="sel-note">Depth weighting: w'+escH(sel.weighting)+'</div>';
+  $v('cv-seltab').innerHTML=t;
+}
+
+// χ² at parameter x, interpolated in log–log along the sweep
+function interpChi2(sel,x){
+  const v=sel.values, c=sel.misfit;
+  const idx=v.map((_,i)=>i).sort((a,b)=>v[a]-v[b]);
+  const lx=Math.log(x);
+  for(let k=0;k<idx.length-1;k++){
+    const a=idx[k], b=idx[k+1];
+    if(lx>=Math.log(v[a])&&lx<=Math.log(v[b])){
+      const t=(lx-Math.log(v[a]))/(Math.log(v[b])-Math.log(v[a]));
+      return Math.exp(Math.log(c[a])+t*(Math.log(c[b])-Math.log(c[a])));
+    }
+  }
+  return c[idx[lx<Math.log(v[idx[0]])?0:idx.length-1]];
+}
+
+function drawXYChart(canvasId, pts, o) {
+  const canvas=document.getElementById(canvasId); if(!canvas)return;
+  const ctx=canvas.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  canvas.style.height='260px';
+  const W2=canvas.clientWidth, H2=260;
+  canvas.width=W2*dpr; canvas.height=H2*dpr;
+  ctx.scale(dpr,dpr);
+  const pad={t:18,r:20,b:40,l:62}, pw=W2-pad.l-pad.r, ph=H2-pad.t-pad.b;
+  ctx.fillStyle='#161d27'; ctx.fillRect(0,0,W2,H2);
+  const good=pts.filter(p=>(!o.xlog||p.x>0)&&(!o.ylog||p.y>0));
+  if(good.length<2)return;
+  const tx=x=>o.xlog?Math.log10(x):x, ty=y=>o.ylog?Math.log10(y):y;
+  const xs=good.map(p=>tx(p.x)), ys=good.map(p=>ty(p.y)).concat(o.hline!=null?[ty(o.hline)]:[]);
+  let x0=Math.min(...xs), x1=Math.max(...xs), y0=Math.min(...ys), y1=Math.max(...ys);
+  const mx=(x1-x0)*0.05||0.5, my=(y1-y0)*0.08||0.5; x0-=mx; x1+=mx; y0-=my; y1+=my;
+  const X=x=>pad.l+pw*(tx(x)-x0)/(x1-x0), Y=y=>pad.t+ph*(1-(ty(y)-y0)/(y1-y0));
+  // grid and ticks
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1;
+  ctx.fillStyle='#8b97a6'; ctx.font='10px sans-serif';
+  const lbl=(t,log)=>{const v=log?Math.pow(10,t):t; return (Math.abs(v)<0.01||Math.abs(v)>=1e4)?v.toExponential(0):fmtN(v);};
+  for(let i=0;i<=4;i++){
+    const gy=pad.t+ph*i/4; ctx.beginPath();ctx.moveTo(pad.l,gy);ctx.lineTo(W2-pad.r,gy);ctx.stroke();
+    ctx.textAlign='right'; ctx.fillText(lbl(y1-(y1-y0)*i/4,o.ylog),pad.l-6,gy+3);
+    const gx=pad.l+pw*i/4; ctx.textAlign='center'; ctx.fillText(lbl(x0+(x1-x0)*i/4,o.xlog),gx,H2-pad.b+14);
+  }
+  ctx.fillText(o.xlabel||'',pad.l+pw/2,H2-6);
+  ctx.save(); ctx.translate(12,pad.t+ph/2); ctx.rotate(-Math.PI/2); ctx.fillText(o.ylabel||'',0,0); ctx.restore();
+  // reference line
+  if(o.hline!=null){ctx.strokeStyle='#8b97a6';ctx.setLineDash([2,3]);ctx.beginPath();
+    ctx.moveTo(pad.l,Y(o.hline));ctx.lineTo(W2-pad.r,Y(o.hline));ctx.stroke();ctx.setLineDash([]);}
+  // curve (in order of x for the sweep plots, of the parameter for the L-curve)
+  ctx.strokeStyle='#c9d1d9'; ctx.lineWidth=2; ctx.beginPath();
+  good.forEach((p,i)=>{i?ctx.lineTo(X(p.x),Y(p.y)):ctx.moveTo(X(p.x),Y(p.y));}); ctx.stroke();
+  good.forEach(p=>{ctx.beginPath();ctx.arc(X(p.x),Y(p.y),2.5,0,Math.PI*2);ctx.fillStyle='#c9d1d9';ctx.fill();});
+  // criterion lines / markers
+  (o.vlines||[]).forEach(l=>{if(o.xlog&&l.x<=0)return; ctx.strokeStyle=l.color; ctx.lineWidth=l.big?2.5:1.5;
+    ctx.beginPath();ctx.moveTo(X(l.x),pad.t);ctx.lineTo(X(l.x),pad.t+ph);ctx.stroke();});
+  (o.marks||[]).forEach(m=>{ctx.beginPath();ctx.arc(X(m.x),Y(m.y),m.big?7:5,0,Math.PI*2);
+    ctx.fillStyle=m.color;ctx.fill();ctx.lineWidth=2;ctx.strokeStyle='#161d27';ctx.stroke();
+    if(m.big){ctx.beginPath();ctx.arc(X(m.x),Y(m.y),10,0,Math.PI*2);ctx.strokeStyle=m.color;ctx.lineWidth=1.5;ctx.stroke();}});
+  // legend
+  const items=(o.vlines||o.marks||[]);
+  ctx.font='10px sans-serif'; ctx.textAlign='left'; let lx=pad.l+8;
+  items.forEach(it=>{ctx.fillStyle=it.color;ctx.fillRect(lx,pad.t+2,10,3);
+    ctx.fillStyle='#c9d1d9';ctx.fillText(it.label+(it.big?' ✓':''),lx+14,pad.t+8);lx+=ctx.measureText(it.label).width+34;});
+}
+
+function drawLineChart(canvasId, data, series, logScale, xLabel) {
   const canvas=document.getElementById(canvasId); if(!canvas)return;
   const ctx=canvas.getContext('2d');
   const dpr=window.devicePixelRatio||1;
@@ -891,7 +1060,7 @@ function drawLineChart(canvasId, data, series, logScale) {
   ctx.fillStyle='#8b97a6'; ctx.font='10px sans-serif'; ctx.textAlign='center';
   data.forEach((d,i)=>{if(data.length<=15||i%Math.ceil(data.length/10)===0)
     ctx.fillText(d.iteration,toX(i),H2-pad.b+16);});
-  ctx.fillText('Iteration',W2/2,H2-4);
+  ctx.fillText(xLabel||'Iteration',W2/2,H2-4);
 
   // Y labels
   ctx.textAlign='right';
@@ -1701,9 +1870,12 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
     $u(b).addEventListener('input',()=>{$u(a).value=$u(b).value;});
   });
   $u('up-reg-type').addEventListener('change',()=>{
-    const en=$u('up-reg-type').value==='l1l2';
-    $u('up-l1l2-params').hidden=!en;
-    $u('up-lp-params').hidden=en;
+    const rt=$u('up-reg-type').value;
+    $u('up-l1l2-params').hidden=rt!=='l1l2';
+    $u('up-focus-params').hidden=rt!=='mgs'&&rt!=='tv';
+    $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, MGS, TV
+    $u('up-norm-block').hidden=rt!=='lp';        // norms: lp only
+    if(rt==='mgs'||rt==='tv')$u('up-focus-scale').placeholder=rt==='mgs'?'default 1':'default 0.1';
   });
   $u('up-norm-preset').addEventListener('change',()=>{
     const v=$u('up-norm-preset').value;
@@ -1801,12 +1973,28 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
       max_irls_iterations:num('up-auto-maxirls','max IRLS iterations',{min:1,integer:true})};
     const lo=num('up-lower','lower bound',{optional:true}), hi=num('up-upper','upper bound',{optional:true});
     if(lo!==undefined&&hi!==undefined&&lo>=hi)throw new Error('Lower bound must be less than upper bound');
-    const regMethod=$u('up-reg-type').value==='l1l2'?{regularization_type:'l1l2',l1_ratio:num('up-l1-ratio','L1 ratio',{min:0})}:{
-      norms:['s','x','y','z'].map(a=>num('up-p-'+a,'p_'+a,{min:0})),
-      alpha_s:num('up-alpha-s','α_s',{min:0}),alpha_x:num('up-alpha-x','α_x',{min:0}),
-      alpha_y:num('up-alpha-y','α_y',{min:0}),alpha_z:num('up-alpha-z','α_z',{min:0})};
-    if(regMethod.l1_ratio>1)throw new Error('L1 ratio must be between 0 and 1');
-    if(regMethod.norms)regMethod.regularization_type=regMethod.norms.every(v=>v===2)?'l2':'sparse';
+    const rt=$u('up-reg-type').value;
+    let regMethod;
+    if(rt==='l1l2'){
+      regMethod={regularization_type:'l1l2',l1_ratio:num('up-l1-ratio','mixing ratio α',{min:0}),
+        l1l2_solver:$u('up-l1l2-solver').value,l1l2_weighting:$u('up-l1l2-weighting').value,
+        lambda_decades:num('up-lambda-decades','λ range',{min:0.5})};
+      if(regMethod.l1_ratio>1)throw new Error('Mixing ratio α must be between 0 and 1');
+    }else{
+      regMethod={alpha_s:num('up-alpha-s','α_s',{min:0}),alpha_x:num('up-alpha-x','α_x',{min:0}),
+        alpha_y:num('up-alpha-y','α_y',{min:0}),alpha_z:num('up-alpha-z','α_z',{min:0})};
+      if(rt==='lp'){
+        regMethod.norms=['s','x','y','z'].map(a=>num('up-p-'+a,'p_'+a,{min:0}));
+        regMethod.regularization_type=regMethod.norms.every(v=>v===2)?'l2':'sparse';
+      }else{
+        regMethod.regularization_type=rt;
+        regMethod.focusing_percentile=num('up-focus-pct','focusing percentile',{min:1});
+        const sc=num('up-focus-scale','focusing scale',{min:0,optional:true});
+        if(sc!==undefined)regMethod.focusing_scale=sc;
+        if(regMethod.focusing_percentile>100)throw new Error('Focusing percentile must be at most 100');
+      }
+    }
+    regMethod.beta_selection=$u('up-beta-sel').value;
     const p={param_mode:'manual',...regMethod,
       beta0_ratio:num('up-beta0','β₀ ratio',{min:0}),cooling_factor:num('up-cool','β cooling factor',{min:1}),
       max_iter:num('up-maxit','max iterations',{min:1,integer:true}),

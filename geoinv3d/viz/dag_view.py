@@ -22,6 +22,7 @@ _NODE_COLORS = {
     "ForwardNode": "#9C27B0",
     "SingleInversionNode": "#F44336",
     "SparseInversionNode": "#E91E63",
+    "RegularizedInversionNode": "#E91E63",
     "JointInversionNode": "#D32F2F",
     "RegularizationNode": "#795548",
     "CrossGradientNode": "#607D8B",
@@ -61,6 +62,11 @@ def _label_for(node: Node) -> str:
         if p.get("use_preconditioner"):
             parts.append("precond=ON")
         parts.append(f"iter={p.get('max_iter', '?')}")
+    elif node_type == "RegularizedInversionNode":
+        parts.append(f"method={p.get('method_type', '?')}")
+        parts.append(f"reg={_reg_summary(p)}")
+        parts.append(f"beta/lambda={p.get('beta_selection', 'auto')}")
+        parts.append(f"iter={p.get('max_iter', '?')}")
     elif node_type == "SingleInversionNode":
         parts.append(f"method={p.get('method_type', '?')}")
         parts.append(f"reg=smooth (L2)")
@@ -83,6 +89,17 @@ def _label_for(node: Node) -> str:
                 parts.append(f"{key}={p[key]}")
 
     return "\n".join(parts)
+
+
+def _reg_summary(p: dict) -> str:
+    """Short regularization description of a RegularizedInversionNode."""
+    rt = p.get("regularization_type", "?")
+    if rt == "l1l2":
+        solver = "IRLS" if p.get("l1l2_solver") == "irls" else "CDA"
+        return f"L1-L2 a={p.get('l1_ratio')} {solver} w{p.get('l1l2_weighting', 'S1')}"
+    if rt == "sparse":
+        return f"sparse norms={_fmt_norms(p.get('norms', []))}"
+    return {"mgs": "MGS focusing", "tv": "total variation", "l2": "smooth L2"}.get(rt, rt)
 
 
 def _fmt_norms(norms) -> str:
@@ -205,6 +222,10 @@ def _mermaid_label(node: Node) -> str:
         return (f"{node.name}<br/>"
                 f"{p.get('method_type','?')} | norms={norms}<br/>"
                 f"precond={precond} | iter={p.get('max_iter','?')}")
+    elif node_type == "RegularizedInversionNode":
+        return (f"{node.name}<br/>"
+                f"{p.get('method_type','?')} | {_reg_summary(p)}<br/>"
+                f"beta/lambda={p.get('beta_selection','auto')} | iter={p.get('max_iter','?')}")
     elif node_type == "SingleInversionNode":
         return (f"{node.name}<br/>"
                 f"{p.get('method_type','?')} | smooth L2<br/>"

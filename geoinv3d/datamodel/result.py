@@ -40,6 +40,10 @@ class InversionResult:
     iterations: list[IterationSnapshot] = field(default_factory=list)
     converged: bool = False
     final_model: Optional[PhysicalModel] = None
+    # JSON-ready extras for the viewer, e.g. "regularization" (label),
+    # "iteration_stats" (per-iteration dicts when snapshots hold no models)
+    # and "selection" (the lambda path / beta sweep, see RegularizedInversionNode)
+    extras: dict = field(default_factory=dict)
 
     def add_iteration(self, snap: IterationSnapshot) -> None:
         self.iterations.append(snap)

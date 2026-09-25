@@ -51,7 +51,11 @@ def _extract_output_summary(node: Node) -> dict | None:
             "n_iterations": out.n_iterations,
             "iterations": [],
         }
-        for snap in out.iterations:
+        stats = out.extras.get("iteration_stats")
+        if stats is not None:
+            result["iterations"] = [dict(s) for s in stats]
+            result["n_iterations"] = len(stats)
+        for snap in out.iterations if stats is None else ():
             vals = np.asarray(snap.model_values)
             result["iterations"].append({
                 "iteration": snap.iteration,
@@ -64,6 +68,9 @@ def _extract_output_summary(node: Node) -> dict | None:
                 "model_mean": float(vals.mean()),
                 "model_std": float(vals.std()),
             })
+        for key in ("regularization", "selection"):
+            if key in out.extras:
+                result[key] = out.extras[key]
         if out.final_model is not None:
             fv = np.asarray(out.final_model.values)
             result["final_model"] = {
