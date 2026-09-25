@@ -529,7 +529,9 @@ class TestPipelineEndToEnd:
             assert model.shape == (n_active,)
             assert np.all(np.isfinite(model))
         assert result["methods"] == ["gravity", "magnetics"]
-        assert "notes" not in result
+        # Only the padding diagnostic may speak up (joint L2 on this tiny mesh)
+        assert set(result["outside_core_share"]) == {"gravity", "magnetics"}
+        assert all("outside the core" in n for n in result.get("notes", []))
 
 
 class TestElasticNetEndToEnd:
@@ -579,6 +581,62 @@ class TestElasticNetEndToEnd:
         assert m.min() >= 0.0
         assert m.max() > 1e-3
         assert result["iterations"][-1]["phi_d"] < 0.1 * result["iterations"][0]["phi_d"]
+
+
+class TestSmoothL2EndToEnd:
+    """The upload page's "Smooth L2" option (regularization_type="l2")."""
+
+    @staticmethod
+    def _core_centroid_depth(result):
+        """Depth of the centroid of the positive anomaly inside the core mesh."""
+        import discretize
+        mesh = getattr(discretize, result["mesh"]["__class__"]).deserialize(result["mesh"])
+        cc, m = mesh.cell_centers, result["recovered_model"]
+        core = ((cc[:, 0] >= 0) & (cc[:, 0] <= 600) & (cc[:, 1] >= 0) & (cc[:, 1] <= 600)
+                & (cc[:, 2] > -400))
+        w = np.clip(m, 0.0, None) * core
+        return float(np.sum(w * cc[:, 2]) / np.sum(w))
+
+    def test_depth_weighting_lifts_the_surface_bias(self, tmp_path):
+        run = TestElasticNetEndToEnd._run
+        l2 = run(tmp_path, 0.5, regularization_type="l2")
+        legacy = run(tmp_path, 0.5, regularization_type="smooth")
+        assert l2["regularization"] == "smooth_L2"
+        assert l2["depth_weighting"] == "sensitivity" and "norms" not in l2
+        assert abs(l2["iterations"][-1]["phi_d"] / l2["n_data"] - 1) < 0.2
+        # True block: 100-300 m deep (centroid -200 m).  Without depth weighting
+        # the legacy path keeps the anomaly shallow; depth weighting moves it
+        # clearly deeper.  (On this shallow 4-layer core it overshoots into the
+        # bottom padding, as the sparse path does: SimPEG's volume-normalized
+        # sensitivity weights make large padding cells cheap.)
+        assert self._core_centroid_depth(l2) < self._core_centroid_depth(legacy) - 50
+        # ...and the result says so
+        assert l2["outside_core_share"]["magnetics"] > 0.5
+        assert any("outside the core" in n for n in l2["notes"])
+
+    def test_bounds(self, tmp_path):
+        result = TestElasticNetEndToEnd._run(
+            tmp_path, 0.5, regularization_type="l2", bounds_lower=0.0, bounds_upper=1.0)
+        assert result["recovered_model"].min() >= 0.0
+        assert result["recovered_model"].max() > 1e-3
+
+
+class TestOutsideCoreShare:
+    def test_share_counts_moment_outside_the_core(self):
+        from geoinv3d.cloud.worker import _outside_core_share
+        dmesh = Mesh3D(hx=[200, 100, 100, 200], hy=[200, 100, 100, 200], hz=[300, 100, 100],
+                       origin=(-200.0, -200.0, -500.0)).to_discretize()
+        cc = dmesh.cell_centers
+        core = (abs(cc[:, 0] - 100) < 100) & (abs(cc[:, 1] - 100) < 100) & (cc[:, 2] > -200)
+        extent, margin, z_bottom = (0.0, 200.0, 0.0, 200.0), 0.0, -200.0
+        assert _outside_core_share(dmesh, None, core * 1.0, extent, margin, z_bottom) == 0.0
+        assert _outside_core_share(dmesh, None, (~core) * 1.0, extent, margin, z_bottom) == 1.0
+        # weighted by cell volume: one 200x200x300 padding cell vs one 100^3 core cell
+        m = np.zeros(dmesh.n_cells)
+        m[np.flatnonzero(core)[0]] = 1.0
+        m[0] = 1.0  # corner padding cell, 12x the volume
+        share = _outside_core_share(dmesh, None, m, extent, margin, z_bottom)
+        assert np.isclose(share, 12 / 13)
 
 
 class TestMethodFixes:

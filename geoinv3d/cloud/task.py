@@ -38,8 +38,8 @@ class InversionTask:
     method_kwargs: dict = field(default_factory=dict)
 
     # Regularization: "sparse" (lp-norm IRLS), "l1l2" (elastic net, Utsugi 2019),
-    # "mgs" (minimum gradient support), "tv" (total variation) or anything else
-    # for smooth L2
+    # "mgs" (minimum gradient support), "tv" (total variation), "l2" (smooth L2
+    # with depth weighting) or anything else for the legacy smooth L2 path
     regularization_type: str = "sparse"
 
     # Shared inversion parameters

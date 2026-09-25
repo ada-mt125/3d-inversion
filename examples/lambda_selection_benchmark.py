@@ -142,7 +142,7 @@ def run_irls(reg_type, m_true, d, sigma):
         base, _ = _run_problem(task, p)
         beta_disc = base["iterations"][-1]["beta"]
         eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
-            if p.kind != "smooth" else None
+            if p.kind not in ("smooth", "l2") else None
         points, models = [], []
         for f in SWEEP:
             res, pf, inv_prob = run_fixed_beta(task, beta_disc * f, mesh, sim=p.sim,

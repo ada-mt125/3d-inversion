@@ -145,8 +145,8 @@ def make_task(reg_type, locs, dobs, sigma, alpha=None, l1l2_solver="irls") -> In
     if reg_type == "l1l2":
         task.l1_ratio = alpha
         task.l1l2_solver = l1l2_solver
-    if reg_type in ("l1l2", "sparse"):
-        # Susceptibility is non-negative; the smooth path has no bounds.
+    if reg_type in ("l1l2", "sparse", "l2"):
+        # Susceptibility is non-negative.
         task.bounds_lower, task.bounds_upper = 0.0, 1.0
     return task
 

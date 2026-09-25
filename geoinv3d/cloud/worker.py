@@ -90,8 +90,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
     The regularization and optimizer carry IRLS state, so every run needs
     new ones; pass ``sim`` to reuse a simulation (and its sensitivities).
 
-    Returns a namespace with ``kind`` ("smooth", "sparse", "l1l2", "mgs" or
-    "tv"), sim,
+    Returns a namespace with ``kind`` ("l2", "smooth", "sparse", "l1l2", "mgs"
+    or "tv"), sim,
     dmis, reg, opt, m0 and the bounds ``lo``/``hi`` (None when unbounded).
     """
     from types import SimpleNamespace
@@ -100,8 +100,12 @@ def _single_problem(task: InversionTask, mesh, sim=None):
     from ..methods.regularization import ElasticNet, Focusing
     from simpeg import optimization, regularization
 
+    # "l2": smooth L2 with depth (sensitivity) weighting, length-scale alphas and
+    # bounds, like the other regularizations.  Any other unknown type falls back
+    # to the legacy "smooth" path (raw SimPEG alphas, no depth weighting), kept
+    # so pre-packed tasks run unchanged.
     kind = task.regularization_type \
-        if task.regularization_type in ("sparse", "l1l2", "mgs", "tv") else "smooth"
+        if task.regularization_type in ("l2", "sparse", "l1l2", "mgs", "tv") else "smooth"
     method = _get_method(task)
     survey = SurveyData(
         locations=task.station_locations,
@@ -143,6 +147,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         )
         if kind == "sparse":
             reg_kwargs["norms"] = list(task.norms)
+        elif kind == "l2":
+            pass
         else:
             reg_kwargs.update(stabilizer=kind,
                               threshold_percentile=task.focusing_percentile,
@@ -151,6 +157,7 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         reg_kwargs["active_cells"] = task.active_cells
     reg = {
         "smooth": regularization.WeightedLeastSquares,
+        "l2": regularization.WeightedLeastSquares,
         "l1l2": ElasticNet,
         "sparse": regularization.Sparse,
         "mgs": Focusing,
@@ -182,7 +189,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
 
 
 def _regularization_label(kind: str) -> str:
-    return {"smooth": "smooth_L2", "sparse": "sparse_IRLS", "l1l2": "elastic_net_IRLS",
+    return {"smooth": "smooth_L2", "l2": "smooth_L2", "sparse": "sparse_IRLS",
+            "l1l2": "elastic_net_IRLS",
             "mgs": "focusing_MGS", "tv": "total_variation"}[kind]
 
 
@@ -192,6 +200,9 @@ def _finish_result(task, p, collector, m_recovered, inv_prob) -> dict:
     if p.kind == "l1l2":
         result["l1_ratio"] = task.l1_ratio
         result.pop("norms")
+    elif p.kind == "l2":
+        result.pop("norms")
+        result["depth_weighting"] = "sensitivity"
     elif p.kind in ("mgs", "tv"):
         result.pop("norms")
         result["focusing_threshold"] = p.reg.focusing_threshold
@@ -221,6 +232,25 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
             ]
         if task.use_preconditioner:
             directive_list.insert(1, directives.UpdatePreconditioner())
+    elif p.kind == "l2":
+        directive_list = [directives.UpdateSensitivityWeights()]
+        if beta is None:
+            # No IRLS terms here: DampedUpdateIRLS only steers beta, up or down,
+            # onto chi^2 = N.  A plain BetaSchedule halves beta each iteration
+            # and overshoots (chi^2/N ~ 0.45 on the test synthetic).
+            directive_list += [
+                directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio, random_seed=42),
+                directives.TargetMisfit(chifact=1.0),
+                DampedUpdateIRLS(
+                    f_min_change=1e-4,
+                    max_irls_iterations=task.max_irls_iterations,
+                    chifact_start=3.0,
+                    cooling_factor=task.cooling_factor,
+                ),
+            ]
+        directive_list.append(collector)
+        if task.use_preconditioner or p.lo is not None:
+            directive_list.append(directives.UpdatePreconditioner())
     else:
         weights = (ElasticNetSensitivityWeights() if p.kind == "l1l2"
                    else directives.UpdateSensitivityWeights())
@@ -295,7 +325,7 @@ def run_fixed_beta(task: InversionTask, beta: float, mesh=None, sim=None,
         p.reg.focusing_threshold = float(focusing_threshold)
     result, inv_prob = _run_problem(task, p, beta=beta, irls_thresholds=irls_thresholds)
     result["irls_thresholds"] = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
-        if p.kind != "smooth" else None
+        if p.kind not in ("smooth", "l2") else None
     return result, p, inv_prob
 
 
@@ -350,8 +380,8 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     base, _ = _run_problem(task, p)
     beta_disc = base["iterations"][-1]["beta"]
     sim = p.sim
-    eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] if p.kind != "smooth" \
-        else None
+    eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
+        if p.kind not in ("smooth", "l2") else None
     focus_e = getattr(p.reg, "focusing_threshold", None)
     if task.beta_sweep is not None:
         betas = np.asarray(task.beta_sweep, dtype=float)
@@ -651,6 +681,9 @@ _MANUAL_KEYS = (
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
 )
+# Warn when more than this share of the recovered anomaly lies in padding cells
+PADDING_WARNING_SHARE = 0.5
+
 # params key -> InversionTask field for the regularization/optimizer settings
 _REG_PARAM_KEYS = (
     "max_iter", "beta0_ratio", "cooling_factor",
@@ -988,6 +1021,26 @@ def _jsonable(obj):
     return obj
 
 
+def _outside_core_share(dmesh, active, model, extent, margin, z_bottom) -> float:
+    """Share of the recovered anomaly (|m| x cell volume) outside the core region.
+
+    The core is the survey extent (plus ``margin``) down to ``z_bottom``.  Mass
+    or moment in the padding cells beyond it is poorly constrained: smooth,
+    depth-weighted regularizations tend to spread sources into the large deep
+    and lateral padding cells, which fit the data as well as the true body.
+    """
+    cc, vol = dmesh.cell_centers, dmesh.cell_volumes
+    if active is not None:
+        cc, vol = cc[active], vol[active]
+    xmin, xmax, ymin, ymax = extent
+    core = ((cc[:, 0] >= xmin - margin) & (cc[:, 0] <= xmax + margin)
+            & (cc[:, 1] >= ymin - margin) & (cc[:, 1] <= ymax + margin)
+            & (cc[:, 2] >= z_bottom))
+    moment = np.abs(np.asarray(model, dtype=float)) * vol
+    total = moment.sum()
+    return float(moment[~core].sum() / total) if total > 0 else 0.0
+
+
 def run_data_pipeline(params: dict, data_dir: str) -> dict:
     """Full pipeline: raw data files -> mesh -> inversion -> result.
 
@@ -1014,7 +1067,7 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
             regularization_type: "sparse" (lp-norm IRLS), "l1l2" (L1–L2
                 elastic net, Utsugi 2019; mixing set by l1_ratio), "mgs"
                 (minimum gradient support focusing), "tv" (total variation)
-                or "l2".  focusing_percentile / focusing_scale set the
+                or "l2" (smooth L2 with depth weighting).  focusing_percentile / focusing_scale set the
                 MGS/TV focusing parameter.
             beta_selection: "auto" (default), "discrepancy", "lcurve" or
                 "gcv" (manual mode, single inversions); beta_sweep optionally
@@ -1197,6 +1250,27 @@ def run_data_pipeline(params: dict, data_dir: str) -> dict:
     })
     if active is not None:
         result["active_cells"] = active
+
+    # How much of the recovered anomaly sits outside the core (in padding)?
+    gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),
+                         np.linspace(extent[2], extent[3], 20))
+    z_bottom = float(np.min(surface(gx, gy))) - depth_core_m
+    models = result.get("recovered_models") or (
+        {task.method_type: result["recovered_model"]} if "recovered_model" in result else {})
+    shares = {
+        name: _outside_core_share(dmesh, active, m, extent, core_cell_m, z_bottom)
+        for name, m in models.items() if np.size(m) == n_params
+    }
+    if shares:
+        result["outside_core_share"] = shares
+        for name, share in shares.items():
+            if share > PADDING_WARNING_SHARE:
+                notes.append(
+                    f"{share:.0%} of the recovered {name} anomaly lies outside the core "
+                    f"mesh (padding cells), where it is poorly constrained. Consider a "
+                    f"compact regularization (L1–L2), property bounds, or a larger "
+                    f"core (depth_core_m)."
+                )
     if notes:
         result["notes"] = notes
     return result

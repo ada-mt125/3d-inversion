@@ -386,7 +386,8 @@ svg#dag:active{cursor:grabbing;}
               <div class="up-row">
                 <div class="up-col">
                   <select id="up-reg-type" class="up-in">
-                    <option value="lp">Lp-norm IRLS (sparse / smooth)</option>
+                    <option value="lp">Lp-norm IRLS (sparse)</option>
+                    <option value="l2">Smooth L2 (least squares)</option>
                     <option value="l1l2">L1–L2 elastic net (Utsugi 2019)</option>
                     <option value="mgs">Focusing: minimum gradient support (MGS)</option>
                     <option value="tv">Total variation (TV)</option>
@@ -420,6 +421,10 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-note">The focusing parameter e = scale × this percentile of |∇m| of the L2 model (default scale: 1 for MGS, 0.1 for TV), fixed once reweighting starts. MGS gives blocky, sharp-edged bodies but is very sensitive to e; set an upper property bound when you can. TV is milder: piecewise-smooth models.</div>
               </div>
 
+              <div id="up-l2-params" hidden>
+                <div class="up-note">φ<sub>m</sub> = α<sub>s</sub>‖W m‖² + Σ α<sub>i</sub>‖W ∂<sub>i</sub>m‖²: classic smooth least-squares inversion with sensitivity (depth) weighting. It gives smooth, blurred models with underestimated amplitudes; use it as a baseline or when no sharp contacts are expected. α<sub>x,y,z</sub> are length scales relative to α<sub>s</sub>, as for the other methods.</div>
+              </div>
+
               <div id="up-lp-params">
               <div id="up-norm-block">
               <div class="up-grp">Model style (norms)</div>
@@ -427,7 +432,6 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col">
                   <select id="up-norm-preset" class="up-in">
                     <option value="0,2,2,1">Compact bodies (default) — p = [0, 2, 2, 1]</option>
-                    <option value="2,2,2,2">Smooth (L2) — p = [2, 2, 2, 2]</option>
                     <option value="0,1,1,1">Blocky / sharp edges — p = [0, 1, 1, 1]</option>
                     <option value="custom">Custom</option>
                   </select>
@@ -1394,6 +1398,25 @@ function m3dIsoTraces(vals, cscale, name){
   return t;
 }
 
+// True models are usually piecewise constant: nested isosurfaces would all sit on the
+// body boundary and stack into an opaque shell that hides the recovered model inside.
+// Draw one translucent, open-lattice shell at half the true amplitude instead.
+function m3dTrueTraces(vals){
+  const g=m3dGrid;
+  let lo=Infinity, hi=-Infinity;
+  for(const q of vals){if(q<lo)lo=q;if(q>hi)hi=q;}
+  const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:'True model',
+    opacity:0.35,showscale:false,colorscale:M3D_TRUE_CSCALE,cmin:lo,cmax:hi,
+    caps:{x:{show:false},y:{show:false},z:{show:false}},
+    surface:{count:1,fill:0.55,pattern:'all'},
+    lighting:{ambient:0.8,diffuse:0.4,specular:0.05},
+    hovertemplate:'True model<br>x %{x:.0f} m<br>y %{y:.0f} m<br>z %{z:.0f} m<br>%{value:.4g}<extra></extra>'};
+  const t=[];
+  if(hi>0) t.push({...base,isomin:hi/2,isomax:hi});
+  if(lo<0) t.push({...base,isomin:lo,isomax:lo/2});
+  return t;
+}
+
 // Slice planes are drawn as outlines only, so they never hide the isosurfaces
 function m3dSliceTraces(){
   const m=m3dData, g=m3dGrid, XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
@@ -1441,7 +1464,7 @@ function render3D(isoChanged){
   if(isoChanged||!m3dIso){
     m3dIso=[];
     if($v('m3d-chk-rec')?.checked) m3dIso.push(...m3dIsoTraces(m3dGrid.rec,M3D_CSCALE,'Recovered'));
-    if($v('m3d-chk-true')?.checked&&m3dGrid.tru) m3dIso.push(...m3dIsoTraces(m3dGrid.tru,M3D_TRUE_CSCALE,'True model'));
+    if($v('m3d-chk-true')?.checked&&m3dGrid.tru) m3dIso.push(...m3dTrueTraces(m3dGrid.tru));
   }
   Plotly.react(div,[...m3dIso,...m3dSliceTraces()],m3dLayout(),{displayModeBar:false,scrollZoom:true});
   m3dReady=true;
@@ -1879,7 +1902,8 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
     const rt=$u('up-reg-type').value;
     $u('up-l1l2-params').hidden=rt!=='l1l2';
     $u('up-focus-params').hidden=rt!=='mgs'&&rt!=='tv';
-    $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, MGS, TV
+    $u('up-l2-params').hidden=rt!=='l2';
+    $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, L2, MGS, TV
     $u('up-norm-block').hidden=rt!=='lp';        // norms: lp only
     if(rt==='mgs'||rt==='tv')$u('up-focus-scale').placeholder=rt==='mgs'?'default 1':'default 0.1';
   });
@@ -1992,6 +2016,8 @@ window.addEventListener('resize',()=>{if(W)renderDAG();});
       if(rt==='lp'){
         regMethod.norms=['s','x','y','z'].map(a=>num('up-p-'+a,'p_'+a,{min:0}));
         regMethod.regularization_type=regMethod.norms.every(v=>v===2)?'l2':'sparse';
+      }else if(rt==='l2'){
+        regMethod.regularization_type='l2';
       }else{
         regMethod.regularization_type=rt;
         regMethod.focusing_percentile=num('up-focus-pct','focusing percentile',{min:1});
