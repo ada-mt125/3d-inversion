@@ -1,13 +1,13 @@
 [build-system]
 requires = ["setuptools>=64"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "geoinv3d"
 version = "0.1.0"
 description = "DAG-based 3D geophysical joint inversion framework built on SimPEG"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
@@ -24,6 +24,9 @@ dev = ["pytest>=7.0", "ruff>=0.1", "mypy>=1.0"]
 
 [project.scripts]
 geoinv3d = "geoinv3d.app:main"
+
+[tool.setuptools.packages.find]
+include = ["geoinv3d*"]
 
 [tool.ruff]
 line-length = 96

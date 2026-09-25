@@ -236,3 +236,24 @@ and raises the peak towards the true value, matching the papers' conclusions.
 
 Next: reproduce the paper's synthetic tests, L-curve / GCV for λ, focusing (MGS) and TV,
 then mesh extensions.
+
+---
+
+## 2026-09-25 — L1–L2 Paper Synthetic (Nwosu & Becken 2025 set-up)
+
+`examples/l1l2_paper_synthetic.py` runs the paper's magnetic survey (TMI, B0 = 42000 nT,
+I = 45°, D = 30°, 26 × 26 stations at 2 km height) over a χ = 0.03 SI prism
+(10 × 10 km, 2–10 km deep — our geometry; the paper was not reachable from this
+environment) on a 28 × 28 × 20 mesh of 2 × 2 × 1 km cells, through
+`run_single_inversion`. 18 runs (L1–L2 a = 0.1/0.3/0.5/0.7, sparse, L2 × σ = 2/5/10 nT)
+take ~2 min. Report: `examples/l1l2_paper_synthetic_report.md`.
+
+- a controls compactness as in the paper: V(≥10 % of peak) 2208 → 740 km³ (true 800),
+  peak χ 0.025 → 0.054 for a = 0.1 → 0.7 at σ = 2 nT. a = 0.3–0.5 gives the half-peak
+  bottom at 9–11 km (true 10 km); a = 0.7 overshoots the peak and lifts the bottom.
+- The worker's default sparse (norms 0,2,2,1, alpha_s = 1e-4) smears the body to 14–15 km;
+  smooth L2 (no depth weighting) puts it at 0–3 km and over-fits (χ²/N ≈ 0.6).
+- L1–L2 needs ~40–45 IRLS iterations here; the example uses max_iter = 60.
+- Fix: `pyproject.toml` named a non-existent build backend and discovered `deploy/`
+  as a package, so `pip install -e .` failed; now `setuptools.build_meta` + explicit
+  package discovery.
