@@ -379,3 +379,346 @@ Running → Done), stage and iteration progress, run time and cost estimate, wor
 **Deploying**: the worker code is baked into the Docker image, so every change under
 `geoinv3d/` needs the image rebuilt and pushed to ECR before AWS runs it. Tests use fake
 S3/Batch/Logs clients only (`tests/test_aws_jobs.py` refuses real boto3 clients).
+
+---
+
+## 2026-09-27 — EC2 Backend (the account allows EC2/EBS only)
+
+The AWS admin scoped the user's keys to EC2/EBS/SSM and requires every created resource to carry
+`Owner=<IAM user>` (miaozhou). DryRun probes showed the keys still had wider rights, but we stay
+within the stated scope, so the Batch design (S3/ECR/Batch/IAM, `deploy/setup_aws.py`) is parked
+until the admin approves it. Region: ap-south-1 (the account default); on-demand instances only.
+
+`geoinv3d/cloud/ec2.py` (`EC2Backend`, default backend of the API server):
+- one instance per job, Amazon Linux 2023, tagged Owner/Project/Name/geoinv3d:task on the
+  instance, volume and network interface; key pair `geoinv3d-<user>` (private key in
+  `~/.geoinv3d/keys/`) and security group `geoinv3d-ssh-<user>` (SSH from this machine's IP only);
+- user data installs Python 3.13 and the pinned packages with uv, then marks READY;
+- the API server uploads the code (tar of the package), data and params over SFTP and starts
+  `python -m geoinv3d.cloud.worker --local` (writes progress.json / result.* on the instance);
+- refresh reads progress over SSH; on `exit_code` it downloads the result to
+  `~/.geoinv3d/results/<task>/` and terminates the instance;
+- guards: shutdown-behaviour stop; stop if no job within 60 min, after 12 h of running, and 30 min
+  after the job ends if nobody fetched the result (Jobs page: "Fetch result" restarts it).
+
+Real run (`deploy/ec2_smoke_test.py`, c5.xlarge): launch → install (~30 s with uv) → upload →
+4 smooth-L2 iterations → download → terminate in 93 s; χ²/N = 1.08; instance and volume gone.
+
+---
+
+## 2026-09-27 — Results in the DAG viewer, regional removal, gz sign convention
+
+**Results → viewer.** `geoinv3d/viz/result_workflow.py` turns downloaded results (directory or
+zip) into a DAG workflow: Mesh, Survey, optional True model, one node per run with iterations,
+3D model (tensor meshes cropped to the core, octree sampled on a grid) and data fit.  The worker
+now stores observed/predicted/std/regional data, the settings and the mesh design in the result.
+Jobs page: "View in DAG" (`GET /api/inversion/{id}/workflow`) and "Download" next to Stop.
+`deploy/ec2_multi_run.py` runs several regularizations of one dataset on parallel instances and
+writes one combined viewer page.
+
+**Regional field.** `geoinv3d/methods/regional.py`: least-squares polynomial trend surface (order
+1–3, or the mean), removed per dataset (`"regional": {"method": "polynomial", "order": 2}`) before
+the noise model; the removed trend and a summary go into the result.  Upload page: "Regional
+field" select (gravity default order 1, magnetics none).
+
+**Iso threshold.** The 3D view's iso surfaces are now scaled to each model's own range, not
+the true model's peak, so a smooth recovered model (peak ≪ true) no longer vanishes when the
+threshold is raised.
+
+**gz sign convention (bug).** SimPEG's gz is the z-up component (negative over a dense body);
+Bouguer/field data are positive down.  The pipeline passed field data to SimPEG unchanged, so real
+gravity data would invert to a density model of the wrong sign.  Found in the Karnataka
+pre-flight: the residual came out as −16.4..31.7 mGal, the mirror of the earlier workflow's
+[−31.67, 16.44].  Fix: gravity gz is read as positive down by default and negated before SimPEG;
+observed/predicted data are reported back in the file's convention; `gz_convention: "simpeg"`
+(per dataset or global; upload page "gz sign") keeps data made with SimPEG's forward model as is.
+gzz and TMI are unaffected.  The synthetic test data and `deploy/ec2_smoke_test.py` now make
+positive-down gz.  219 tests pass.
+
+---
+
+## 2026-09-27 — Karnataka gravity on EC2; depth weighting; EC2/CDA fixes
+
+**Runs** (AOI 641–711 km E, 1634–1704 km N; 5040 data at 1 km; order-2 trend removed;
+84×84×27 = 190,512 cells): sparse on c5.2xlarge (4.6 min, χ²/N 0.97) and L1–L2 by IRLS on
+c5.4xlarge (3.5 min, χ²/N 1.08).  Instances terminated; about $0.5 in total.
+
+**Why the sparse model reaches the bottom of the mesh.** With alpha_x/y/z passed as length
+scales, SimPEG weights the gradient terms by (1 × 500 m)², so alpha_s = 1e-4 makes the
+smallness (p_s = 0) term ~2500× weaker: the model is smoothness-driven, and with p_z = 1 a
+vertically constant column costs nothing.  50% of |mass| lay below the 10 km core (D50 9.1 km)
+while the power spectrum gives source depths of 1.1 / 2.2 / 6.0 km.  A 15-run local study on a
+2 km mesh (25 s each; the baseline reproduces the full-resolution result) showed: alpha_s = 1
+cuts the share below the core to ~20%; Li & Oldenburg depth weighting with β = 1 also stops the
+leak into the lateral padding (33% → 5%) and gives D50 4.6 km; β = 0.5 / 1.5 / 2 give D50
+1.9 / 6.8 / 8.9 km.  Report: `examples/output/reports/karnataka_gravity_depth_report.html`;
+all runs in one viewer: `examples/output/depth_study/karnataka_depth_study.geoinv3d_viewer.html`.
+
+**New option** `depth_weighting: "sensitivity" | "depth"` with `depth_weighting_exponent` (β)
+for l2/sparse/mgs/tv (manual mode; upload page "Depth weighting").  "depth" sets SimPEG cell
+weights (z + z0)^(-β) (norm weight (z + z0)^(-β/2), z below the nearest station, z0 half the
+smallest cell) instead of the UpdateSensitivityWeights directive.
+
+**Fixes found on the real runs**
+- EC2 start command: `a && b && nohup … & echo started` backgrounds the whole list, so the SSH
+  channel stayed open until the worker ended; the read timed out after 60 s and the backend
+  retried the set-up.  Now `{ nohup … & }`, plus a STARTED marker so a retried set-up follows the
+  running job instead of starting it again.
+- Code archive: directories from OneDrive come out read-only (r-x), so a second upload could not
+  replace the code; entries now get modes 755/644, and the remote side `chmod -R u+w` first.
+- L1–L2 CDA ran out of memory (31.6 GB on 32 GB): `invert_l1l2` copied G four times in float64.
+  Now one Fortran-order copy scaled in place (peak ~11.5 GB here); `_polish` uses the Woodbury
+  form when the free set exceeds the data count and skips when its copy would exceed 2 GB; CDA
+  reports progress per λ point.  CDA is still single-threaded and each λ point took about twice
+  as long as the previous one at this size (11/41 points in 11 min), so the run used IRLS.
+- `deploy/ec2_multi_run.py --resume STAMP` follows existing instances; refresh errors are logged.
+- `build_workflow` accepts runs on different meshes/data (own Mesh/Survey nodes).
+
+---
+
+## 2026-09-28 — alpha_s default 1; full-resolution check of the recommended settings
+
+**Default.** `InversionTask.alpha_s` is now None = "the regularization's default": 1 where
+alpha_x/y/z are length scales (l2, sparse, mgs, tv, joint), 1e-4 on the legacy smooth path with
+raw SimPEG alphas (`effective_alpha_s`); the result's settings record the value used.  Upload page
+default 1.  A 2 km check with the default sensitivity weighting: alpha_s = 0.1 still leaves 34%
+of |mass| below the 10 km core (alpha_s = 1: 22%, 1e-4: 50%), hence 1.
+
+**Full resolution on EC2** (1 km, 190,512 cells, c5.2xlarge, ~6 min and ~$0.03 each), p =
+[0,2,2,2], depth weighting β = 1; profile under the main Bouguer high (671.5 E, 1664.5 N):
+
+| run | χ²/N | core | below 10 km | D50 | half-max depth |
+|---|---|---|---|---|---|
+| original sparse (alpha_s 1e-4, sensitivity) | 0.97 | 24% | 50% | 9.1 km | 0.3–19.9 km |
+| L1–L2 (IRLS) | 1.08 | 80% | 11% | 3.0 km | 2.3–4.8 km |
+| alpha_s = 1, β = 1 | 0.96 | 83% | 15% | 4.6 km | 3.3–7.8 km |
+| alpha_s = 0.1, β = 1 | 0.89 | 81% | 13% | 5.4 km | 3.8–9.3 km |
+
+The columns are gone, but at full resolution the bodies sit deeper than on the 2 km study mesh
+(alpha_s 0.1: 0.5–4.5 km there): the coarse study shows the trends, not the absolute depths.
+
+**Fixes.** Parallel `start_job` calls raced to add the same security-group rule (the public IP had
+changed) and one failed with InvalidPermission.Duplicate: key/SG set-up now runs under a lock and
+tolerates a duplicate rule.  `_finish` terminated the instance before recording the outcome, so a
+refresh in between reported "terminated outside GeoInv3D" although the result was downloaded;
+the outcome is now recorded first.  231 tests pass (plus the new EC2 ordering test).
+
+---
+
+## 2026-09-28 — Upload page: area of interest, thinning, sweeps, comparisons; local-only API
+
+**Area step (wizard step 2 of 6: Data → Area → Mesh → Inversion → Review → Jobs).** The data are
+read in the browser (`GeoPreview`: GeoTIFF uncompressed/deflate, stripped or tiled, reading only
+the sampled rows — the 240 MB Karnataka TMI grid in about 2 s; Surfer ASCII/6/7; station tables,
+.obs and .npz with a value column) and drawn with Plotly.  An HTML window over the plot is dragged
+to move it and by its corners/edges to resize it (a move slides back inside the survey, a resize
+is cut at its edge); width/height/centre in km, "Make square", "Whole survey"; pan and scroll-zoom
+keep it aligned.  Per data type a thinning choice (every k-th node / one station per cell, with
+factors reaching round spacings such as 1 km for 37.5 m aeromagnetics, or a custom spacing).
+Counts follow the worker exactly (Karnataka AOI: gravity 5,041 vs 5,040 read — one blank node —
+and magnetics 4,900 vs 4,900).  The mesh step designs the mesh for the window and thinned data.
+
+**Pipeline.** `aoi` is validated; `decimate_spacing_m` (per dataset or job-wide) thins grids by
+whole strides per axis (`grid_strides`) and points to the first station per cell
+(`thin_points`, cells from the window's south-west corner); the result records what was done.
+`decimate_stride` still works for grids.
+
+**Sweeps.** Manual mode can vary α_s, depth-weighting β, the norms p or the L1–L2 ratio: one job
+per value (at most 8, within the 36-vCPU limit), submitted as one group.
+
+**Jobs page.** Groups are shown together with "Compare in DAG" and "Save comparison"; finished
+jobs can be ticked and compared freely.  Saved comparisons (~/.geoinv3d/comparisons) reopen in the
+viewer or download as a stand-alone page.  API: `GET /api/workflow?ids=`, `POST/GET/DELETE
+/api/comparisons`, `GET /api/comparisons/{id}/page`.
+
+**API security.** The server can launch EC2 instances, so only pages on this machine may use it:
+CORS allows local origins only, and because a multipart POST needs no CORS preflight, requests
+with a foreign Origin header or a non-local Host (DNS rebinding) are refused with 403.  Extra
+origins/hosts via GEOINV3D_ALLOWED_ORIGINS / GEOINV3D_ALLOWED_HOSTS.  Submissions that would
+exceed the vCPU limit (GEOINV3D_VCPU_LIMIT or aws.json "vcpu_limit", default 36) get 409.
+
+**End-to-end run from the page (2026-09-28, user approved).** API server started locally
+(`py -m geoinv3d.api`, 127.0.0.1:8000; a foreign Origin got 403 on the real server).  In the page:
+NGPM_BA.tiff dropped on the gravity card (0 % + 0.5 mGal, order-2 trend), 70 km window at
+(676, 1669) km thinned to 1 km (5,041 data), tensor mesh 1 km × 500 m / 10 km / 20 km (190,512
+cells, as in the scripted EC2 runs), sparse p = [0,2,2,2], α_s = 1, bounds [−0.2, 0.5], sweep of the
+depth-weighting β = 0.5, 1.5 on 2 × c5.2xlarge.  Both jobs: submit → install → invert → collect →
+terminate in about 6 min; 30 iterations, χ²/N 0.90 (β 0.5) and 0.86 (β 1.5).  "Compare in DAG" on
+the group opened both in one workflow; "Save comparison" stored it and its page downloaded
+(2.5 MB, data embedded).  Instances terminated, no volumes left; server stopped.
+
+**Fixes from the run.** (1) While finishing, the job showed the stale stage "starting"; it now
+shows "collecting" (downloading the result, then shutting down).  (2) The viewer's 2D depth slice
+and sections were drawn upside down (north at the bottom; the surface at the bottom of the E–W and
+N–S sections), because the plot guessed the axis direction from the edge order and the result's
+z edges run from the surface down.  Larger values are now always at the top (north up, surface
+up), whatever the order of the edges; the 3D view was right.  The result viewer pages in
+examples/output were regenerated.
+
+**Correction (2026-09-28).** The note above that "at full resolution the bodies sit deeper than on
+the 2 km study mesh" compared different places (the strongest cell on the 2 km mesh, the main
+Bouguer high on the 1 km mesh).  Under the same point (671.5 E, 1664.5 N), the 2 km study gave
+0.5–4.5 / 3.5–7.5 / 4.5–10.6 km for β = 0.5 / 1 / 1.5 (α_s = 1) and the 1 km mesh 2.3–4.8 / 3.3–7.8 /
+4.3–11.1 km: the base within 0.5 km, the top and the peak 1–3 km shallower on the coarse mesh.
+The full-resolution β sweep also shows the non-uniqueness plainly: the peak moves 3.8 → 6.8 → 9.3 km
+with χ²/N 0.86–0.96, and β = 0.5 matches L1–L2 (2.3–4.8 km).  Both reports now have a section on
+this (Chinese and English artifacts republished; English PDF regenerated, 11 pages).
+
+---
+
+## 2026-09-28 — Synthetic magnetic test (Karnataka field), full resolution on EC2
+
+`examples/synthetic_magnetic_karnataka.py`: TMI on a 1 km grid over the 70 × 70 km gravity area,
+80 m above flat ground (the survey's flight height), IGRF 2020 at 15.09 N 76.64 E (ppigrf):
+42,100 nT, I = 19.3°, D = −0.9° true = −1.4° grid; noise 2 % + 1 nT.  Model (SI): A shallow block
+1–3 km, 0.03; B deep block 4–7 km, 0.04; C dyke 0.5–6 km dipping 45° east, 2 km thick, 0.05.
+Forward-modelled on a 500 × 250 m mesh (magnetic cells only): TMI −172 … +210 nT.
+
+Inversions (`ec2_multi_run.py synthetic-magnetic`, 4 × c5.2xlarge, 8–9 min, ≈ $0.19): mesh of the
+gravity runs (190,512 cells), p = [0,2,2,2], α_s = 1, susceptibility in [0, 0.1].
+
+| run | χ²/N | corr(true) | in bodies | A depth (2.0) | B depth (5.5) | dyke dip (45°) |
+|---|---|---|---|---|---|---|
+| sparse, sensitivity | 1.11 | 0.21 | 10% | 3.9 km | 8.5 km | 64° |
+| sparse, depth β = 2 | 1.07 | 0.24 | 16% | 3.7 km | 8.0 km | 62° |
+| sparse, depth β = 3 | 1.31 | 0.17 | 4% | 4.9 km | 8.6 km | 66° |
+| L1–L2 (IRLS) | 1.00 | 0.60 | 24% | 3.9 km | 6.7 km | 65° |
+
+(depths: centroid of recovered susceptibility × volume in each body's footprint.)  Every method
+puts the bodies 1.5–3 km too deep, recovers about a third of the susceptibility, and steepens the
+dyke; the shallow block becomes a hollow "bowl" in the sparse runs.  The classic magnetic depth
+weighting β = 3 is the deepest.  A 2 km local study (1,296 data) was much worse (A at 5–7 km,
+χ²/N 1.2–1.8): for magnetics a coarse mesh is not a stand-in for the full one, unlike gravity;
+it does show the trend (smaller β → shallower; β = 1 put B at 5.5 km).  Viewer with the true model:
+`examples/output/synthetic_magnetic/synthetic-magnetic-1790589414.geoinv3d_viewer.html`.
+
+
+## 2026-09-28 — Report rewrite, folder tidy-up, launcher, 3D occlusion, branch tree in the DAG
+
+**Report.** `examples/output/karnataka_gravity/scripts/build_reports.py` (+ `report_style.py`) rebuilds the
+Chinese and English reports and the English PDF from `figures/numbers.json`; the comparison of the six
+full-resolution runs comes first (fit, lateral structure, depth, what is robust), then the cross-check with
+the 8 km deep SimPEG mesh and Tomofast-x, the 2 km study, and only briefly why the original α_s = 1e-4
+settings give columns.  Depths are centroids (the α_s = 1 models sit at the density bound, so the "peak
+depth" is a plateau): main high 3.4 / 3.8 / 5.6 / 6.4 / 7.6 km for β = 0.5 / L1–L2 / β = 1 / α_s = 0.1 /
+β = 1.5; 5.3 km on the 8 km mesh.  The residual maps differ even though χ²/N does not (0.86–1.08): L1–L2
+leaves a broad positive residual over the main high.  Republished to the same two artifact links.
+
+**Folder.** `examples/output/depth_study/` (old 20-run viewer) went to the Recycle Bin; the new
+`karnataka_gravity/scripts/build_workflow.py` rebuilds all 22 runs into `karnataka_gravity/depth_study/`.
+The earlier report moved to `karnataka_gravity/archive/`.  The three example viewers were regenerated.
+
+**Launcher.** `GeoInv3D.bat` (repo root) starts `py -m geoinv3d.api` on 127.0.0.1:8000 unless
+`/api/health` already answers, waits for it, and opens http://localhost:8000/.  The server now serves the
+upload page at `/` with `window.GEOINV3D_API = location.origin` injected, so the page talks to whichever
+port it came from (test in `test_api_local.py`).
+
+**3D view "clipping".** Two causes: (1) the positive and negative isosurfaces were 70 % translucent, and
+WebGL blends translucent surfaces without sorting them by depth, so a blue body behind showed through a
+red one in front; (2) the colour range was min–max (−0.2 … 0.5), whose midpoint is +0.15, so the outer
+shells of positive bodies at the 20 % threshold (+0.1) were drawn light blue.  Models that change sign
+now get a colour range centred on zero (`modelRange`, also in the 2D sections and colour bars).
+
+Transparency with correct occlusion (second pass, same day): gl-plot3d draws translucent triangles after
+the opaque ones with "over" blending (`ONE, ONE_MINUS_SRC_ALPHA`), no depth writes, in buffer order and
+trace order — so the result is right exactly when triangles are drawn back to front.  The shells are now
+Plotly's own isosurface meshes (3 per sign, from the threshold to 90 % of that sign's peak), merged into
+one mesh3d trace; `m3dSortShells` orders their triangles by eye-space depth (view · model matrices of the
+scene) whenever the view turns by > 2° (checked every frame, throttled to ≤ 25 % of the main thread), and
+`m3dUpload` writes the re-ordered data straight into gl-mesh3d's triangle buffers (its layout: vertices
+c, b, a; hover still maps through the original triangle ids).  Opacity follows the colour bar, faint near
+zero and solid at ±max, times one overall opacity; the threshold (share of the colour bar's |max|) hides
+values closer to zero; the colour bar shows the same fading.  Checks (headless Chrome, a red and a blue
+body one behind the other): sorted order puts the front body on top from both sides, the old two-trace
+rendering put blue on top from both; the fast upload matches Plotly's own render under real lighting
+(max pixel difference 8/255).  Karnataka β = 1 at 1 km: 166k triangles, ~75 ms per re-sort.
+The data-fit tab lost its duplicate residual map (the gridded one, as for observed/predicted, remains).
+
+**Branch tree.** `build_workflow` arranges several runs as a tree with one setting per column: mesh and
+data → regularization → α_s (L1 share for L1–L2) → depth weighting → norms (sparse only) → results.
+Every run passes through every column that applies to it (a first version skipped constant levels and
+collapsed single-run branches, so a column mixed different settings; dropped).  Other settings that
+differ within a study get extra columns.  The viewer lays such workflows out left to right with column
+titles, all results in the last column as cards (combination, χ²/N, RMS, model range); a branch node's
+sidebar lists every run below it with its fit.  `serve_dag._compact_workflow` keeps the new `order` and
+`branch` fields.  Tests in `test_result_workflow.py`.  The synthetic magnetic viewer was regenerated
+with the intermediate version and is not yet on the column layout.
+
+## 2026-09-29 — Workspaces in the upload page; worker warnings
+
+**Workspaces.** The page served by the API server (GeoInv3D.bat) now shows a named workspace at the top
+left: click the name to rename it, ▾ to switch, create or delete workspaces.  The server keeps them in
+~/.geoinv3d/workspaces/<id>.json ({name, job_ids, ...}); a job submitted from a page showing a workspace
+joins it (submit form field workspace_id), and GET /api/workspaces/<id>/workflow returns all its
+finished runs as one workflow (the branch tree; runs on the same data share one data node), cached until
+another run finishes.  The page polls it every 20 s, so finished runs appear by themselves; the address
+carries ?ws=<id>, and without it the page opens the workspace opened last (or a new one).  The Jobs list
+shows the workspace's jobs, or all jobs on this machine.  Tests in test_api_local.py (TestWorkspaces);
+the page was checked in headless Chrome with the API answered by a mock (no server started).
+
+**Worker warnings.** The first job submitted from the page logged (1) runpy's "geoinv3d.cloud.worker found
+in sys.modules": geoinv3d/cloud/__init__.py imported the worker, which the instances also run with -m, so
+it loaded twice; the package now imports execute_task / pack_result / run_data_pipeline lazily.  (2)
+SimPEG's FutureWarnings for tolCG / maxIterCG: renamed to cg_maxiter and the CG tolerances, with a catch:
+in SimPEG 0.25.2 the deprecated tolCG sets the ABSOLUTE tolerance for ProjectedGNCG (cg_atol, cg_rtol 0)
+but the RELATIVE one for InexactGaussNewton (cg_rtol).  Following the warning's advice (cg_rtol) would
+have changed the bounded runs; the new arguments reproduce the old settings exactly (checked).
+
+## 2026-09-29 — A slow L1–L2 job; stop with the result kept; overfitting alarm; size check
+
+**The job "stuck at iteration 29"** (i-0dfab7c4300916cc6, submitted from the page): L1–L2 with the
+coordinate-descent solver on the unthinned 500 m grid, 19,517 data × 53,120 octree cells (1.04e9
+entries).  Read-only checks on the instance: the worker alive at 416 % CPU, 14.3 GB of 15.6 GB in use,
+no swap; the "iteration" is the λ-path point (30 of 41 done after ~25 min); point 30 took 5 min and
+564 sweeps against 244 for point 29, and φd was already 7,190 against the target 19,517.  The remaining
+path would likely have run past the 12 h instance limit.  Advice: IRLS for L1–L2, or thin to 1 km.
+
+**Stop and keep the result.** The worker now watches out/STOP (IterationCollector.stop_check, set by
+run_local_job): SimPEG inversions end after the current iteration (opt.stopNextIteration) with that
+model; the L1–L2 coordinate descent checks before every sweep, drops the unfinished λ point and picks λ
+from the points done (the criterion if it can, else χ² = N, else the last point); a β sweep keeps its
+discrepancy-principle run.  Results carry converged = False and stopped_early {reason, at_iteration,
+of}.  EC2Backend.request_finish writes the flag over SSH; POST /api/inversion/<id>/finish (409 unless
+running).  The page's job card: "⏹ Stop & keep result" next to "■ Terminate" (which still discards).
+
+**Overfitting alarm.** A running job whose φd falls below half its target (χ² = N) shows a red alarm on
+its card, pointing at "Stop & keep result"; the progress line now says "λ point i of n" for the
+coordinate descent.
+
+**Size check** in the Review step: data × cells of the dense sensitivity (octree ≈ 0.9 of the core
+cells, as measured), memory ≈ entries × 12 B + 1.5 GB for the coordinate descent (float32 G + float64
+copy; 13.8 GB estimated vs 14.3 GB measured for the job above) or × 6 B + 0.5 GB for SimPEG's solvers,
+against the instance's usable memory: red above it, amber above 75 %; for the coordinate descent above
+3e8 entries a warning that it takes hours.  Buttons switch to SimPEG IRLS or the smallest instance that
+fits.  Checked in headless Chrome with a mocked API (the job above: amber, 13.8 of 14.2 GB; with IRLS
+6.6 GB).  Tests: TestStop (CDA), stop flag in run_local_job, request_finish, the API endpoint.
+
+
+## 2026-09-29 — Joint gravity–magnetic inversion with L2 + group lasso (Utsugi 2025)
+
+`geoinv3d/methods/group_lasso.py`: ½‖b − Zζ‖² + λ1 Σₖ √(βₖ² + ρₖ²) + ½λ2‖ζ‖² by ADMM (s = ζ, scaled
+dual), sensitivity weighting γ = 2, data balance C = max|f|/max|g| (or 1/σ).  The ζ-update never forms
+X, Y or a 2M × 2M matrix: Woodbury with one Cholesky factor of the N × N XXᵀ + μI per method, reused
+for every iteration and every λ1 (CG when a factor would pass 4 GB or the operator is matrix-free);
+float32 kernels are used as stored.  Group soft threshold vectorized, O(M).  Boyd primal/dual stopping.
+L-curve over λ1 (log misfit vs log group penalty) with warm starts; `from_simulations` for SimPEG.
+Worker: `regularization_type="group_lasso"` on a joint gravity + magnetic job (`run_group_lasso_joint`,
+settings `gl_*`), per-dataset data in the result (`data_<method>.npz`), shown in the viewer as a density
+and a susceptibility model.  Upload page: "Joint — Gravity + Magnetic (group lasso, Utsugi 2025)" with
+its own settings, a λ2 sweep, and the memory estimate.  Details and validation: docs/group_lasso_joint.md.
+
+Findings.  (1) Scaling the gravity rows of the operator by C as well as the data leaves ρ̃ in mGal-like
+units against nT-like β̃; the group norm then weighs them ~700× apart and ADMM sat at zero.  A scalar
+scale belongs to the model variable (physical ρ = w ρ̃ / C).  (2) μ near the mean eigenvalue of XᵀX
+(M/min(N, M)) converged fastest; λ2 = 0 is slow (thousands of iterations; smaller μ helps).  (3) float32
+products floor the ADMM residuals at ~1e-6 relative.  (4) λ2 on the 16 × 16 × 8 synthetic (true 0.3 g/cc):
+0.01 → peak 1.4, 0.3 → 0.28, 1 → 0.16 and χ² stuck above N for small errors; default 0.3.
+Tests: tests/test_group_lasso.py (43: prox, scaling, solvers, KKT + FISTA reference, A–E, L-curve,
+pipeline end to end).  The paper's full text could not be fetched (publisher sign-in): the method follows
+the specification we were given.
+
+**Hand-off (session moved to another account).**  Committed on branch claude/cool-hawking-9zd59t.
+The full test suite was started after these changes but had not finished when this was committed; the
+group-lasso tests (43) and the pipeline tests passed.  Next: run `py -m pytest -q`; restart the API
+(GeoInv3D.bat) to use the new page option; nothing has been run on AWS with the group lasso yet
+(the user approves every instance launch).

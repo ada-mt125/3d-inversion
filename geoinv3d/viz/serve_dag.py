@@ -53,8 +53,10 @@ def _compact_workflow(data: dict) -> dict:
             "params": _compact_params(node.get("params", {})),
             "inputs": node.get("inputs", []),
         }
-        if "output" in node:
-            compact_node["output"] = node["output"]
+        # output; order and branch: a study's branch tree (result_workflow.build_workflow)
+        for key in ("output", "order", "branch"):
+            if key in node:
+                compact_node[key] = node[key]
         nodes.append(compact_node)
     result = {"version": data.get("version", 1), "nodes": nodes}
     if "created" in data:

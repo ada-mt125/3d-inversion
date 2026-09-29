@@ -406,3 +406,52 @@ class AWSRunner:
             limit=limit, startFromHead=False,
         )
         return [e["message"] for e in resp.get("events", [])]
+
+
+CANCEL_REASON = "Cancelled by user"
+
+
+class BatchBackend:
+    """AWSRunner (S3 + AWS Batch) behind the API server's job-backend interface.
+
+    The interface (shared with ec2.EC2Backend): start_job, initial_fields,
+    refresh, result_summary, cancel, fetch, tail_logs, fetch_result.
+    """
+
+    def __init__(self, runner: AWSRunner) -> None:
+        self.runner = runner
+
+    def initial_fields(self) -> dict:
+        return {"status": "SUBMITTED", "backend": "batch"}
+
+    def start_job(self, task_id: str, files: list[str], params: dict,
+                  instance_type: str) -> str:
+        task_id, data_prefix = self.runner.upload_data(files, task_id)
+        return self.runner.submit_pipeline(task_id, data_prefix, params,
+                                           instance_type=instance_type)
+
+    def refresh(self, record: dict) -> dict:
+        fields = dict(self.runner.poll(record["job_id"]))
+        task_id = fields.get("task_id") or record.get("task_id")
+        if task_id:
+            fields["progress"] = self.runner.progress(task_id)
+        return fields
+
+    def result_summary(self, record: dict) -> Optional[dict]:
+        return self.runner.result_summary(record["task_id"])
+
+    def cancel(self, record: dict) -> None:
+        self.runner.cancel(record["job_id"], reason=CANCEL_REASON)
+
+    def fetch(self, record: dict) -> None:
+        raise NotImplementedError("Batch jobs keep their result in S3; download it directly")
+
+    def request_finish(self, record: dict) -> None:
+        raise NotImplementedError("Stopping with the result kept needs the EC2 backend")
+
+    def tail_logs(self, record: dict, limit: int = 100) -> list[str]:
+        stream = record.get("log_stream")
+        return self.runner.tail_logs(stream, limit=limit) if stream else []
+
+    def fetch_result(self, record: dict, output_dir: str) -> str:
+        return self.runner.fetch_result(record["task_id"], output_dir)

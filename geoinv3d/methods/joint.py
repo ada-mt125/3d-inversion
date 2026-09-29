@@ -245,7 +245,7 @@ class JointInversion:
         result = JointInversionResult(
             methods=method_names,
             weights=[s.weight for s in self.setups],
-            converged=True,
+            converged=collector.stopped_at is None,   # not converged: stopped by the user
         )
 
         for snap in collector.snapshots:

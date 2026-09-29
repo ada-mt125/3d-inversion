@@ -22,17 +22,25 @@ class IterationCollector(InversionDirective):
 
     ``IterationCollector.on_iteration``, if set, is called with each new
     snapshot (the cloud worker uses it to report progress).
+
+    ``IterationCollector.stop_check``, if set, is asked after every iteration
+    whether the user wants the inversion stopped with its result kept (see
+    :func:`stop_requested`); the inversion then ends after that iteration with
+    its current model, and ``stopped_at`` holds the iteration.
     """
 
     on_iteration = None
+    stop_check = None
 
     def __init__(self) -> None:
         super().__init__()
         self.snapshots: list[IterationSnapshot] = []
+        self.stopped_at = None
 
     def initialize(self) -> None:
         super().initialize()
         self.snapshots = []
+        self.stopped_at = None
 
     def endIter(self) -> None:
         try:
@@ -59,6 +67,22 @@ class IterationCollector(InversionDirective):
                 callback(snap)
             except Exception as e:   # progress reporting must never stop an inversion
                 print(f"[IterationCollector] on_iteration failed: {e}")
+        if stop_requested() and self.opt is not None:
+            print(f"[IterationCollector] Stop requested: ending after iteration {iteration} "
+                  "with the current model")
+            self.stopped_at = iteration
+            self.opt.stopNextIteration = True
+
+
+def stop_requested() -> bool:
+    """Whether the user asked the running job to stop and keep its result."""
+    check = IterationCollector.stop_check
+    if check is None:
+        return False
+    try:
+        return bool(check())
+    except Exception:   # an unreadable flag must not stop an inversion
+        return False
 
 
 class ElasticNetSensitivityWeights(InversionDirective):

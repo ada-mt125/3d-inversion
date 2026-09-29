@@ -1,0 +1,134 @@
+{
+ "sparse_sens": {
+  "chi2": 1.1087480603964939,
+  "corr": 0.2064070707236244,
+  "share_in_bodies": 0.1010632964732413,
+  "bodies": {
+   "A shallow block": {
+    "true_chi": 0.03,
+    "mean_in_body": 0.010263385915740515,
+    "peak_in_footprint": 0.09999087137392107,
+    "true_centroid_km": 2.000000000000002,
+    "rec_centroid_km": 3.8534789445039364,
+    "rec_mass_ratio": 1.5616879817268439
+   },
+   "B deep block": {
+    "true_chi": 0.04,
+    "mean_in_body": 0.009870521952103226,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 5.500000000000001,
+    "rec_centroid_km": 8.518471190376493,
+    "rec_mass_ratio": 1.3991154591494457
+   },
+   "C dipping dyke": {
+    "true_chi": 0.05,
+    "mean_in_body": 0.01576096395871653,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 3.2500000000000004,
+    "rec_centroid_km": 4.066886095306757,
+    "rec_mass_ratio": 1.1670640224664135,
+    "dip_deg": 63.88683133489205
+   }
+  },
+  "label": "sparse \u00b7 sensitivity"
+ },
+ "sparse_dw2": {
+  "chi2": 1.0738304360343383,
+  "corr": 0.24038012115052634,
+  "share_in_bodies": 0.15627618933103676,
+  "bodies": {
+   "A shallow block": {
+    "true_chi": 0.03,
+    "mean_in_body": 0.010800530032314553,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 2.000000000000002,
+    "rec_centroid_km": 3.693076643516027,
+    "rec_mass_ratio": 1.4807775777554566
+   },
+   "B deep block": {
+    "true_chi": 0.04,
+    "mean_in_body": 0.011798838338574348,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 5.500000000000001,
+    "rec_centroid_km": 8.017192638325248,
+    "rec_mass_ratio": 1.3167556883023983
+   },
+   "C dipping dyke": {
+    "true_chi": 0.05,
+    "mean_in_body": 0.018179545123073862,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 3.2500000000000004,
+    "rec_centroid_km": 3.7259747650353163,
+    "rec_mass_ratio": 1.1014538871322785,
+    "dip_deg": 61.89854812759225
+   }
+  },
+  "label": "sparse \u00b7 depth \u03b2=2"
+ },
+ "sparse_dw3": {
+  "chi2": 1.31232954553273,
+  "corr": 0.1672760026065885,
+  "share_in_bodies": 0.04074317960361043,
+  "bodies": {
+   "A shallow block": {
+    "true_chi": 0.03,
+    "mean_in_body": 0.00829408724778495,
+    "peak_in_footprint": 0.08769816812934672,
+    "true_centroid_km": 2.000000000000002,
+    "rec_centroid_km": 4.865012705810991,
+    "rec_mass_ratio": 2.412580183088571
+   },
+   "B deep block": {
+    "true_chi": 0.04,
+    "mean_in_body": 0.01265239816153256,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 5.500000000000001,
+    "rec_centroid_km": 8.587073737129252,
+    "rec_mass_ratio": 1.55499813246275
+   },
+   "C dipping dyke": {
+    "true_chi": 0.05,
+    "mean_in_body": 0.013354776884586137,
+    "peak_in_footprint": 0.1,
+    "true_centroid_km": 3.2500000000000004,
+    "rec_centroid_km": 5.418388846131499,
+    "rec_mass_ratio": 1.9493469592899488,
+    "dip_deg": 66.02602817036261
+   }
+  },
+  "label": "sparse \u00b7 depth \u03b2=3"
+ },
+ "l1l2": {
+  "chi2": 0.9952447897733575,
+  "corr": 0.597494703084493,
+  "share_in_bodies": 0.2447211526220919,
+  "bodies": {
+   "A shallow block": {
+    "true_chi": 0.03,
+    "mean_in_body": 0.013316051981640955,
+    "peak_in_footprint": 0.03574409734789147,
+    "true_centroid_km": 2.000000000000002,
+    "rec_centroid_km": 3.8826364110028213,
+    "rec_mass_ratio": 1.2132497944358116
+   },
+   "B deep block": {
+    "true_chi": 0.04,
+    "mean_in_body": 0.01036406801971542,
+    "peak_in_footprint": 0.022685085982178124,
+    "true_centroid_km": 5.500000000000001,
+    "rec_centroid_km": 6.715286657614542,
+    "rec_mass_ratio": 0.7454057556044065
+   },
+   "C dipping dyke": {
+    "true_chi": 0.05,
+    "mean_in_body": 0.0170889993278428,
+    "peak_in_footprint": 0.05846211401740067,
+    "true_centroid_km": 3.2500000000000004,
+    "rec_centroid_km": 4.737306037686625,
+    "rec_mass_ratio": 0.9442136121198407,
+    "dip_deg": 65.27235691454675
+   }
+  },
+  "label": "L1\u2013L2 (IRLS)"
+ }
+}

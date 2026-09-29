@@ -7,8 +7,8 @@ from scipy.optimize import minimize
 from geoinv3d.cloud.task import InversionTask
 from geoinv3d.cloud.worker import run_single_inversion
 from geoinv3d.methods.l1l2_cda import (
-    column_scaling, coordinate_descent, elastic_net_dof, elastic_net_path, invert_l1l2,
-    lambda_max, penalty,
+    _polish, column_scaling, coordinate_descent, elastic_net_dof, elastic_net_path,
+    invert_l1l2, lambda_max, penalty,
 )
 
 
@@ -95,6 +95,25 @@ class TestCoordinateDescent:
         np.testing.assert_allclose(fast, plain, atol=1e-7 * abs(plain).max())
         assert n_fast <= n_plain
 
+    def test_polish_with_more_free_coefficients_than_data(self, correlated):
+        """The Woodbury form (N x N solve) equals the direct n_free x n_free one."""
+        X, f = correlated                       # 20 data, 40 coefficients
+        free = np.ones(40, dtype=bool)
+        free[:5] = False                        # 35 free > 20 data
+        XF = X[:, free]
+        lam2 = 0.7
+        H = XF.T @ XF + lam2 * np.eye(free.sum())
+        exact = np.linalg.solve(H, XF.T @ f)    # lam1 = 0: signs are consistent
+        beta = np.zeros(40)
+        beta[free] = exact * (1 + 0.1 * np.random.default_rng(1).random(35))  # same signs
+        lo, hi = np.full(40, -np.inf), np.full(40, np.inf)
+        out = _polish(X, f, beta, 0.0, lam2, lo, hi)
+        assert out is not None
+        np.testing.assert_allclose(out[free], exact, rtol=1e-8, atol=1e-12)
+        assert not out[~free].any()
+        # without the ridge term the underdetermined active set is left to CDA
+        assert _polish(X, f, beta, 0.0, 0.0, lo, hi) is None
+
     def test_single_variable_soft_threshold(self):
         """The paper's Eq. (26) for one column: S(x^T f, lam a) / (x^T x + lam(1-a))."""
         x = np.array([[1.0], [2.0], [-0.5]])
@@ -135,6 +154,31 @@ class TestPath:
         assert elastic_net_dof(X, b, lam, alpha) == pytest.approx(dense, rel=1e-8)
         b1, _ = coordinate_descent(X, f, lam, 1.0, tol=1e-12)
         assert elastic_net_dof(X, b1, lam, 1.0) == np.linalg.matrix_rank(X[:, b1 != 0])
+
+
+class TestStop:
+    """The user stops a running path ("Stop & keep result" in the upload page)."""
+
+    def test_path_ends_with_the_points_done(self, correlated):
+        X, f = correlated
+        done = []
+        path = elastic_net_path(X, f, 0.9, n_decades=2, step=0.25, tol=1e-12,
+                                callback=lambda *a: done.append(a), should_stop=lambda: len(done) >= 4)
+        full = elastic_net_path(X, f, 0.9, n_decades=2, step=0.25, tol=1e-12)
+        assert path.stopped and not full.stopped
+        assert len(path.lambdas) == len(path.betas) == 4 and path.n_planned == full.n_planned == 9
+        np.testing.assert_allclose(path.betas, full.betas[:4])   # the finished points are exact
+
+    def test_too_short_a_path_keeps_its_last_point(self, correlated):
+        X, f = correlated
+        done = []
+        res, _ = invert_l1l2(X, f, 0.9, std=np.full(len(f), 0.1), criterion="lcurve", fallback=True,
+                             callback=lambda *a: done.append(a), should_stop=lambda: len(done) >= 2)
+        assert len(res.path.lambdas) == 2   # no L-curve corner, chi^2 = N not reached
+        assert res.lambda_opt == pytest.approx(res.path.lambdas[-1])
+        assert any("Stopped by the user" in w for w in res.warnings)
+        assert any("last point is kept" in w for w in res.warnings)
+        assert np.all(np.isfinite(res.model))
 
 
 class TestWeighting:
@@ -218,6 +262,46 @@ class TestWorker:
                             origin=(0.0, 0.0, -300.0)).to_discretize().cell_centers
         x, y, z = cc[np.argmax(m)]
         assert abs(x - 300) < 130 and abs(y - 300) < 130 and -250 < z < -30
+
+    def test_progress_per_lambda_point(self, magnetic_task):
+        from geoinv3d.methods.directives import IterationCollector
+        make, _, _ = magnetic_task
+        seen = []
+        IterationCollector.on_iteration = seen.append
+        try:
+            result = run_single_inversion(make(l1_ratio=0.9, beta_selection="discrepancy"))
+        finally:
+            IterationCollector.on_iteration = None
+        assert [s.iteration for s in seen] == list(range(1, 32))
+        assert all(s.extra["max_iter"] == 31 for s in seen)
+        np.testing.assert_allclose([s.phi_d for s in seen], result["l1l2"]["chi2"])
+
+    def test_stopped_path_keeps_a_result(self, magnetic_task):
+        from geoinv3d.methods.directives import IterationCollector
+        make, _, _ = magnetic_task
+        seen = []
+        IterationCollector.on_iteration = seen.append
+        IterationCollector.stop_check = lambda: len(seen) >= 22   # stop after 22 of 31 points
+        try:
+            result = run_single_inversion(make(l1_ratio=0.9, beta_selection="auto"))
+        finally:
+            IterationCollector.on_iteration = IterationCollector.stop_check = None
+        info = result["l1l2"]
+        assert result["stopped_early"] == {"reason": "stopped by the user", "at_iteration": 22, "of": 31}
+        assert result["converged"] is False and result["n_iterations"] == len(info["lambdas"]) == 22
+        assert min(info["lambdas"]) <= info["lambda_opt"] <= max(info["lambdas"])
+        assert any("Stopped by the user" in w for w in info["warnings"])
+        assert np.all(np.isfinite(result["recovered_model"]))
+
+    def test_does_not_modify_or_need_float64_sensitivities(self, correlated):
+        X, f = correlated
+        G = (X * 1e-3).astype(np.float32)
+        before = G.copy()
+        res32, _ = invert_l1l2(G, f, 0.9, criterion="lcurve")
+        res64, _ = invert_l1l2(G.astype(float), f, 0.9, criterion="lcurve")
+        np.testing.assert_array_equal(G, before)
+        np.testing.assert_allclose(res32.model, res64.model, rtol=1e-6,
+                                   atol=1e-9 * abs(res64.model).max())
 
     def test_irls_still_available_and_unknown_solver(self, magnetic_task):
         make, _, _ = magnetic_task

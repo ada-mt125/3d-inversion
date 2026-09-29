@@ -39,14 +39,21 @@ class InversionTask:
 
     # Regularization: "sparse" (lp-norm IRLS), "l1l2" (elastic net, Utsugi 2019),
     # "mgs" (minimum gradient support), "tv" (total variation), "l2" (smooth L2
-    # with depth weighting) or anything else for the legacy smooth L2 path
+    # with depth weighting), "group_lasso" (joint gravity-magnetic only, below)
+    # or anything else for the legacy smooth L2 path
     regularization_type: str = "sparse"
 
     # Shared inversion parameters
     max_iter: int = 30
     beta0_ratio: float = 1.0
     cooling_factor: float = 2.0
-    alpha_s: float = 1e-4
+    # None: the default for the regularization (see effective_alpha_s): 1 where
+    # alpha_x/y/z are length scales (l2, sparse, mgs, tv, joint), 1e-4 for the
+    # legacy smooth path with raw SimPEG alphas.  (1e-4 with length scales
+    # makes the smallness term ~(length scale x cell)^2 times weaker than the
+    # gradient terms, and sparse models turn into columns down to the mesh
+    # bottom; see LOGBOOK 2026-09-27.)
+    alpha_s: Optional[float] = None
     alpha_x: float = 1.0
     alpha_y: float = 1.0
     alpha_z: float = 1.0
@@ -73,6 +80,14 @@ class InversionTask:
     focusing_percentile: float = 95.0
     focusing_scale: Optional[float] = None
 
+    # Depth weighting of the model norm for l2 / sparse / mgs / tv:
+    # "sensitivity" (SimPEG's rms sensitivities, recomputed by the directive)
+    # or "depth" (Li & Oldenburg: norm weight (z + z0)^(-beta/2) with
+    # beta = depth_weighting_exponent; ~2 for gravity, ~3 for magnetics;
+    # smaller beta keeps the model shallower)
+    depth_weighting: str = "sensitivity"
+    depth_weighting_exponent: float = 2.0
+
     # Choice of beta: "auto" (L-curve for the L1–L2 CDA path, as in Utsugi
     # 2019; discrepancy otherwise), "discrepancy" (chi^2 = N), "lcurve" or
     # "gcv".  IRLS/smooth sweeps use beta_sweep if given, else the discrepancy
@@ -94,6 +109,29 @@ class InversionTask:
     joint_kwargs_list: Optional[list[dict]] = None
     joint_weights: Optional[list[float]] = None
     cross_gradient_weight: float = 0.0
+
+    # Joint gravity-magnetic group lasso (regularization_type "group_lasso";
+    # Utsugi 2025; see geoinv3d/methods/group_lasso.py).  lambda1 (group
+    # sparsity) is chosen on a sweep of gl_n_lambda1 values over
+    # gl_lambda1_decades decades below lambda1_max, by gl_lambda1_selection
+    # "lcurve" (log misfit vs log group penalty, falling back to chi^2 = N) or
+    # "discrepancy", or fixed ("fixed": gl_lambda1, else gl_lambda1_ratio x
+    # lambda1_max).  gl_lambda2 is plain L2 damping of the unit-column
+    # variables (X^T X has a unit diagonal); gl_mu the ADMM penalty (None:
+    # mean eigenvalue of X^T X).  On the 16 x 16 x 8 synthetic, lambda2 = 0.3
+    # gave the true amplitudes; 0.01 inflated them ~6x, 1 spread the body and
+    # kept chi^2 above N for small errors (LOGBOOK 2026-09-29).
+    gl_lambda1_selection: str = "lcurve"
+    gl_lambda1: Optional[float] = None
+    gl_lambda1_ratio: float = 0.02
+    gl_lambda2: float = 0.3
+    gl_mu: Optional[float] = None
+    gl_data_scaling: str = "max_ratio"
+    gl_gamma: float = 2.0
+    gl_n_lambda1: int = 13
+    gl_lambda1_decades: float = 3.0
+    gl_max_iter: int = 3000
+    gl_tol: float = 1e-4
 
     # Arrays stored separately in the archive
     initial_model: Optional[NDArray] = None
@@ -138,6 +176,8 @@ class InversionTask:
             "beta_selection": self.beta_selection,
             "focusing_percentile": self.focusing_percentile,
             "focusing_scale": self.focusing_scale,
+            "depth_weighting": self.depth_weighting,
+            "depth_weighting_exponent": self.depth_weighting_exponent,
             "beta_sweep_factors": [float(f) for f in self.beta_sweep_factors],
             "noise_pct": self.noise_pct,
             "noise_floor": self.noise_floor,
@@ -153,7 +193,27 @@ class InversionTask:
             d["joint_kwargs_list"] = self.joint_kwargs_list or []
             d["joint_weights"] = self.joint_weights or []
             d["cross_gradient_weight"] = self.cross_gradient_weight
+        if self.regularization_type == "group_lasso":
+            d.update({k: getattr(self, k) for k in GROUP_LASSO_KEYS})
         return d
+
+
+GROUP_LASSO_KEYS = (
+    "gl_lambda1_selection", "gl_lambda1", "gl_lambda1_ratio", "gl_lambda2", "gl_mu",
+    "gl_data_scaling", "gl_gamma", "gl_n_lambda1", "gl_lambda1_decades", "gl_max_iter",
+    "gl_tol",
+)
+
+
+LEGACY_SMOOTH_ALPHA_S = 1e-4
+LENGTH_SCALE_ALPHA_S = 1.0
+
+
+def effective_alpha_s(task: InversionTask, length_scales: bool = True) -> float:
+    """``task.alpha_s``, or its default for the regularization when None."""
+    if task.alpha_s is not None:
+        return float(task.alpha_s)
+    return LENGTH_SCALE_ALPHA_S if length_scales else LEGACY_SMOOTH_ALPHA_S
 
 
 def pack_task(task: InversionTask, output_path: str) -> str:
@@ -234,6 +294,8 @@ def unpack_task(archive_path: str) -> InversionTask:
             beta_selection=meta.get("beta_selection", "auto"),
             focusing_percentile=meta.get("focusing_percentile", 95.0),
             focusing_scale=meta.get("focusing_scale"),
+            depth_weighting=meta.get("depth_weighting", "sensitivity"),
+            depth_weighting_exponent=meta.get("depth_weighting_exponent", 2.0),
             beta_sweep=meta.get("beta_sweep"),
             beta_sweep_factors=tuple(meta.get("beta_sweep_factors",
                                               InversionTask.beta_sweep_factors)),
@@ -245,6 +307,7 @@ def unpack_task(archive_path: str) -> InversionTask:
             joint_kwargs_list=meta.get("joint_kwargs_list"),
             joint_weights=meta.get("joint_weights"),
             cross_gradient_weight=meta.get("cross_gradient_weight", 0.0),
+            **{k: meta[k] for k in GROUP_LASSO_KEYS if k in meta},
         )
 
         names = zf.namelist()

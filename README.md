@@ -115,6 +115,17 @@ path, falling back to χ² = N when the curve has no corner; χ² = N otherwise)
 L-curve, χ²/N and GCV curves with each criterion's pick.
 See `examples/l1l2_paper_synthetic_report.md` for a comparison on a magnetic synthetic.
 
+### Joint gravity–magnetic inversion with a group lasso (Utsugi 2025)
+
+`regularization_type="group_lasso"` on a joint job with one gravity and one
+magnetic dataset (the upload page: *Joint — Gravity + Magnetic (group lasso,
+Utsugi 2025)*) minimizes ½‖b − Zζ‖² + λ1 Σₖ √(βₖ² + ρₖ²) + ½λ2‖ζ‖² by ADMM, so
+that the density and magnetic models share their support without either being
+forced non-zero. The solver, `geoinv3d/methods/group_lasso.py`, takes any
+sensitivity operators (`joint_group_lasso_admm`, `JointGroupLassoProblem`, or
+`from_simulations` for two SimPEG simulations). What follows the paper and what
+is engineering, the parameters and the validation: `docs/group_lasso_joint.md`.
+
 ## Examples and the Viewer
 
 ```bash

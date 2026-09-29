@@ -243,7 +243,7 @@ class SparseInversionNode(Node[InversionResult]):
         )
 
         opt = optimization.InexactGaussNewton(
-            maxIter=self.max_iter, maxIterLS=20, maxIterCG=30, tolCG=1e-4,
+            maxIter=self.max_iter, maxIterLS=20, cg_maxiter=30, cg_rtol=1e-4,
         )
 
         inv_prob = inverse_problem.BaseInvProblem(dmis, reg, opt)

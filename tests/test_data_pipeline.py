@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import geoinv3d.cloud.worker as worker
+from geoinv3d.cloud.task import effective_alpha_s
 from geoinv3d.cloud.worker import pack_result, run_data_pipeline
 from geoinv3d.datamodel.mesh import Mesh3D
 from geoinv3d.datamodel.survey import SurveyData
@@ -49,7 +50,8 @@ def _synthetic(method, locs):
              & (cc[:, 2] > -300) & (cc[:, 2] < -100))
     survey = SurveyData(locations=locs, observed=np.zeros(len(locs)), std=np.ones(len(locs)))
     if method == "gravity":
-        return GravityMethod().make_simulation(mesh, survey).dpred(block * 0.3)
+        # field convention (positive downward), as the pipeline expects by default
+        return -GravityMethod().make_simulation(mesh, survey).dpred(block * 0.3)
     sim = MagneticsMethod(inducing_field=tuple(INDUCING)).make_simulation(mesh, survey)
     return sim.dpred(block * 0.02)
 
@@ -190,7 +192,11 @@ class TestPipelinePlumbing:
         assert task.method_type == "gravity"
         assert task.method_kwargs == {"component": "gz"}
         assert task.regularization_type == "sparse"
-        assert (task.alpha_s, task.alpha_x, task.alpha_y, task.alpha_z) == (1e-4, 1, 1, 1)
+        # alpha_s unset: 1 with length-scale alphas (1e-4 only on the legacy smooth path)
+        assert task.alpha_s is None and effective_alpha_s(task) == 1.0
+        assert effective_alpha_s(task, length_scales=False) == 1e-4
+        assert (task.alpha_x, task.alpha_y, task.alpha_z) == (1, 1, 1)
+        assert result["settings"]["alpha_s"] == 1.0
         assert task.norms == (0.0, 2.0, 2.0, 1.0)
         assert (task.max_iter, task.beta0_ratio, task.cooling_factor) == (30, 1.0, 2.0)
         assert task.max_irls_iterations == 30 and task.use_preconditioner
@@ -205,7 +211,7 @@ class TestPipelinePlumbing:
     def test_auto_mode_ignores_manual_keys(self, grav_grid_dir, capture):
         params = _single("gravity", ["grav.grd"], alpha_s=5.0, norms=[2, 2, 2, 2])
         run_data_pipeline(params, str(grav_grid_dir))
-        assert capture["task"].alpha_s == 1e-4
+        assert capture["task"].alpha_s is None
         assert capture["task"].norms == (0.0, 2.0, 2.0, 1.0)
 
     def test_auto_mode_iteration_limits_are_editable(self, grav_grid_dir, capture):

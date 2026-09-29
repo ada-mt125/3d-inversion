@@ -1,0 +1,667 @@
+"""Joint magnetic–gravity inversion with L2 + group lasso (Utsugi 2025), solved by ADMM."""
+
+import numpy as np
+import pytest
+import scipy.sparse as sp
+from scipy.sparse.linalg import aslinearoperator
+
+from geoinv3d.methods import group_lasso as gl
+
+NX, NY, NZ, H = 16, 16, 8, 50.0
+
+
+@pytest.fixture(scope="module")
+def kernels():
+    """Magnetic (TMI, nT per SI) and gravity (gz, mGal per g/cc) sensitivities of
+    16 x 16 x 8 cells of 50 m under 12 x 12 stations."""
+    from geoinv3d.datamodel.mesh import Mesh3D
+    from geoinv3d.datamodel.survey import SurveyData
+    from geoinv3d.methods.gravity import GravityMethod
+    from geoinv3d.methods.magnetics import MagneticsMethod
+
+    mesh = Mesh3D.uniform(NX, NY, NZ, H, H, H, origin=(0.0, 0.0, -NZ * H))
+    xy = np.linspace(25, NX * H - 25, 12)
+    xx, yy = np.meshgrid(xy, xy)
+    locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, 20.0)])
+    survey = SurveyData(locations=locs, observed=np.zeros(len(locs)), std=np.ones(len(locs)))
+    K = np.asarray(MagneticsMethod(inducing_field=(50000.0, 60.0, 10.0))
+                   .make_simulation_full(mesh, survey).G)
+    G = np.asarray(GravityMethod().make_simulation_full(mesh, survey).G)
+    return K, G, mesh.to_discretize().cell_centers
+
+
+def _block(cc, x0, x1, y0, y1, z0=-250, z1=-100):
+    return ((cc[:, 0] > x0) & (cc[:, 0] < x1) & (cc[:, 1] > y0) & (cc[:, 1] < y1)
+            & (cc[:, 2] > z0) & (cc[:, 2] < z1))
+
+
+def _dilate(mask):
+    """The cells of ``mask`` and their 26 neighbours."""
+    m = mask.reshape(NX, NY, NZ, order="F")
+    out = m.copy()
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                out |= np.roll(np.roll(np.roll(m, dx, 0), dy, 1), dz, 2)
+    return out.ravel(order="F")
+
+
+def _data(kernels, beta, rho, rel=0.02, seed=0):
+    """Noisy data (2 % of the peak) and their standard deviations."""
+    K, G, _ = kernels
+    rng = np.random.default_rng(seed)
+    out = []
+    for A, m in ((K, beta), (G, rho)):
+        d = A @ m
+        s = rel * max(abs(d).max(), 1e-3)
+        out += [d + rng.normal(scale=s, size=d.size), s]
+    return out   # f, sigma_f, g, sigma_g
+
+
+def _n90(r):
+    """How many cells hold 90 % of sum ||s_k||^2 (how concentrated the model is)."""
+    e = np.sort(np.hypot(r.beta_scaled, r.rho_scaled))[::-1] ** 2
+    return int(np.searchsorted(np.cumsum(e), 0.9 * e.sum()) + 1)
+
+
+def _jaccard(r, share=0.2):
+    """Overlap of the cells where |beta| and |rho| exceed ``share`` of their peaks."""
+    b = np.abs(r.beta_physical) > share * np.abs(r.beta_physical).max()
+    p = np.abs(r.rho_physical) > share * np.abs(r.rho_physical).max()
+    return (b & p).sum() / (b | p).sum()
+
+
+def _dense(op):
+    """The weighted operator as a float64 matrix (tests only)."""
+    S = op.S[:, None] if np.ndim(op.S) else op.S
+    return S * np.asarray(op.K, dtype=float) * op.w
+
+
+# ── Group soft threshold ────────────────────────────────────────────────
+
+
+class TestShrink:
+    def test_optimality_of_the_prox(self):
+        """s = prox(q) iff mu (q - s) - lambda2 s is lambda1 s/||s|| (s != 0), or within
+        lambda1 of the origin (s = 0)."""
+        rng = np.random.default_rng(1)
+        qb, qr = rng.normal(size=500) * 3, rng.normal(size=500) * 3
+        qb[:5] = qr[:5] = 0.0                      # r = 0
+        qb[5:10], qr[5:10] = 0.3, -0.2             # below lambda1 / mu
+        lam1, lam2, mu = 2.0, 0.7, 4.0
+        sb, sr = gl.group_shrink(qb, qr, lam1, lam2, mu)
+        r = np.hypot(sb, sr)
+        gb, gr = mu * (qb - sb) - lam2 * sb, mu * (qr - sr) - lam2 * sr
+        on = r > 0
+        np.testing.assert_allclose(gb[on], lam1 * sb[on] / r[on], atol=1e-12)
+        np.testing.assert_allclose(gr[on], lam1 * sr[on] / r[on], atol=1e-12)
+        assert np.all(np.hypot(gb[~on], gr[~on]) <= lam1 + 1e-12)
+        assert not on[:10].any() and on.sum() > 300
+
+    def test_prox_against_a_numerical_minimum(self):
+        from scipy.optimize import minimize
+        lam1, lam2, mu = 1.5, 0.3, 2.0
+        rng = np.random.default_rng(2)
+        for q in rng.normal(size=(20, 2)) * 2:
+            s = np.array(gl.group_shrink(q[:1], q[1:], lam1, lam2, mu)).ravel()
+
+            def h(v):
+                return lam1 * np.hypot(*v) + 0.5 * lam2 * v @ v + 0.5 * mu * (v - q) @ (v - q)
+            best = minimize(h, q, method="Nelder-Mead", options={"xatol": 1e-10, "fatol": 1e-12})
+            assert h(s) <= best.fun + 1e-9
+
+    def test_both_components_shrink_together(self):
+        """One factor per cell: the group is not thresholded component by component."""
+        qb, qr = np.array([3.0, 0.5, -4.0]), np.array([0.1, 2.0, 4.0])
+        sb, sr = gl.group_shrink(qb, qr, lambda1=2.0, lambda2=0.0, mu=1.0)
+        np.testing.assert_allclose(sb / qb, sr / qr)
+        # the small component of cell 0 survives (0.1 < lambda1 / mu), unlike with
+        # separate soft thresholds
+        assert sr[0] != 0
+        ub, ur = gl.group_shrink(qb, qr, 2.0, 0.0, 1.0, coupling="none")
+        assert ur[0] == 0 and ub[1] == 0
+        np.testing.assert_allclose(ub, np.sign(qb) * np.maximum(abs(qb) - 2, 0))
+
+    def test_in_place(self):
+        qb, qr = np.ones(4), np.zeros(4)
+        ob, orr = np.empty(4), np.empty(4)
+        rb, rr = gl.group_shrink(qb, qr, 0.5, 0.0, 1.0, ob, orr)
+        assert rb is ob and rr is orr
+        np.testing.assert_allclose(ob, 0.5)
+
+
+# ── Scaling ─────────────────────────────────────────────────────────────
+
+
+class TestScaling:
+    def test_weights_give_unit_columns(self, kernels):
+        K, G, _ = kernels
+        w = gl.sensitivity_weights(K, gamma=2.0)
+        np.testing.assert_allclose(np.linalg.norm(K * w, axis=0), 1.0, rtol=1e-5)
+        w1 = gl.sensitivity_weights(K, gamma=1.0)
+        np.testing.assert_allclose(w1, w ** 0.5, rtol=1e-12)
+
+    def test_column_norms_of_dense_sparse_and_row_scaled(self, kernels):
+        K, _, _ = kernels
+        s = np.linspace(0.5, 2.0, K.shape[0])
+        ref = np.linalg.norm(K.astype(float) * s[:, None], axis=0)
+        np.testing.assert_allclose(gl.column_norms(K, s, chunk_bytes=1e5), ref, rtol=1e-6)
+        np.testing.assert_allclose(gl.column_norms(sp.csr_matrix(K), s), ref, rtol=1e-6)
+
+    def test_max_ratio(self):
+        f, g = np.array([3.0, -120.0]), np.array([0.5, -0.2])
+        s_f, s_g, notes = gl.data_scaling(f, g, "max_ratio")
+        assert s_f == 1.0 and s_g == pytest.approx(240.0) and not notes
+
+    def test_zero_dataset_is_reported_not_divided_by(self):
+        s_f, s_g, notes = gl.data_scaling(np.ones(3), np.zeros(3), "max_ratio")
+        assert s_g == 1.0 and "undefined" in notes[0]
+
+    def test_other_modes(self):
+        f, g = np.ones(3), np.ones(2)
+        s_f, s_g, _ = gl.data_scaling(f, g, "std", std_f=np.full(3, 2.0), std_g=0.5)
+        np.testing.assert_allclose(s_f, 0.5)
+        np.testing.assert_allclose(s_g, 2.0)
+        assert gl.data_scaling(f, g, (2.0, 3.0))[:2] == (2.0, 3.0)
+        with pytest.raises(ValueError):
+            gl.data_scaling(f, g, "bogus")
+        with pytest.raises(ValueError):
+            gl.data_scaling(f, g, (1.0, -1.0))
+
+    @pytest.mark.parametrize("scaling", ["max_ratio", "std"])
+    def test_physical_models_and_predictions_undo_the_scaling(self, kernels, scaling):
+        K, G, cc = kernels
+        body = _block(cc, 250, 450, 250, 450)
+        f, sf, g, sg = _data(kernels, 0.05 * body, 0.3 * body)
+        P = gl.JointGroupLassoProblem(K, G, f, g, data_scaling=scaling,
+                                      std_f=np.full(f.size, sf), std_g=np.full(g.size, sg))
+        r = P.solve(0.02 * P.lambda1_max(), 1.0)
+        np.testing.assert_allclose(r.predicted_magnetic, K @ r.beta_physical, rtol=1e-4,
+                                   atol=1e-4 * abs(f).max())
+        np.testing.assert_allclose(r.predicted_gravity, G @ r.rho_physical, rtol=1e-4,
+                                   atol=1e-4 * abs(g).max())
+        np.testing.assert_allclose(r.residual_magnetic, f - r.predicted_magnetic)
+        np.testing.assert_allclose(r.residual_gravity, g - r.predicted_gravity)
+        # models in the kernels' units: the peaks are of the order of the true 0.05 SI / 0.3 g/cc
+        assert 0.01 < r.beta_physical.max() < 0.5 and 0.05 < r.rho_physical.max() < 3.0
+        # the scaled variables of the two methods are comparable (the point of the scaling)
+        ratio = np.abs(r.rho_scaled).max() / np.abs(r.beta_scaled).max()
+        assert 0.1 < ratio < 10
+
+
+# ── The zeta update ─────────────────────────────────────────────────────
+
+
+class TestSolvers:
+    @pytest.mark.parametrize("cols", [slice(None), slice(0, 60)])   # N < M and N > M
+    @pytest.mark.parametrize("solver", ["cholesky", "cg"])
+    def test_solves_the_normal_equations(self, kernels, solver, cols):
+        K, _, _ = kernels
+        K = np.ascontiguousarray(K[:, cols])
+        op = gl.WeightedOperator(K, gl.sensitivity_weights(K), row_scale=1.0)
+        s = gl.make_solver(op, 3.0, solver)
+        X = _dense(op)
+        rhs = np.random.default_rng(0).normal(size=X.shape[1])
+        x = np.linalg.solve(X.T @ X + 3.0 * np.eye(X.shape[1]), rhs)
+        # products with the float32 kernel round at ~1e-7
+        np.testing.assert_allclose(s.solve(rhs, np.zeros_like(rhs)), x, rtol=0,
+                                   atol=1e-6 * abs(x).max())
+        if solver == "cholesky":
+            expect = "data space" if K.shape[0] < K.shape[1] else "model space"
+            assert expect in s.name
+
+    def test_per_row_scaling(self, kernels):
+        K, _, _ = kernels
+        rows = np.linspace(0.5, 2.0, K.shape[0])
+        op = gl.WeightedOperator(K, gl.sensitivity_weights(K, row_scale=rows), rows)
+        X = _dense(op)
+        np.testing.assert_allclose(np.linalg.norm(X, axis=0), 1.0, rtol=1e-5)
+        rhs = np.random.default_rng(1).normal(size=X.shape[1])
+        x = np.linalg.solve(X.T @ X + 2.0 * np.eye(X.shape[1]), rhs)
+        for solver in ("cholesky", "cg"):
+            np.testing.assert_allclose(gl.make_solver(op, 2.0, solver).solve(rhs, None), x,
+                                       rtol=0, atol=1e-6 * abs(x).max())
+
+    def test_auto_picks_cg_when_the_factor_is_too_big(self, kernels):
+        K, _, _ = kernels
+        op = gl.WeightedOperator(K, gl.sensitivity_weights(K))
+        assert "cholesky" in gl.make_solver(op, 1.0).name
+        assert gl.make_solver(op, 1.0, factor_max_bytes=1e3).name == "conjugate gradients"
+
+    def test_float32_kernels_are_not_copied_to_float64(self, kernels):
+        K, _, _ = kernels
+        assert K.dtype == np.float32
+        op = gl.WeightedOperator(K, np.ones(K.shape[1]))
+        assert op.K is K and op.matvec(np.ones(K.shape[1])).dtype == np.float64
+
+
+# ── ADMM ────────────────────────────────────────────────────────────────
+
+
+def _fista(P, lam1, lam2, n_iter=6000):
+    """Accelerated proximal gradient on the same objective: an independent reference."""
+    X, Y = _dense(P.X), _dense(P.Y)
+    L = max(np.linalg.norm(X, 2), np.linalg.norm(Y, 2)) ** 2 + lam2
+    b = np.zeros(P.m)
+    r = np.zeros(P.m)
+    yb, yr, t = b.copy(), r.copy(), 1.0
+    for _ in range(n_iter):
+        gb = X.T @ (X @ yb - P.bf) + lam2 * yb
+        gr = Y.T @ (Y @ yr - P.bg) + lam2 * yr
+        nb, nr = gl.group_shrink(yb - gb / L, yr - gr / L, lam1 / L, 0.0, 1.0)
+        t_new = 0.5 * (1 + np.sqrt(1 + 4 * t * t))
+        yb, yr = nb + (t - 1) / t_new * (nb - b), nr + (t - 1) / t_new * (nr - r)
+        b, r, t = nb, nr, t_new
+    return b, r
+
+
+@pytest.fixture(scope="module")
+def coincident(kernels):
+    K, G, cc = kernels
+    body = _block(cc, 250, 450, 250, 450)
+    f, sf, g, sg = _data(kernels, 0.05 * body, 0.3 * body)
+    return gl.JointGroupLassoProblem(K, G, f, g), body, (sf, sg)
+
+
+@pytest.fixture(scope="module")
+def coincident64(kernels, coincident):
+    """The same problem with float64 kernels: products with float32 kernels leave
+    the ADMM residuals a floor of ~1e-6 (relative), fine for the default 1e-4
+    tolerances but not for checks at 1e-7."""
+    K, G, _ = kernels
+    P = coincident[0]
+    return gl.JointGroupLassoProblem(K.astype(float), G.astype(float), P.f, P.g)
+
+
+def _objective(P, b, r, lam1, lam2):
+    t = P.terms(b, r)
+    return t["misfit"] + lam1 * t["group"] + lam2 * t["l2"]
+
+
+class TestADMM:
+    # pure group lasso (lambda2 = 0) converges slowly; a smaller mu helps it
+    @pytest.mark.parametrize("lam2, mu", [(1.0, None), (0.0, 2.0)])
+    def test_reaches_the_minimizer(self, kernels, coincident64, lam2, mu):
+        P = coincident64
+        if mu is not None:
+            K, G, _ = kernels
+            P = gl.JointGroupLassoProblem(K.astype(float), G.astype(float), P.f, P.g, mu=mu)
+        lam1 = 0.03 * P.lambda1_max()
+        r = P.solve(lam1, lam2, tol_primal=1e-7, tol_dual=1e-7, max_iter=30000)
+        assert r.converged
+        assert P.kkt_residual(r.beta_scaled, r.rho_scaled, lam1, lam2) < 1e-4
+        # an independent solver of the same objective gets no lower
+        fb, fr = _fista(P, lam1, lam2)
+        assert r.objective <= _objective(P, fb, fr, lam1, lam2) * (1 + 1e-7)
+        if lam2 > 0:   # strongly convex: one minimizer
+            scale = np.linalg.norm(np.concatenate([fb, fr]))
+            assert np.linalg.norm(np.concatenate([r.beta_scaled - fb, r.rho_scaled - fr])) \
+                < 1e-3 * scale
+
+    def test_mu_changes_the_path_not_the_minimizer(self, kernels, coincident64):
+        P = coincident64
+        lam1 = 0.03 * P.lambda1_max()
+        other = gl.JointGroupLassoProblem(P.X.K, P.Y.K, P.f, P.g, mu=P.mu / 5)
+        a = P.solve(lam1, 0.5, tol_primal=1e-7, tol_dual=1e-7, max_iter=30000)
+        b = other.solve(lam1, 0.5, tol_primal=1e-7, tol_dual=1e-7, max_iter=30000)
+        assert a.converged and b.converged and a.n_iterations != b.n_iterations
+        np.testing.assert_allclose(b.beta_scaled, a.beta_scaled, atol=1e-4 * abs(a.beta_scaled).max())
+        np.testing.assert_allclose(b.rho_scaled, a.rho_scaled, atol=1e-4 * abs(a.rho_scaled).max())
+
+    def test_default_tolerances_are_close_to_optimal(self, coincident):
+        P, _, _ = coincident
+        lam1 = 0.03 * P.lambda1_max()
+        r = P.solve(lam1, 1.0)
+        assert r.converged and P.kkt_residual(r.beta_scaled, r.rho_scaled, lam1, 1.0) < 1e-2
+
+    def test_solvers_and_precisions_agree(self, kernels, coincident, coincident64):
+        P = coincident64
+        lam1 = 0.03 * P.lambda1_max()
+        ref = P.solve(lam1, 1.0, tol_primal=1e-7, tol_dual=1e-7, max_iter=20000)
+        assert ref.converged
+        K, G, _ = (np.asarray(k, dtype=float) if i < 2 else k for i, k in enumerate(kernels))
+        cg_problem = gl.JointGroupLassoProblem(K, G, P.f, P.g, mu=P.mu, solver="cg")
+        # matrix-free operators, with their weights given
+        free = gl.JointGroupLassoProblem(aslinearoperator(K), aslinearoperator(G), P.f, P.g,
+                                         mu=P.mu, magnetic_weights=P.w_beta,
+                                         gravity_weights=P.w_rho)
+        assert cg_problem.solver_name == free.solver_name == "conjugate gradients"
+        for Q in (cg_problem, free):
+            r = Q.solve(lam1, 1.0, tol_primal=1e-7, tol_dual=1e-7, max_iter=20000)
+            np.testing.assert_allclose(r.beta_physical, ref.beta_physical,
+                                       atol=1e-5 * abs(ref.beta_physical).max())
+            np.testing.assert_allclose(r.rho_physical, ref.rho_physical,
+                                       atol=1e-5 * abs(ref.rho_physical).max())
+        # float32 kernels (as SimPEG stores them) at the default tolerances
+        r32 = coincident[0].solve(lam1, 1.0)
+        np.testing.assert_allclose(r32.beta_physical, ref.beta_physical,
+                                   atol=2e-3 * abs(ref.beta_physical).max())
+        np.testing.assert_allclose(r32.rho_physical, ref.rho_physical,
+                                   atol=2e-3 * abs(ref.rho_physical).max())
+
+    def test_zero_above_lambda1_max(self, coincident):
+        P, _, _ = coincident
+        top = P.lambda1_max()
+        r = P.solve(top * 1.0001, 0.3)
+        assert r.n_iterations == 0 and r.converged and r.n_active == 0
+        assert not np.any(r.beta_scaled) and not np.any(r.rho_scaled)
+        assert P.solve(top * 0.9, 0.3).n_active > 0
+
+    def test_histories_and_residual_stopping(self, coincident):
+        P, _, _ = coincident
+        seen = []
+        r = P.solve(0.03 * P.lambda1_max(), 1.0, callback=lambda i, rec: seen.append(rec))
+        n = r.n_iterations
+        for h in (r.objective_history, r.misfit_history, r.group_penalty_history,
+                  r.l2_penalty_history, r.primal_residual_history, r.dual_residual_history):
+            assert len(h) == n
+        last = seen[-1]
+        assert last["primal"] <= last["eps_primal"] and last["dual"] <= last["eps_dual"]
+        np.testing.assert_allclose(r.objective_history,
+                                   np.array(r.misfit_history) + r.lambda1 * np.array(r.group_penalty_history)
+                                   + r.lambda2 * np.array(r.l2_penalty_history))
+        # too few iterations: not converged, but the iterate is returned
+        short = P.solve(0.03 * P.lambda1_max(), 1.0, max_iter=3)
+        assert short.n_iterations == 3 and not short.converged
+        assert len(P.solve(0.03 * P.lambda1_max(), 1.0, history_every=10).misfit_history) < n
+
+    def test_stop_keeps_the_iterate(self, coincident):
+        P, _, _ = coincident
+        calls = []
+        r = P.solve(0.03 * P.lambda1_max(), 1.0,
+                    should_stop=lambda: calls.append(1) or len(calls) > 5)
+        assert r.stopped and not r.converged and r.n_iterations == 5
+        assert np.all(np.isfinite(r.beta_physical))
+
+    def test_warm_start_saves_iterations(self, coincident):
+        P, _, _ = coincident
+        lam1 = 0.03 * P.lambda1_max()
+        first = P.solve(lam1 * 1.3, 1.0)
+        cold = P.solve(lam1, 1.0)
+        warm = P.solve(lam1, 1.0, state=first.state)
+        assert warm.n_iterations < cold.n_iterations
+
+    def test_convenience_function(self, kernels, coincident):
+        K, G, _ = kernels
+        P, _, _ = coincident
+        lam1 = 0.03 * P.lambda1_max()
+        r = gl.joint_group_lasso_admm(magnetic_operator=K, gravity_operator=G, magnetic_data=P.f,
+                                      gravity_data=P.g, lambda1=lam1, lambda2=1.0, mu=P.mu,
+                                      max_iter=5000, tol_primal=1e-4, tol_dual=1e-4)
+        np.testing.assert_allclose(r.beta_physical, P.solve(lam1, 1.0).beta_physical)
+
+    def test_rejects_mismatched_input(self, kernels):
+        K, G, _ = kernels
+        with pytest.raises(ValueError, match="same cells"):
+            gl.JointGroupLassoProblem(K, G[:, :10], np.ones(K.shape[0]), np.ones(G.shape[0]))
+        with pytest.raises(ValueError, match="rows"):
+            gl.JointGroupLassoProblem(K, G, np.ones(3), np.ones(G.shape[0]))
+        with pytest.raises(ValueError, match="mu"):
+            gl.JointGroupLassoProblem(K, G, np.ones(K.shape[0]), np.ones(G.shape[0]), mu=0.0)
+
+
+# ── Synthetic validation (A–E) ──────────────────────────────────────────
+
+
+class TestSynthetics:
+    def test_a_coincident_body_recovered_colocated(self, coincident):
+        """Both models sit on the same cells, and closer together than with separate
+        (ordinary elastic-net) sparsity on each model."""
+        P, body, _ = coincident
+        lc = P.lcurve(1.0)
+        assert lc.corner["valid"]
+        r = P.solve_at(lc, lc.lambda1_corner, 1.0)
+        near = _dilate(body)
+        for v in (r.beta_physical, r.rho_physical):
+            assert np.abs(v)[near].sum() > 0.7 * np.abs(v).sum()
+        separate = P.solve(r.lambda1, 1.0, coupling="none", max_iter=5000)
+        assert _jaccard(r) > 0.5
+        assert _jaccard(r) > _jaccard(separate) + 0.1
+
+    def test_b_magnetic_only_body_gets_no_density(self, kernels):
+        """A cell selected for its magnetization keeps rho ~ 0: the group lasso does
+        not ask for both properties."""
+        K, G, cc = kernels
+        body, mag_only = _block(cc, 150, 350, 150, 350), _block(cc, 500, 700, 500, 700)
+        f, _, g, _ = _data(kernels, 0.05 * (body | mag_only), 0.3 * body)
+        P = gl.JointGroupLassoProblem(K, G, f, g)
+        r = P.solve(0.02 * P.lambda1_max(), 1.0)
+        b, p = np.abs(r.beta_physical), np.abs(r.rho_physical)
+        assert b[mag_only].mean() > 0.5 * b[body].mean()
+        assert p[mag_only].mean() < 0.15 * p[body].mean()
+
+    def test_b_without_gravity_signal_rho_stays_exactly_zero(self, kernels):
+        K, G, cc = kernels
+        body = _block(cc, 250, 450, 250, 450)
+        f = K @ (0.05 * body)
+        g = np.zeros(G.shape[0])
+        with pytest.warns(UserWarning, match="undefined"):
+            P = gl.JointGroupLassoProblem(K, G, f, g)
+        r = P.solve(0.02 * P.lambda1_max(), 1.0)
+        assert r.n_active > 0 and not np.any(r.rho_scaled)
+        assert "undefined" in r.notes[0]
+
+    def test_c_gravity_only_body_gets_no_magnetization(self, kernels):
+        K, G, cc = kernels
+        body, grav_only = _block(cc, 150, 350, 150, 350), _block(cc, 500, 700, 500, 700)
+        f, _, g, _ = _data(kernels, 0.05 * body, 0.3 * (body | grav_only))
+        P = gl.JointGroupLassoProblem(K, G, f, g)
+        r = P.solve(0.02 * P.lambda1_max(), 1.0)
+        b, p = np.abs(r.beta_physical), np.abs(r.rho_physical)
+        assert p[grav_only].mean() > 0.5 * p[body].mean()
+        assert b[grav_only].mean() < 0.15 * b[body].mean()
+
+    def test_d_opposite_signs(self, kernels):
+        """The group norm does not care about signs: beta > 0 with rho < 0."""
+        K, G, cc = kernels
+        body = _block(cc, 250, 450, 250, 450)
+        f, _, g, _ = _data(kernels, 0.05 * body, -0.3 * body)
+        P = gl.JointGroupLassoProblem(K, G, f, g)
+        r = P.solve(0.02 * P.lambda1_max(), 1.0)
+        gn = np.hypot(r.beta_scaled, r.rho_scaled)
+        core = gn > 0.3 * gn.max()
+        assert core.sum() >= 10
+        assert np.all(r.beta_physical[core] > 0) and np.all(r.rho_physical[core] < 0)
+        assert np.corrcoef(r.beta_physical, r.rho_physical)[0, 1] < -0.8
+        assert _jaccard(r) > 0.5
+
+    def test_e_l2_moderates_the_group_lasso(self, kernels, coincident):
+        """Group lasso alone concentrates the model into a few cells with inflated
+        values; lambda2 spreads it; L2 alone has no sparsity at all."""
+        P, body, _ = coincident
+        lam1 = 0.01 * P.lambda1_max()
+        l2_only = P.solve(0.0, 1.0)
+        both = P.solve(lam1, 1.0)
+        # lambda2 = 0 converges slowly (see TestADMM); a smaller mu, and near-optimality
+        # checked on the optimality conditions
+        K, G, _ = kernels
+        Q = gl.JointGroupLassoProblem(K, G, P.f, P.g, mu=2.0)
+        gl_only = Q.solve(lam1, 0.0, max_iter=20000)
+        assert Q.kkt_residual(gl_only.beta_scaled, gl_only.rho_scaled, lam1, 0.0) < 2e-3
+        assert both.converged and l2_only.converged
+        assert l2_only.n_active == P.m
+        assert _n90(gl_only) < _n90(both) < _n90(l2_only)
+        assert gl_only.n_active < both.n_active
+        # the true body is 0.3 g/cc: alone the group lasso inflates it several times
+        assert gl_only.rho_physical.max() > 3 * both.rho_physical.max()
+
+
+class TestFromSimulations:
+    def test_uses_simpeg_sensitivities_as_stored(self, kernels):
+        from geoinv3d.datamodel.mesh import Mesh3D
+        from geoinv3d.datamodel.survey import SurveyData
+        from geoinv3d.methods.gravity import GravityMethod
+        from geoinv3d.methods.magnetics import MagneticsMethod
+
+        mesh = Mesh3D.uniform(8, 8, 4, 50.0, 50.0, 50.0, origin=(0.0, 0.0, -200.0))
+        xy = np.linspace(25, 375, 6)
+        xx, yy = np.meshgrid(xy, xy)
+        locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, 10.0)])
+        survey = SurveyData(locations=locs, observed=np.zeros(36), std=np.ones(36))
+        msim = MagneticsMethod(inducing_field=(50000.0, 60.0, 10.0)).make_simulation_full(mesh, survey)
+        gsim = GravityMethod().make_simulation_full(mesh, survey)
+        m = np.zeros(mesh.n_cells)
+        m[100:110] = 1.0
+        f, g = msim.dpred(0.05 * m), gsim.dpred(0.3 * m)
+        P = gl.from_simulations(msim, gsim, f, g)
+        assert P.X.K is msim.G and P.Y.K is gsim.G
+        r = P.solve(0.05 * P.lambda1_max(), 1.0)
+        np.testing.assert_allclose(r.predicted_magnetic, msim.dpred(r.beta_physical),
+                                   rtol=1e-4, atol=1e-4 * abs(f).max())
+        np.testing.assert_allclose(r.predicted_gravity, gsim.dpred(r.rho_physical),
+                                   rtol=1e-4, atol=1e-4 * abs(g).max())
+
+
+class TestLCurve:
+    def test_sweep_and_corner(self, coincident, tmp_path):
+        P, _, _ = coincident
+        seen = []
+        lc = P.lcurve(1.0, n_lambda1=13, decades=3.0,
+                      point_callback=lambda i, n, p: seen.append((i, n)))
+        a = lc.arrays()
+        assert len(a["lambda1"]) == 13 == len(seen) and seen[-1] == (12, 13)
+        assert np.all(np.diff(a["lambda1"]) < 0)
+        # smaller lambda1: better fit, larger group penalty
+        assert np.all(np.diff(a["misfit"]) < 0) and np.all(np.diff(a["group_penalty"]) > 0)
+        assert a["lambda1"].min() < lc.lambda1_corner < a["lambda1"].max()
+        # warm starts: later points need fewer iterations than the first
+        assert a["n_iterations"][-1] < a["n_iterations"][0]
+        import matplotlib
+        matplotlib.use("Agg")
+        ax = gl.plot_lcurve(lc)
+        ax.figure.savefig(tmp_path / "lcurve.png")
+        assert (tmp_path / "lcurve.png").stat().st_size > 1000
+
+    def test_stopped_sweep_keeps_its_points(self, coincident):
+        P, _, _ = coincident
+        calls = []
+        lc = P.lcurve(1.0, n_lambda1=13, should_stop=lambda: calls.append(1) or len(calls) > 400)
+        assert lc.stopped and 0 < len(lc.points) < 13 and lc.n_planned == 13
+
+
+# ── Through the data pipeline (worker "data" mode, run locally) ───────────
+
+
+def _pipeline_files(tmp_path):
+    from tests.test_data_pipeline import _station_grid, _synthetic, _write_csv
+    locs = _station_grid()
+    _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+    _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+    return tmp_path
+
+
+def _progress(seen):
+    """A progress callback that keeps the per-point reports of the inversion."""
+    def progress(stage, message="", **fields):
+        if stage == "inverting" and "iteration" in fields:
+            seen.append(fields)
+    return progress
+
+
+class TestPipeline:
+    def test_joint_group_lasso_end_to_end(self, tmp_path):
+        import json
+        import zipfile
+
+        from tests.test_data_pipeline import _joint_params
+        from geoinv3d.cloud.worker import pack_result, run_data_pipeline
+        from geoinv3d.viz.result_workflow import build_workflow, load_result
+
+        _pipeline_files(tmp_path)
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
+                               regularization_type="group_lasso", gl_n_lambda1=8,
+                               gl_lambda1_decades=2.5, gl_lambda2=0.3)
+        seen = []
+        result = run_data_pipeline(params, str(tmp_path), progress=_progress(seen))
+        assert result["regularization"] == "group_lasso_ADMM"
+        assert result["methods"] == ["gravity", "magnetics"]
+        n = result["n_active_cells"]
+        assert result["recovered_models"]["gravity"].shape == (n,)
+        assert result["recovered_models"]["magnetics"].shape == (n,)
+        info = result["group_lasso"]
+        assert info["criterion"] in ("lcurve", "discrepancy", "nearest chi^2 = N")
+        assert len(info["sweep"]) == 8 == result["n_iterations"]
+        lams = [it["beta"] for it in result["iterations"]]
+        assert lams == sorted(lams, reverse=True) and lams[-1] <= info["lambda1"] <= lams[0]
+        # progress: one report per lambda1 point, "i of n", with chi^2 against N
+        assert [s["iteration"] for s in seen] == list(range(1, 9))
+        assert all(s["max_iter"] == 8 for s in seen)
+        np.testing.assert_allclose([s["phi_d"] for s in seen],
+                                   [p["chi2"] for p in info["sweep"]])
+        # per-dataset data in the files' convention (gravity positive down)
+        jd = result["joint_data"]
+        from tests.test_data_pipeline import _station_grid, _synthetic
+        np.testing.assert_allclose(jd["gravity"]["observed"],
+                                   _synthetic("gravity", _station_grid()), rtol=1e-6)
+        for name in ("gravity", "magnetics"):
+            d = jd[name]
+            r = d["observed"] - d["predicted"]
+            assert np.sqrt(np.mean(r ** 2)) < 0.5 * np.sqrt(np.mean(d["observed"] ** 2))
+        assert result["settings"]["regularization_type"] == "group_lasso"
+        assert result["settings"]["gl_lambda2"] == 0.3
+
+        path = pack_result(result, str(tmp_path / "result.zip"))
+        with zipfile.ZipFile(path) as zf:
+            names = set(zf.namelist())
+            meta = json.loads(zf.read("result.json"))
+        assert {"recovered_gravity.npy", "recovered_magnetics.npy", "data_gravity.npz",
+                "data_magnetics.npz"} <= names
+        assert "joint_data" not in meta and meta["group_lasso"]["lambda1"] == info["lambda1"]
+
+        # the viewer shows it as a density and a susceptibility model, each with its data
+        run = load_result(path)
+        run["_name"] = "joint"
+        wf = build_workflow([run])
+        inv = [nd for nd in wf["nodes"] if nd["type"] == "RegularizedInversionNode"]
+        assert sorted(nd["output"]["final_model"]["prop"] for nd in inv) == ["density", "susceptibility"]
+        assert {nd["output"]["data_fit"]["unit"] for nd in inv} == {"mGal", "nT"}
+        assert all(nd["params"]["gl_criterion"] == info["criterion"] for nd in inv)
+        surveys = [nd for nd in wf["nodes"] if nd["type"] == "SurveyCreateNode"]
+        assert len(surveys) == 2
+        assert any(nd["name"] == "λ2 = 0.3" for nd in wf["nodes"])
+
+    def test_auto_mode_and_stop(self, tmp_path):
+        from tests.test_data_pipeline import _joint_params
+        from geoinv3d.cloud.worker import run_data_pipeline
+        from geoinv3d.methods.directives import IterationCollector
+
+        _pipeline_files(tmp_path)
+        # auto mode ignores the manual gl_ settings but keeps the regularization
+        params = _joint_params(["g.csv"], ["m.csv"], regularization_type="group_lasso",
+                               gl_n_lambda1=5)
+        seen = []
+        IterationCollector.stop_check = lambda: len(seen) >= 4   # "stop & keep" after 4 points
+        try:
+            result = run_data_pipeline(params, str(tmp_path), progress=_progress(seen))
+        finally:
+            IterationCollector.stop_check = None
+        assert result["regularization"] == "group_lasso_ADMM"
+        assert result["stopped_early"] == {"reason": "stopped by the user", "at_iteration": 4,
+                                           "of": 13}
+        assert result["converged"] is False and len(result["group_lasso"]["sweep"]) == 4
+        assert any("Stopped by the user" in w for w in result["group_lasso"]["warnings"])
+        assert np.all(np.isfinite(result["recovered_models"]["gravity"]))
+
+    def test_needs_a_gravity_and_a_magnetic_dataset(self, tmp_path):
+        from tests.test_data_pipeline import _single
+        from geoinv3d.cloud.worker import run_data_pipeline
+        _pipeline_files(tmp_path)
+        params = _single("gravity", ["g.csv"], regularization_type="group_lasso")
+        with pytest.raises(ValueError, match="joint inversion"):
+            run_data_pipeline(params, str(tmp_path))
+
+    def test_task_round_trip(self, tmp_path):
+        from geoinv3d.cloud.task import InversionTask, pack_task, unpack_task
+        task = InversionTask(task_id="t", regularization_type="group_lasso", gl_lambda2=0.3,
+                             gl_mu=5.0, gl_lambda1_selection="fixed", gl_lambda1=12.0)
+        back = unpack_task(pack_task(task, str(tmp_path / "t.zip")))
+        assert (back.gl_lambda2, back.gl_mu, back.gl_lambda1_selection, back.gl_lambda1) == \
+            (0.3, 5.0, "fixed", 12.0)
+
+
+def test_workflow_skips_joint_runs_without_data(tmp_path):
+    """A cross-gradient joint result (no per-dataset data) no longer breaks a workflow."""
+    from geoinv3d.viz.result_workflow import split_joint_runs
+    runs, skipped = split_joint_runs([{"_name": "xgrad", "_model": None,
+                                       "_models": {"gravity": np.zeros(3)}}])
+    assert runs == [] and skipped == ["xgrad"]

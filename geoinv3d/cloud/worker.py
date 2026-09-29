@@ -15,6 +15,11 @@ Writes to RESULT_PREFIX: progress.json while running (see S3Progress),
 then result.zip and result.json.  Exits with status 1 when the inversion
 failed (after uploading the error), so AWS Batch marks the job FAILED.
 
+Local mode (the EC2 backend runs this over SSH; no S3 involved):
+    python -m geoinv3d.cloud.worker --local params.json DATA_DIR OUT_DIR
+writes OUT_DIR/progress.json while running, then OUT_DIR/result.zip and
+OUT_DIR/result.json, and exits with status 1 on failure.
+
 Usage (on the cloud instance):
     python -m geoinv3d.cloud.worker
 """
@@ -32,7 +37,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .task import InversionTask, unpack_task, pack_task
+from .task import GROUP_LASSO_KEYS, InversionTask, effective_alpha_s, unpack_task, pack_task
 
 
 def _build_mesh(task: InversionTask):
@@ -135,7 +140,7 @@ def _single_problem(task: InversionTask, mesh, sim=None):
 
     if kind == "smooth":
         reg_kwargs = dict(
-            alpha_s=task.alpha_s,
+            alpha_s=effective_alpha_s(task, length_scales=False),
             alpha_x=task.alpha_x,
             alpha_y=task.alpha_y,
             alpha_z=task.alpha_z,
@@ -144,7 +149,7 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         reg_kwargs = dict(l1_ratio=task.l1_ratio, reference_model=np.zeros_like(m0))
     else:
         reg_kwargs = dict(
-            alpha_s=task.alpha_s,
+            alpha_s=effective_alpha_s(task),
             length_scale_x=task.alpha_x,
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
@@ -160,6 +165,10 @@ def _single_problem(task: InversionTask, mesh, sim=None):
                               threshold_scale=task.focusing_scale)
     if has_active:
         reg_kwargs["active_cells"] = task.active_cells
+    depth_weighting = getattr(task, "depth_weighting", "sensitivity")
+    if depth_weighting not in ("sensitivity", "depth"):
+        raise ValueError(f"Unknown depth_weighting '{depth_weighting}' "
+                         "(expected 'sensitivity' or 'depth')")
     reg = {
         "smooth": regularization.WeightedLeastSquares,
         "l2": regularization.WeightedLeastSquares,
@@ -168,6 +177,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         "mgs": Focusing,
         "tv": Focusing,
     }[kind](dmesh, **reg_kwargs)
+    if depth_weighting == "depth" and kind in ("l2", "sparse", "mgs", "tv"):
+        reg.set_weights(depth=_depth_weights(task, dmesh))
 
     lo = hi = None
     if kind == "smooth":
@@ -181,16 +192,39 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         span = hi - lo
         nudge = 1e-4 * span if np.isfinite(span) else 1e-4
         m0 = np.clip(m0, lo + nudge, hi - nudge)
+        # The CG tolerances the deprecated tolCG=1e-4 set, which differ by class in SimPEG
+        # 0.25: absolute 1e-4 (relative 0) for ProjectedGNCG, relative 1e-4 for
+        # InexactGaussNewton
         opt = optimization.ProjectedGNCG(
             maxIter=task.max_iter, lower=lo, upper=hi,
-            maxIterLS=20, maxIterCG=30, tolCG=1e-4,
+            maxIterLS=20, cg_maxiter=30, cg_atol=1e-4, cg_rtol=0.0,
         )
     else:
         opt = optimization.InexactGaussNewton(
-            maxIter=task.max_iter, maxIterLS=20, maxIterCG=30, tolCG=1e-4,
+            maxIter=task.max_iter, maxIterLS=20, cg_maxiter=30, cg_rtol=1e-4,
         )
     return SimpleNamespace(kind=kind, sim=sim, dmis=dmis, reg=reg, opt=opt, m0=m0,
                            lo=lo, hi=hi)
+
+
+def _depth_weights(task: InversionTask, dmesh) -> np.ndarray:
+    """Li & Oldenburg depth weights as SimPEG cell weights.
+
+    SimPEG applies the square root of the cell weights in the model norm, so
+    these are (z + z0)^(-beta) for a norm weight of (z + z0)^(-beta/2); z is
+    the depth below the nearest station, z0 half the smallest cell.
+    """
+    from simpeg.utils import depth_weighting
+    beta = float(task.depth_weighting_exponent)
+    if not beta >= 0:
+        raise ValueError(f"depth_weighting_exponent must be >= 0, got {beta}")
+    return depth_weighting(dmesh, np.asarray(task.station_locations, dtype=float),
+                           active_cells=task.active_cells, exponent=2.0 * beta,
+                           threshold=0.5 * float(dmesh.h_gridded.min()))
+
+
+def _uses_sensitivity_weights(task, kind: str) -> bool:
+    return kind == "l1l2" or getattr(task, "depth_weighting", "sensitivity") != "depth"
 
 
 def _regularization_label(kind: str) -> str:
@@ -202,15 +236,22 @@ def _regularization_label(kind: str) -> str:
 def _finish_result(task, p, collector, m_recovered, inv_prob) -> dict:
     result = _collect_result(task, collector, m_recovered, inv_prob,
                              _regularization_label(p.kind))
+    try:
+        result["predicted"] = np.asarray(p.dmis.simulation.dpred(m_recovered), dtype=float)
+    except Exception as e:   # the result is still useful without it
+        print(f"[Worker] Could not compute the predicted data: {e}")
     if p.kind == "l1l2":
         result["l1_ratio"] = task.l1_ratio
         result.pop("norms")
     elif p.kind == "l2":
         result.pop("norms")
-        result["depth_weighting"] = "sensitivity"
     elif p.kind in ("mgs", "tv"):
         result.pop("norms")
         result["focusing_threshold"] = p.reg.focusing_threshold
+    if p.kind in ("l2", "sparse", "mgs", "tv"):
+        result["depth_weighting"] = getattr(task, "depth_weighting", "sensitivity")
+        if result["depth_weighting"] == "depth":
+            result["depth_weighting_exponent"] = float(task.depth_weighting_exponent)
     return result
 
 
@@ -238,7 +279,8 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
         if task.use_preconditioner:
             directive_list.insert(1, directives.UpdatePreconditioner())
     elif p.kind == "l2":
-        directive_list = [directives.UpdateSensitivityWeights()]
+        directive_list = ([directives.UpdateSensitivityWeights()]
+                          if _uses_sensitivity_weights(task, p.kind) else [])
         if beta is None:
             # No IRLS terms here: DampedUpdateIRLS only steers beta, up or down,
             # onto chi^2 = N.  A plain BetaSchedule halves beta each iteration
@@ -259,9 +301,11 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
     else:
         weights = (ElasticNetSensitivityWeights() if p.kind == "l1l2"
                    else directives.UpdateSensitivityWeights())
+        # with depth weighting the weights are set on the regularization
+        weights = [weights] if _uses_sensitivity_weights(task, p.kind) else []
         if beta is None:
             directive_list = [
-                weights,
+                *weights,
                 directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio, random_seed=42),
                 directives.TargetMisfit(chifact=1.0),
                 DampedUpdateIRLS(
@@ -275,7 +319,7 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
             ]
         else:
             directive_list = [
-                weights,
+                *weights,
                 FixedBetaIRLS(
                     irls_thresholds=irls_thresholds,
                     f_min_change=1e-4,
@@ -371,6 +415,7 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
     threshold) and does not cool it, so all betas minimize the same objective
     and the trade-off curve is monotone.
     """
+    from ..methods.directives import stop_requested
     from ..methods.regparam import (
         LCURVE_NO_CORNER, gcv_minimum, lcurve_corner_info, sparse_terms,
     )
@@ -383,6 +428,16 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
 
     p = _single_problem(task, mesh)
     base, _ = _run_problem(task, p)
+
+    def keep_base(when):
+        # stopped by the user: the discrepancy-principle run is the result
+        base["converged"] = False
+        base["stopped_early"] = {**base.get("stopped_early", {}), "reason": "stopped by the user "
+                                 f"{when}; the discrepancy-principle result is kept"}
+        return base
+
+    if stop_requested():
+        return keep_base("before the beta sweep")
     beta_disc = base["iterations"][-1]["beta"]
     sim = p.sim
     eps = [float(o.irls_threshold) for o in sparse_terms(p.reg)] \
@@ -396,6 +451,8 @@ def run_beta_selection(task: InversionTask, mesh=None) -> dict:
 
     points, models = [], []
     for beta in betas:
+        if stop_requested():
+            return keep_base(f"after {len(points)} of {len(betas)} sweep points")
         result, p_fixed, inv_prob = run_fixed_beta(task, beta, mesh, sim=sim,
                                                    irls_thresholds=eps,
                                                    focusing_threshold=focus_e)
@@ -451,7 +508,7 @@ def _collect_result(task, collector, m_recovered, inv_prob, method_label):
             "model_mean": float(vals.mean()),
         })
 
-    return {
+    result = {
         "task_id": task.task_id,
         "method": task.method_type,
         "regularization": method_label,
@@ -461,6 +518,11 @@ def _collect_result(task, collector, m_recovered, inv_prob, method_label):
         "recovered_model": m_recovered,
         "norms": list(task.norms),
     }
+    stopped = getattr(collector, "stopped_at", None)
+    if stopped is not None:   # the user stopped it: the model is that of this iteration
+        result["converged"] = False
+        result["stopped_early"] = {"reason": "stopped by the user", "at_iteration": int(stopped)}
+    return result
 
 
 def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
@@ -478,6 +540,9 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
     Each path point is reported as an "iteration" with ``beta`` = lambda,
     ``phi_d`` = chi^2 and ``phi_m`` = P(b; a).
     """
+    from types import SimpleNamespace
+
+    from ..methods.directives import IterationCollector, stop_requested
     from ..methods.l1l2_cda import invert_l1l2
 
     if mesh is None:
@@ -492,12 +557,20 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
         amplitude_nT = _get_method(task).inducing_field[0]
         model_unit = amplitude_nT * 1e-9 / (4e-7 * np.pi)  # SI -> A/m
     criterion = "lcurve" if task.beta_selection == "auto" else task.beta_selection
+
+    def on_point(i, n_lambdas, lam, chi2, sweeps):
+        # progress per lambda point, through the same hook as IRLS iterations
+        callback = IterationCollector.on_iteration
+        if callback is not None:
+            callback(SimpleNamespace(iteration=i + 1, phi_d=chi2, beta=lam,
+                                     extra={"max_iter": n_lambdas, "sweeps": sweeps}))
+
     res, scale = invert_l1l2(
         np.asarray(G), task.observed_data, task.l1_ratio,
         weighting=task.l1l2_weighting, model_unit=model_unit, std=task.data_std,
         criterion=criterion, lower=task.bounds_lower, upper=task.bounds_upper,
         n_decades=task.lambda_decades, step=task.lambda_step,
-        fallback=task.beta_selection == "auto",
+        fallback=task.beta_selection == "auto", callback=on_point, should_stop=stop_requested,
     )
     path = res.path
     chi2 = res.chi2
@@ -514,17 +587,22 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
             "model_max": float(m.max()),
             "model_mean": float(m.mean()),
         })
-    resid = (np.asarray(G) @ res.model - task.observed_data) / task.data_std
+    predicted = np.asarray(G) @ res.model
+    resid = (predicted - task.observed_data) / task.data_std
     for w in res.warnings:
         print(f"[L1–L2 CDA] Warning: {w}")
+    stopped = {"stopped_early": {"reason": "stopped by the user", "at_iteration": len(path.lambdas),
+                                 "of": path.n_planned}} if path.stopped else {}
     return {
+        **stopped,
         "task_id": task.task_id,
         "method": task.method_type,
         "regularization": "elastic_net_CDA",
-        "converged": True,
+        "converged": not path.stopped,
         "n_iterations": len(iterations),
         "iterations": iterations,
         "recovered_model": res.model,
+        "predicted": predicted,
         "l1_ratio": task.l1_ratio,
         "l1l2": {
             "solver": "cda",
@@ -619,7 +697,7 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
         cooling_factor=task.cooling_factor,
         cross_gradient_weight=task.cross_gradient_weight,
         reg_kwargs=dict(
-            alpha_s=task.alpha_s,
+            alpha_s=effective_alpha_s(task),
             length_scale_x=task.alpha_x,
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
@@ -642,7 +720,10 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
             "model_mean": float(vals.mean()),
         })
 
+    stopped = {} if result.converged else {
+        "stopped_early": {"reason": "stopped by the user", "at_iteration": len(iterations)}}
     return {
+        **stopped,
         "task_id": task.task_id,
         "methods": [canonical_method(m) for m in task.joint_methods],
         "regularization": "joint_L2",
@@ -656,6 +737,188 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
     }
 
 
+GROUP_LASSO_SELECTIONS = ("lcurve", "discrepancy", "fixed")
+
+
+def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
+    """Joint gravity–magnetic inversion with L2 + group lasso (Utsugi 2025), by ADMM.
+
+    One gravity and one magnetic dataset on the same active cells.  SimPEG's
+    integral simulations provide the sensitivities (float32, used as stored);
+    :mod:`geoinv3d.methods.group_lasso` does the rest.  lambda1 comes from a
+    sweep down from lambda1_max (warm-started, one factorization for all
+    points) by the L-curve corner, falling back to chi^2 = N when the curve has
+    no corner, or by chi^2 = N; or it is fixed.  Each sweep point is reported
+    as an "iteration" with ``beta`` = lambda1, ``phi_d`` = chi^2 of both
+    datasets and ``phi_m`` = the group penalty.  The user's stop request ends
+    the sweep (lambda1 is then chosen from the points done) or the ADMM solve
+    (its current iterate is kept).
+    """
+    from types import SimpleNamespace
+
+    from ..datamodel.survey import SurveyData
+    from ..methods.directives import IterationCollector, stop_requested
+    from ..methods.group_lasso import JointGroupLassoProblem
+    from ..methods.l1l2_cda import _discrepancy_lambda
+    from ..methods.regparam import LCURVE_NO_CORNER
+
+    names = [canonical_method(m) for m in task.joint_methods]
+    if sorted(names) != ["gravity", "magnetics"]:
+        raise ValueError("The group-lasso joint inversion couples one gravity and one magnetic "
+                         f"dataset; got {names}")
+    selection = task.gl_lambda1_selection
+    if selection not in GROUP_LASSO_SELECTIONS:
+        raise ValueError(f"Unknown gl_lambda1_selection '{selection}' "
+                         f"(expected one of {GROUP_LASSO_SELECTIONS})")
+    if mesh is None:
+        mesh = _build_mesh(task)
+    active = task.active_cells
+    kernels, surveys = {}, {}
+    for i, name in enumerate(names):
+        kwargs = (task.joint_kwargs_list[i] if task.joint_kwargs_list else None) or {}
+        sd = task.joint_surveys[i]
+        survey = SurveyData(locations=sd["locations"], observed=sd["observed"], std=sd["std"],
+                            method=name)
+        method = _make_method(name, kwargs)
+        sim = (method.make_simulation_active(mesh, survey, active) if active is not None
+               else method.make_simulation_full(mesh, survey))
+        print(f"[Group lasso] {name}: computing the {len(sd['observed'])} x "
+              f"{int(active.sum()) if active is not None else mesh.n_cells} sensitivity matrix")
+        kernels[name] = sim.G
+        surveys[name] = sd
+    mag, grav = surveys["magnetics"], surveys["gravity"]
+    problem = JointGroupLassoProblem(
+        kernels["magnetics"], kernels["gravity"], mag["observed"], grav["observed"],
+        mu=task.gl_mu, gamma=task.gl_gamma, data_scaling=task.gl_data_scaling,
+        std_f=mag["std"], std_g=grav["std"])
+    n_data = len(mag["observed"]) + len(grav["observed"])
+    lam_max = problem.lambda1_max()
+    lam2 = float(task.gl_lambda2)
+    solve_kw = dict(max_iter=int(task.gl_max_iter), tol_primal=float(task.gl_tol),
+                    tol_dual=float(task.gl_tol), history_every=10)
+    print(f"[Group lasso] {problem.solver_name}, mu = {problem.mu:.4g}, lambda1_max = "
+          f"{lam_max:.4g}, data scales {task.gl_data_scaling} "
+          f"(set up in {problem.setup_seconds:.1f} s)")
+
+    def report(i, n, lam, chi2, extra=None):
+        callback = IterationCollector.on_iteration
+        if callback is not None:
+            callback(SimpleNamespace(iteration=i, phi_d=chi2, beta=lam,
+                                     extra={"max_iter": n, **(extra or {})}))
+
+    warnings_ = list(problem.notes)
+    lc = None
+    lam_lcurve = lam_disc = None
+    stopped_at = None
+    if selection == "fixed":
+        lam1 = float(task.gl_lambda1) if task.gl_lambda1 is not None \
+            else float(task.gl_lambda1_ratio) * lam_max
+        result = problem.solve(lam1, lam2, should_stop=stop_requested, **solve_kw)
+        criterion = "fixed"
+    else:
+        def on_point(i, n, p):
+            report(i + 1, n, p["lambda1"], p["chi2"], {"admm_iterations": p["n_iterations"]})
+            print(f"[Group lasso] lambda1 {i + 1}/{n} = {p['lambda1']:.4g}: chi2 = {p['chi2']:.4g} "
+                  f"(target {n_data}), group penalty {p['group_penalty']:.4g}, "
+                  f"{p['n_active']} active cells, {p['n_iterations']} ADMM iterations"
+                  + ("" if p["converged"] else " (not converged)"))
+        lc = problem.lcurve(lam2, n_lambda1=int(task.gl_n_lambda1),
+                            decades=float(task.gl_lambda1_decades), point_callback=on_point,
+                            should_stop=stop_requested, **solve_kw)
+        if not lc.points:
+            raise ValueError("Stopped before the first lambda1 point finished: nothing to keep")
+        a = lc.arrays()
+        chi2 = np.array([p["chi2"] for p in lc.points])
+        lam_lcurve = lc.lambda1_corner if lc.corner and lc.corner["valid"] else None
+        lam_disc = _discrepancy_lambda(a["lambda1"], chi2, n_data)
+        if lc.stopped:
+            stopped_at = len(lc.points)
+            warnings_.append(f"Stopped by the user after {stopped_at} of {lc.n_planned} lambda1 "
+                             "points; lambda1 is chosen from those")
+        if selection == "lcurve" and lam_lcurve is None:
+            warnings_.append(LCURVE_NO_CORNER + ("; lambda1 from chi^2 = N instead"
+                                                 if lam_disc is not None else ""))
+        lam1 = lam_lcurve if selection == "lcurve" else lam_disc
+        criterion = selection
+        if lam1 is None and selection == "lcurve" and lam_disc is not None:
+            lam1, criterion = lam_disc, "discrepancy"
+        if lam1 is None:
+            # neither criterion on this sweep: the point whose chi^2 is closest to N
+            k = int(np.argmin(np.abs(np.log(chi2 / n_data))))
+            lam1, criterion = float(a["lambda1"][k]), "nearest chi^2 = N"
+            warnings_.append(f"chi^2 = N is not reached on the lambda1 sweep "
+                             f"(chi^2 from {chi2.max():.4g} to {chi2.min():.4g}); the point "
+                             "closest to it is kept")
+        if chi2.min() > n_data and not lc.stopped:
+            warnings_.append(f"chi^2 stays above N = {n_data} down to the smallest lambda1 "
+                             f"(min {chi2.min():.4g}): lambda2 = {lam2:g} may damp the model "
+                             "too much for these data errors; try a smaller lambda2")
+        if lc.stopped:   # no new solve: the finished point nearest lambda1
+            k = int(np.argmin(np.abs(np.log(a["lambda1"] / lam1))))
+            lam1 = float(a["lambda1"][k])
+            result = problem.solve(lam1, lam2, state=lc.states[k], max_iter=0)
+        else:
+            result = problem.solve_at(lc, lam1, lam2, should_stop=stop_requested, **solve_kw)
+
+    chi2_final = problem.chi2(result)
+    if result.stopped and stopped_at is None:
+        stopped_at = result.n_iterations
+    if not result.converged and not result.stopped and result.n_iterations:
+        warnings_.append(f"ADMM did not converge in {task.gl_max_iter} iterations at lambda1 = "
+                         f"{lam1:.4g}; raise gl_max_iter or try another mu")
+    for w in warnings_:
+        print(f"[Group lasso] Warning: {w}")
+
+    if lc is not None:
+        iterations = [{"iteration": i, "phi_d": p["chi2"], "phi_m": p["group_penalty"],
+                       "phi_total": p["objective"], "beta": p["lambda1"],
+                       "admm_iterations": p["n_iterations"], "n_active": p["n_active"]}
+                      for i, p in enumerate(lc.points)]
+    else:   # fixed lambda1: the ADMM iterations (every 10th), misfit in scaled units
+        iterations = [{"iteration": 10 * (i + 1), "phi_d": 2.0 * m, "phi_m": gp,
+                       "phi_total": o, "beta": lam1}
+                      for i, (m, gp, o) in enumerate(zip(result.misfit_history,
+                                                         result.group_penalty_history,
+                                                         result.objective_history))]
+    stopped = {"stopped_early": {"reason": "stopped by the user", "at_iteration": stopped_at,
+                                 **({"of": lc.n_planned} if lc is not None and lc.stopped else {})}} \
+        if stopped_at is not None else {}
+    scale = problem.s_g
+    info = {
+        "reference": "Utsugi (2025), Earth Planets Space 77:146",
+        "criterion": criterion, "lambda1": result.lambda1, "lambda2": lam2, "mu": problem.mu,
+        "lambda1_max": lam_max, "lambda1_lcurve": lam_lcurve, "lambda1_discrepancy": lam_disc,
+        "data_scaling": task.gl_data_scaling,
+        "gravity_scale": float(scale) if np.ndim(scale) == 0 else "per datum",
+        "gamma": task.gl_gamma, "solver": problem.solver_name,
+        "admm_iterations": result.n_iterations, "admm_converged": result.converged,
+        "n_active_cells": result.n_active, "chi2": chi2_final,
+        "primal_residual": (result.primal_residual_history or [None])[-1],
+        "dual_residual": (result.dual_residual_history or [None])[-1],
+        "warnings": warnings_,
+    }
+    if lc is not None:
+        info["sweep"] = [dict(p) for p in lc.points]
+    return {
+        **stopped,
+        "task_id": task.task_id,
+        "methods": names,
+        "regularization": "group_lasso_ADMM",
+        "converged": bool(result.converged and stopped_at is None),
+        "n_iterations": len(iterations),
+        "iterations": iterations,
+        "recovered_models": {"magnetics": result.beta_physical, "gravity": result.rho_physical},
+        # SimPEG sign convention; the pipeline turns them back into the files' convention
+        "joint_data": {
+            "magnetics": {"locations": mag["locations"], "observed": mag["observed"],
+                          "std": mag["std"], "predicted": result.predicted_magnetic},
+            "gravity": {"locations": grav["locations"], "observed": grav["observed"],
+                        "std": grav["std"], "predicted": result.predicted_gravity},
+        },
+        "group_lasso": info,
+    }
+
+
 def execute_task(task: InversionTask, mesh=None) -> dict:
     """Dispatch to single or joint inversion based on task spec.
 
@@ -664,7 +927,12 @@ def execute_task(task: InversionTask, mesh=None) -> dict:
             it is built from the task's mesh fields.
     """
     if task.joint_methods:
+        if task.regularization_type == "group_lasso":
+            return run_group_lasso_joint(task, mesh)
         return run_joint_inversion(task, mesh)
+    if task.regularization_type == "group_lasso":
+        raise ValueError("The group lasso couples a gravity and a magnetic dataset: "
+                         "it needs a joint inversion")
     return run_single_inversion(task, mesh)
 
 
@@ -685,6 +953,8 @@ _MANUAL_KEYS = (
     "l1_ratio", "beta_selection", "beta_sweep",
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
+    "depth_weighting", "depth_weighting_exponent",
+    *GROUP_LASSO_KEYS,
 )
 # Warn when more than this share of the recovered anomaly lies in padding cells
 PADDING_WARNING_SHARE = 0.5
@@ -697,6 +967,8 @@ _REG_PARAM_KEYS = (
     "bounds_lower", "bounds_upper", "l1_ratio", "beta_selection", "beta_sweep",
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
+    "depth_weighting", "depth_weighting_exponent",
+    *GROUP_LASSO_KEYS,
 )
 
 
@@ -714,13 +986,54 @@ class PipelineDataset:
     noise_floor: float
     spacing: float | None = None      # data spacing (m) of the finest file
     spacing_kind: str = ""            # "grid" or "points"
+    regional: dict | None = None      # summary of the removed regional field
+    trend: np.ndarray | None = None   # the removed regional field at the stations
+    # observed (file convention) x sign = SimPEG convention; see _simpeg_sign
+    sign: float = 1.0
+    decimation: dict | None = None    # how the data were thinned (target spacing, per file)
 
 
-def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
+def grid_strides(dx: float, dy: float, target: float | None, stride: int = 1) -> tuple:
+    """Row/column strides that thin a grid to about ``target`` metres.
+
+    Without a target, ``stride`` applies to both axes (the older
+    ``decimate_stride`` parameter).
+    """
+    if not target:
+        return max(int(stride), 1), max(int(stride), 1)
+    sx = max(int(round(target / dx)), 1) if dx > 0 else 1
+    sy = max(int(round(target / dy)), 1) if dy > 0 else 1
+    return sx, sy
+
+
+def thin_points(xy: np.ndarray, spacing: float, origin=None) -> np.ndarray:
+    """Indices keeping the first point in each ``spacing`` x ``spacing`` cell.
+
+    Cells are counted from ``origin`` (default: the south-west corner of the
+    points), so the result is deterministic and matches the upload page's
+    estimate.
+    """
+    xy = np.asarray(xy, dtype=float)
+    if not spacing or spacing <= 0 or len(xy) == 0:
+        return np.arange(len(xy))
+    x0, y0 = origin if origin is not None else (xy[:, 0].min(), xy[:, 1].min())
+    ix = np.floor((xy[:, 0] - x0) / spacing).astype(np.int64)
+    iy = np.floor((xy[:, 1] - y0) / spacing).astype(np.int64)
+    key = ix * (int(iy.max()) + 1) + iy if len(iy) else ix
+    _, first = np.unique(key, return_index=True)
+    return np.sort(first)
+
+
+def _read_observations(path: str, component: str, stride: int, aoi,
+                       target_spacing: float | None = None) -> tuple:
     """Read one data file -> (locations (n, 3), values (n,), metadata).
 
-    Gridded files give stations at the grid nodes (decimated by `stride`)
-    with unknown elevation (z = NaN).  Point files keep their z if present.
+    Gridded files give stations at the grid nodes with unknown elevation
+    (z = NaN); point files keep their z if present.  ``aoi`` = [west, east,
+    south, north] crops both.  ``target_spacing`` (m) thins grids by whole
+    strides per axis and points to one per cell (see :func:`thin_points`);
+    without it, grids use ``stride``.  ``metadata["decimation"]`` records
+    what was done.
     """
     from ..io.readers import GridData, detect_format, read_auto, read_station_table
 
@@ -735,13 +1048,19 @@ def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
             mask_y = (y >= south) & (y <= north)
             values = values[np.ix_(mask_y, mask_x)]
             x, y = x[mask_x], y[mask_y]
-        x, y, values = x[::stride], y[::stride], values[::stride, ::stride]
+        dx = abs(float(x[1] - x[0])) if len(x) > 1 else 0.0
+        dy = abs(float(y[1] - y[0])) if len(y) > 1 else 0.0
+        sx, sy = grid_strides(dx, dy, target_spacing, stride)
+        x, y, values = x[::sx], y[::sy], values[::sy, ::sx]
         xx, yy = np.meshgrid(x, y)
         locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, np.nan)])
         steps = [abs(float(a[1] - a[0])) for a in (x, y) if len(a) > 1]
         meta = dict(grid.metadata)
         if steps:
             meta["grid_spacing"] = max(steps)
+        if sx > 1 or sy > 1:
+            meta["decimation"] = {"kind": "grid", "stride": [sx, sy],
+                                  "native_spacing_m": [dx, dy]}
         return locs, values.ravel(), meta
 
     if fmt == "csv":
@@ -770,7 +1089,34 @@ def _read_observations(path: str, component: str, stride: int, aoi) -> tuple:
         keep = ((locs[:, 0] >= west) & (locs[:, 0] <= east)
                 & (locs[:, 1] >= south) & (locs[:, 1] <= north))
         locs, values = locs[keep], values[keep]
-    return locs, values, points.metadata
+    meta = dict(points.metadata)
+    if target_spacing:
+        n_before = len(locs)
+        origin = (aoi[0], aoi[2]) if aoi else None
+        keep = thin_points(locs[:, :2], float(target_spacing), origin)
+        locs, values = locs[keep], values[keep]
+        meta["decimation"] = {"kind": "points", "cell_m": float(target_spacing),
+                              "n_before": int(n_before)}
+    return locs, values, meta
+
+
+def _simpeg_sign(method: str, component: str, spec: dict, params: dict) -> float:
+    """-1 for gravity gz given positive downward, as field data are.
+
+    Bouguer and free-air anomalies are positive over excess mass (gravity
+    positive downward); SimPEG's gz is the z-up component, negative over
+    excess mass, so such data are negated before inverting (and the observed
+    and predicted data are reported back in the file's convention).  Set
+    ``gz_convention: "simpeg"`` for data in SimPEG's convention (e.g. made
+    with SimPEG's forward modelling).  gzz is the same in both conventions.
+    """
+    if method != "gravity" or component != "gz":
+        return 1.0
+    convention = spec.get("gz_convention", params.get("gz_convention", "positive_down"))
+    if convention not in ("positive_down", "simpeg"):
+        raise ValueError(f"Unknown gz_convention '{convention}' "
+                         "(expected 'positive_down' or 'simpeg')")
+    return -1.0 if convention == "positive_down" else 1.0
 
 
 def _file_spacing(locs, values, meta) -> tuple:
@@ -840,11 +1186,24 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
 
     stride = int(params.get("decimate_stride", 1) or 1)
     aoi = params.get("aoi")
-    locs_all, values_all, spacings = [], [], []
+    if aoi is not None:
+        aoi = [float(v) for v in aoi]
+        if len(aoi) != 4 or not (aoi[0] < aoi[1] and aoi[2] < aoi[3]):
+            raise ValueError(f"aoi must be [west, east, south, north] with west < east "
+                             f"and south < north, got {params.get('aoi')}")
+    # Thinning: per dataset ("decimate_spacing_m"), else the job-wide value
+    target = spec.get("decimate_spacing_m", params.get("decimate_spacing_m"))
+    target = float(target) if target else None
+    if target is not None and target < 0:
+        raise ValueError(f"decimate_spacing_m must be positive, got {target}")
+    locs_all, values_all, spacings, thinning = [], [], [], {}
     for fname in files:
         path = os.path.join(data_dir, fname)
         print(f"[Pipeline] Loading {method} ({component}) data from {fname}")
-        locs, values, meta = _read_observations(path, component, stride, aoi)
+        locs, values, meta = _read_observations(path, component, stride, aoi, target)
+        if meta.get("decimation"):
+            thinning[fname] = meta["decimation"]
+            print(f"[Pipeline] {fname}: thinned to {len(values)} data ({meta['decimation']})")
         if method == "magnetics" and "inducing_field" not in kwargs \
                 and meta.get("inducing_field"):
             kwargs["inducing_field"] = tuple(meta["inducing_field"])
@@ -858,6 +1217,16 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
     locs, dobs = locs[valid], dobs[valid]
     if dobs.size == 0:
         raise ValueError(f"No valid {method} observations in {files}")
+
+    # Regional field (e.g. a polynomial trend surface) removed before inverting
+    from ..methods.regional import remove_regional
+    raw = dobs
+    dobs, regional = remove_regional(locs[:, :2], dobs, spec.get("regional",
+                                                                  params.get("regional")))
+    if regional:
+        print(f"[Pipeline] {method}: removed regional field ({regional['method']}, order "
+              f"{regional['order']}): data std {regional['data_std_before']:.4g} -> "
+              f"{regional['data_std_after']:.4g}")
 
     noise_pct = float(spec.get("noise_pct", params.get("noise_pct", 0.05)))
     noise_floor = float(spec.get("noise_floor", params.get("noise_floor", 0.5)))
@@ -874,7 +1243,10 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
     return PipelineDataset(
         method=method, component=component, locations=locs, observed=dobs, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
-        spacing=spacing, spacing_kind=spacing_kind,
+        spacing=spacing, spacing_kind=spacing_kind, regional=regional,
+        trend=(raw - dobs) if regional else None,
+        sign=_simpeg_sign(method, component, spec, params),
+        decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
     )
 
 
@@ -1121,6 +1493,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 .npy/.npz); several files of one dataset are concatenated.
                 Legacy params without `datasets` use data_file / method_type /
                 noise_pct / noise_floor / method_kwargs.
+            gz_convention: "positive_down" (default: Bouguer/field data,
+                negated for SimPEG) or "simpeg" (z-up, as SimPEG models it);
+                also per dataset.
+            regional: regional field removed from each dataset before inverting
+                (also per dataset): "mean" or {"method": "polynomial",
+                "order": k} (trend surface); default none.
             topography: {file: DEM name} or {flat_elevation: metres}.
                 Stations without an elevation are placed on the surface
                 (+ station_height, default 0 m); with a DEM, cells above
@@ -1132,7 +1510,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 elastic net, Utsugi 2019; mixing set by l1_ratio), "mgs"
                 (minimum gradient support focusing), "tv" (total variation)
                 or "l2" (smooth L2 with depth weighting).  focusing_percentile / focusing_scale set the
-                MGS/TV focusing parameter.
+                MGS/TV focusing parameter.  Joint gravity + magnetics may use
+                "group_lasso" (Utsugi 2025; settings gl_*, see InversionTask and
+                run_group_lasso_joint).
+            depth_weighting: "sensitivity" (default) or "depth" (Li &
+                Oldenburg, exponent depth_weighting_exponent, default 2);
+                not used by L1–L2, whose weighting is l1l2_weighting.
             beta_selection: "auto" (default), "discrepancy", "lcurve" or
                 "gcv" (manual mode, single inversions); beta_sweep optionally
                 lists the betas to try.
@@ -1142,8 +1525,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             joint_weights, cross_gradient_weight: joint data weights and
                 structural coupling (auto: all 1).
             mesh_type: "tensor" (default) or "octree"; plus core_cell_m,
-                core_cell_z_m, depth_core_m, pad_distance_m, octree_levels,
-                decimate_stride, aoi.
+                core_cell_z_m, depth_core_m, pad_distance_m, octree_levels.
+            aoi: [west, east, south, north] (m) crops every dataset.
+            decimate_spacing_m: thin the data to about this spacing (m),
+                per dataset or for the whole job: grids by whole strides per
+                axis, points to one per cell.  decimate_stride is the older
+                grid-only stride.
         data_dir: Local directory containing the downloaded data files.
         progress: Optional callable ``progress(stage, message="", **fields)``
             told about the stages and each inversion iteration (the cloud
@@ -1265,12 +1652,23 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             joint_weights=weights,
             cross_gradient_weight=xgrad,
             joint_surveys=[
-                {"locations": ds.locations, "observed": ds.observed, "std": ds.std}
+                {"locations": ds.locations, "observed": ds.sign * ds.observed, "std": ds.std}
                 for ds in datasets
             ],
             **common,
         )
-        if task.regularization_type == "l1l2":
+        if task.regularization_type == "group_lasso":
+            if any(w != 1.0 for w in weights):
+                notes.append("The group lasso balances the two datasets by its data scaling "
+                             f"(gl_data_scaling='{task.gl_data_scaling}'); joint_weights are not "
+                             "applied")
+            if task.bounds_lower is not None or task.bounds_upper is not None:
+                notes.append("The group lasso is unconstrained (first version): bounds are "
+                             "not applied")
+            if task.beta_selection not in ("auto", "discrepancy"):
+                notes.append("The group lasso chooses lambda1 by gl_lambda1_selection="
+                             f"'{task.gl_lambda1_selection}'; beta_selection is not applied")
+        elif task.regularization_type == "l1l2":
             notes.append("Joint inversion uses L2 regularization; the L1–L2 "
                          "regularization is not applied")
         elif task.regularization_type in ("mgs", "tv"):
@@ -1279,11 +1677,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         elif task.regularization_type == "sparse" and tuple(task.norms) != (2.0,) * 4:
             notes.append("Joint inversion uses L2 regularization; norms/IRLS settings "
                          "are not applied")
-        if task.bounds_lower is not None or task.bounds_upper is not None:
-            notes.append("Joint inversion does not apply bounds")
-        if task.beta_selection not in ("auto", "discrepancy"):
-            notes.append("Joint inversion chooses beta by the discrepancy principle; "
-                         f"beta_selection='{task.beta_selection}' is not applied")
+        if task.regularization_type != "group_lasso":
+            if task.bounds_lower is not None or task.bounds_upper is not None:
+                notes.append("Joint inversion does not apply bounds")
+            if task.beta_selection not in ("auto", "discrepancy"):
+                notes.append("Joint inversion chooses beta by the discrepancy principle; "
+                             f"beta_selection='{task.beta_selection}' is not applied")
     else:
         ds = datasets[0]
         task = InversionTask(
@@ -1292,7 +1691,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             noise_pct=ds.noise_pct,
             noise_floor=ds.noise_floor,
             initial_model=np.zeros(n_params),
-            observed_data=ds.observed,
+            observed_data=ds.sign * ds.observed,
             data_std=ds.std,
             station_locations=ds.locations,
             **common,
@@ -1303,10 +1702,13 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     for note in notes:
         print(f"[Pipeline] Note: {note}")
 
-    report("inverting", max_iter=task.max_iter, phi_d_target=n_data, n_data=n_data,
-           n_cells=n_params, regularization=task.regularization_type)
+    group_lasso = task.regularization_type == "group_lasso"
+    report("inverting", max_iter=task.gl_n_lambda1 if group_lasso else task.max_iter,
+           phi_d_target=n_data, n_data=n_data, n_cells=n_params,
+           regularization=task.regularization_type)
     IterationCollector.on_iteration = lambda snap: report(
-        "inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta)
+        "inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta,
+        **getattr(snap, "extra", {}))
     try:
         result = execute_task(task, mesh=mesh)
     finally:
@@ -1329,12 +1731,43 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         "datasets": [
             {"method": ds.method, "component": ds.component, "files": ds.files,
              "n_data": int(ds.observed.size), "noise_pct": ds.noise_pct,
-             "noise_floor": ds.noise_floor}
+             "noise_floor": ds.noise_floor, "regional": ds.regional,
+             "gz_convention": ("positive_down" if ds.sign < 0 else "simpeg")
+             if ds.method == "gravity" and ds.component == "gz" else None,
+             "decimation": ds.decimation}
             for ds in datasets
         ],
     })
     if active is not None:
         result["active_cells"] = active
+    if mode != "joint":
+        ds = datasets[0]
+        result["data"] = {"locations": ds.locations, "observed": ds.observed, "std": ds.std}
+        if ds.trend is not None:
+            result["data"]["regional"] = ds.trend   # observed + regional = the data as loaded
+        if result.get("predicted") is not None:
+            # back to the file's sign convention, like "observed"
+            result["data"]["predicted"] = ds.sign * np.asarray(result.pop("predicted"), dtype=float)
+    for ds in datasets:   # per-dataset data of a joint run, in the files' convention too
+        jd = (result.get("joint_data") or {}).get(ds.method)
+        if jd is not None:
+            jd.update(locations=ds.locations, observed=ds.observed, std=ds.std,
+                      predicted=ds.sign * np.asarray(jd["predicted"], dtype=float))
+            if ds.trend is not None:
+                jd["regional"] = ds.trend
+    if group_lasso:
+        result["settings"] = {"regularization_type": "group_lasso",
+                              **{k: getattr(task, k) for k in GROUP_LASSO_KEYS}}
+    else:
+        result["settings"] = {k: getattr(task, k) for k in (
+            "regularization_type", "max_iter", "max_irls_iterations", "beta_selection",
+            "l1_ratio", "alpha_s", "alpha_x", "alpha_y", "alpha_z", "bounds_lower", "bounds_upper",
+            "depth_weighting", "depth_weighting_exponent",
+        ) if hasattr(task, k)}
+        result["settings"]["alpha_s"] = effective_alpha_s(
+            task, length_scales=task.regularization_type in ("l2", "sparse", "l1l2", "mgs", "tv")
+            or mode == "joint")
+        result["settings"]["norms"] = list(task.norms)
 
     # How much of the recovered anomaly sits outside the core (in padding)?
     gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),
@@ -1364,24 +1797,23 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
 def result_metadata_json(result: dict) -> str:
     """result.json: everything in a result except the model arrays."""
     meta = {k: v for k, v in result.items()
-            if k not in ("recovered_model", "recovered_models", "active_cells")}
+            if k not in ("recovered_model", "recovered_models", "active_cells", "data",
+                         "joint_data", "predicted")}
     return json.dumps(_jsonable(meta), indent=2, default=str)
 
 
-class S3Progress:
-    """Progress report the worker keeps in S3 (``progress.json``) for the API.
+class ProgressReport:
+    """Progress report the worker keeps for the API (``progress.json``).
 
     Called as ``progress(stage, message="", **fields)``; fields persist
     between calls.  Stages: starting, downloading, loading_data,
     building_mesh, inverting, uploading, done, failed.  The report is written
     on every stage change and otherwise at most every ``min_interval``
     seconds, so per-iteration updates stay cheap.  Failures to write are
-    printed, never raised.
+    printed, never raised.  Subclasses define where it goes (``_write``).
     """
 
-    def __init__(self, s3, bucket: str, key: str, min_interval: float = 10.0,
-                 clock=time.time) -> None:
-        self.s3, self.bucket, self.key = s3, bucket, key
+    def __init__(self, min_interval: float = 10.0, clock=time.time) -> None:
         self.min_interval, self.clock = min_interval, clock
         self.state: dict = {"stage": None, "started_at": clock()}
         self._last_write = -float("inf")
@@ -1394,11 +1826,79 @@ class S3Progress:
         if changed or now - self._last_write >= self.min_interval:
             self._last_write = now
             try:
-                self.s3.put_object(Bucket=self.bucket, Key=self.key,
-                                   Body=json.dumps(_jsonable(self.state)).encode(),
-                                   ContentType="application/json")
+                self._write(json.dumps(_jsonable(self.state)).encode())
             except Exception as e:
                 print(f"[Worker] Could not update progress: {e}")
+
+    def _write(self, body: bytes) -> None:
+        raise NotImplementedError
+
+
+class S3Progress(ProgressReport):
+    """Progress report in S3 (AWS Batch backend)."""
+
+    def __init__(self, s3, bucket: str, key: str, min_interval: float = 10.0,
+                 clock=time.time) -> None:
+        super().__init__(min_interval, clock)
+        self.s3, self.bucket, self.key = s3, bucket, key
+
+    def _write(self, body: bytes) -> None:
+        self.s3.put_object(Bucket=self.bucket, Key=self.key, Body=body,
+                           ContentType="application/json")
+
+
+class FileProgress(ProgressReport):
+    """Progress report in a local file, replaced atomically (EC2 backend)."""
+
+    def __init__(self, path, min_interval: float = 10.0, clock=time.time) -> None:
+        super().__init__(min_interval, clock)
+        self.path = Path(path)
+
+    def _write(self, body: bytes) -> None:
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_bytes(body)
+        os.replace(tmp, self.path)
+
+
+def run_local_job(params_path: str, data_dir: str, out_dir: str) -> int:
+    """Run a data-pipeline job from local files; returns the exit status.
+
+    Writes out_dir/progress.json, then out_dir/result.zip and result.json
+    (with ``error`` and ``traceback`` if it failed).
+    """
+    from ..methods.directives import IterationCollector
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    progress = FileProgress(out / "progress.json")
+    progress("starting")
+    # out_dir/STOP (written by the API's "stop and keep the result") ends the
+    # inversion after its current iteration; the result is then kept as usual
+    stop_flag = out / "STOP"
+    IterationCollector.stop_check = stop_flag.exists
+    try:
+        with open(params_path, encoding="utf-8") as f:
+            params = json.load(f)
+        result = run_data_pipeline(params, data_dir, progress=progress)
+        failed = False
+        print(f"[Worker] Inversion complete: {result.get('n_iterations', 0)} iterations")
+    except Exception as e:
+        failed = True
+        result = {"task_id": os.environ.get("TASK_ID", "local"), "error": str(e),
+                  "traceback": traceback.format_exc()}
+        print(f"[Worker] ERROR: {e}")
+        progress("failed", message=str(e))
+    finally:
+        IterationCollector.stop_check = None
+    if not failed:
+        progress("uploading")
+    pack_result(result, str(out / "result.zip"))
+    (out / "result.json").write_text(result_metadata_json(result), encoding="utf-8")
+    if failed:
+        return 1
+    progress("done", message=f"{result.get('n_iterations', 0)} iterations"
+             + (" (stopped early, result kept)" if result.get("stopped_early") else ""))
+    return 0
 
 
 def pack_result(result: dict, output_path: str) -> str:
@@ -1415,6 +1915,18 @@ def pack_result(result: dict, output_path: str) -> str:
             np.save(buf, np.asarray(result["active_cells"]))
             zf.writestr("active_cells.npy", buf.getvalue())
 
+        if result.get("data"):
+            # stations (n, 3), observed, std and predicted data of a single-dataset run
+            buf = io.BytesIO()
+            np.savez(buf, **{k: np.asarray(v, dtype=float) for k, v in result["data"].items()})
+            zf.writestr("data.npz", buf.getvalue())
+
+        for name, data in (result.get("joint_data") or {}).items():
+            # the same for each dataset of a joint run
+            buf = io.BytesIO()
+            np.savez(buf, **{k: np.asarray(v, dtype=float) for k, v in data.items()})
+            zf.writestr(f"data_{name}.npz", buf.getvalue())
+
         if "recovered_model" in result:
             buf = io.BytesIO()
             np.save(buf, result["recovered_model"])
@@ -1430,7 +1942,13 @@ def pack_result(result: dict, output_path: str) -> str:
 
 
 def main():
-    """Entry point for AWS Batch container."""
+    """Entry point for AWS Batch container (or ``--local`` on an EC2 instance)."""
+    if len(sys.argv) > 1 and sys.argv[1] == "--local":
+        if len(sys.argv) != 5:
+            print("usage: python -m geoinv3d.cloud.worker --local params.json DATA_DIR OUT_DIR")
+            sys.exit(2)
+        sys.exit(run_local_job(*sys.argv[2:5]))
+
     bucket = os.environ.get("TASK_BUCKET")
     task_key = os.environ.get("TASK_KEY")
     task_id = os.environ.get("TASK_ID", "unknown")

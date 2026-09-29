@@ -47,6 +47,13 @@ except ImportError:  # pragma: no cover - exercised only without numba
 
 
 WEIGHTINGS = {"S1": 0.5, "S2": 1.0}  # s_j = ||k_j|| ** exponent
+# _polish copies the free columns of X; beyond this it is skipped (CDA alone
+# still converges to the same minimizer)
+POLISH_MAX_BYTES = 2e9
+
+
+class StopRequested(Exception):
+    """The user asked to stop: the lambda path ends with the points done so far."""
 
 
 def _sweep_loop(X, xtx, beta, r, lam1, lam2, lo, hi, active_only):
@@ -110,16 +117,28 @@ def _polish(X, f, beta, lam1, lam2, lo, hi):
     """
     active = beta != 0.0
     free = active & (beta > lo) & (beta < hi)
-    if not free.any():
+    n_free, n = int(free.sum()), X.shape[0]
+    if n_free == 0 or n_free * n * X.itemsize > POLISH_MAX_BYTES:
         return None
     held = active & ~free
     XF = X[:, free]
     rhs_data = f - X[:, held] @ beta[held] if held.any() else f
     sign = np.sign(beta[free])
-    H = XF.T @ XF
-    H[np.diag_indices_from(H)] += lam2
+    rhs = XF.T @ rhs_data - lam1 * sign
     try:
-        new = np.linalg.solve(H, XF.T @ rhs_data - lam1 * sign)
+        if n_free <= n:
+            H = XF.T @ XF
+            H[np.diag_indices_from(H)] += lam2
+            new = np.linalg.solve(H, rhs)
+        elif lam2 > 0.0:
+            # More free coefficients than data: by Woodbury,
+            # (lam2 I + XF^T XF)^-1 = (I - XF^T (lam2 I + XF XF^T)^-1 XF) / lam2,
+            # an N x N system instead of an n_free x n_free one
+            S = XF @ XF.T
+            S[np.diag_indices_from(S)] += lam2
+            new = (rhs - XF.T @ np.linalg.solve(S, XF @ rhs)) / lam2
+        else:
+            return None   # singular: the pure-L1 active set is underdetermined
     except np.linalg.LinAlgError:
         return None
     if not np.all(np.isfinite(new)) or np.any(np.sign(new) != sign) \
@@ -132,7 +151,7 @@ def _polish(X, f, beta, lam1, lam2, lo, hi):
 
 def coordinate_descent(X, f, lam: float, alpha: float, beta0=None, lower=None, upper=None,
                        xtx=None, tol: float = 1e-5, max_sweeps: int = 100_000,
-                       polish_every: int = 20):
+                       polish_every: int = 20, should_stop=None):
     """Minimize ``1/2 ||f - X b||^2 + lam [(1-a)/2 ||b||^2 + a ||b||_1]`` by CDA.
 
     Full sweeps alternate with sweeps over the non-zero coefficients (the
@@ -152,6 +171,8 @@ def coordinate_descent(X, f, lam: float, alpha: float, beta0=None, lower=None, u
         f: (N,) data.
         beta0: Warm start (default 0).
         lower, upper: Optional bounds on b, scalars or (M,) arrays.
+        should_stop: Optional ``() -> bool`` asked before every sweep; True
+            raises :class:`StopRequested` (the point is left unfinished).
 
     Returns:
         (b, n_sweeps)
@@ -171,14 +192,20 @@ def coordinate_descent(X, f, lam: float, alpha: float, beta0=None, lower=None, u
     def converged(change2):
         return change2 <= tol**2 * max(beta @ beta, 1e-300)
 
+    def check_stop():
+        if should_stop is not None and should_stop():
+            raise StopRequested
+
     sweeps = 0
     while sweeps < max_sweeps:
+        check_stop()
         change2 = _sweep(X, xtx, beta, r, lam1, lam2, lo, hi, False)
         sweeps += 1
         if converged(change2):
             break
         inner = 0
         while sweeps < max_sweeps:  # converge on the active set first
+            check_stop()
             change2 = _sweep(X, xtx, beta, r, lam1, lam2, lo, hi, True)
             sweeps += 1
             inner += 1
@@ -228,6 +255,8 @@ class ElasticNetPath:
     penalty: np.ndarray          # P(b; a)
     sweeps: np.ndarray
     dof: np.ndarray = field(default_factory=lambda: np.array([]))
+    n_planned: int = 0           # points asked for; more than len(lambdas) if stopped
+    stopped: bool = False        # the user stopped the path
 
 
 def lambda_max(X, f, alpha: float) -> float:
@@ -237,8 +266,14 @@ def lambda_max(X, f, alpha: float) -> float:
 
 def elastic_net_path(X, f, alpha: float, lambdas=None, n_decades: float = 4.0,
                      step: float = 0.1, lower=None, upper=None, tol: float = 1e-5,
-                     with_dof: bool = False) -> ElasticNetPath:
-    """CDA with warm starts along ``lambdas`` (default: lam_max down n_decades)."""
+                     with_dof: bool = False, callback=None, should_stop=None) -> ElasticNetPath:
+    """CDA with warm starts along ``lambdas`` (default: lam_max down n_decades).
+
+    ``callback(i, n_lambdas, lam, residual_norm, sweeps)``, if given, is
+    called after each path point (progress reports).  ``should_stop``, if
+    given, is asked before every sweep; when it says True the path ends with
+    the points finished so far (``stopped``).
+    """
     X = np.asfortranarray(X, dtype=float)
     if lambdas is None:
         top = lambda_max(X, f, alpha)
@@ -249,9 +284,14 @@ def elastic_net_path(X, f, alpha: float, lambdas=None, n_decades: float = 4.0,
     free = None
     beta = None
     betas, res, pen, sweeps, dof = [], [], [], [], []
+    stopped = False
     for lam in lambdas:
-        beta, k = coordinate_descent(X, f, lam, alpha, beta0=beta, lower=lower,
-                                     upper=upper, xtx=xtx, tol=tol)
+        try:
+            beta, k = coordinate_descent(X, f, lam, alpha, beta0=beta, lower=lower,
+                                         upper=upper, xtx=xtx, tol=tol, should_stop=should_stop)
+        except StopRequested:
+            stopped = True
+            break
         betas.append(beta.copy())
         res.append(float(np.linalg.norm(f - X @ beta)))
         pen.append(penalty(beta, alpha))
@@ -259,9 +299,12 @@ def elastic_net_path(X, f, alpha: float, lambdas=None, n_decades: float = 4.0,
         if with_dof:
             free = _free_mask(beta, lower, upper)
             dof.append(elastic_net_dof(X, beta, lam, alpha, free))
-    return ElasticNetPath(alpha=alpha, lambdas=lambdas, betas=np.array(betas),
+        if callback is not None:
+            callback(len(betas) - 1, len(lambdas), float(lam), res[-1], k)
+    return ElasticNetPath(alpha=alpha, lambdas=lambdas[:len(betas)], betas=np.array(betas),
                           residual_norm=np.array(res), penalty=np.array(pen),
-                          sweeps=np.array(sweeps), dof=np.array(dof))
+                          sweeps=np.array(sweeps), dof=np.array(dof),
+                          n_planned=len(lambdas), stopped=stopped)
 
 
 def _free_mask(beta, lower, upper):
@@ -280,7 +323,7 @@ def column_scaling(K, weighting: str = "S2") -> np.ndarray:
     except KeyError:
         raise ValueError(f"weighting must be one of {sorted(WEIGHTINGS)}, "
                          f"got {weighting!r}") from None
-    norms = np.linalg.norm(K, axis=0)
+    norms = np.sqrt(np.einsum("ij,ij->j", K, K))   # no (N, M) temporary
     norms = np.maximum(norms, 1e-12 * norms.max())
     return norms**exponent
 
@@ -311,7 +354,8 @@ class L1L2Result:
 def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1.0,
                 std=None, criterion: str = "lcurve", lower=None, upper=None,
                 n_decades: float = 4.0, step: float = 0.1, tol: float = 1e-5,
-                fallback: bool = False) -> tuple[L1L2Result, np.ndarray]:
+                fallback: bool = False, callback=None,
+                should_stop=None) -> tuple[L1L2Result, np.ndarray]:
     """Utsugi (2019) L1–L2 inversion with the regularization parameter chosen on the path.
 
     Args:
@@ -332,6 +376,16 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
         n_decades, step: lam sequence from lam_max, in log10 units.
         fallback: With the L-curve criterion, use the discrepancy principle
             instead when the L-curve has no real corner (and std is given).
+        callback: Optional ``callback(i, n_lambdas, lam, chi2, sweeps)`` after
+            each path point; chi2 is the whitened misfit if std is given,
+            else the squared residual norm.
+        should_stop: Optional ``() -> bool``; when it says True (the user
+            stopped the job) the path ends early and lam is chosen from the
+            points finished (by the criterion if it can, else chi^2 = N, else
+            the last point), with a warning.
+
+    Memory: one float64 copy of G in Fortran order (the CDA's matrix X),
+    scaled in place; G itself is only used for the predicted data.
 
     Returns:
         (result, scale) where ``scale`` holds s_j; the weighted variable is
@@ -343,7 +397,6 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
         raise ValueError(f"Unknown criterion '{criterion}'")
     if not 0.0 <= alpha <= 1.0:
         raise ValueError(f"alpha must be in [0, 1], got {alpha}")
-    G = np.asarray(G, dtype=float)
     d = np.asarray(d, dtype=float)
     n_data = len(d)
     if std is not None:
@@ -354,27 +407,44 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
     if criterion == "discrepancy" and std is None:
         raise ValueError("The discrepancy criterion needs data standard deviations")
 
-    K = (G / model_unit) * w[:, None]
+    # X = K / s with K = diag(w) G / model_unit, built in one copy of G: a
+    # dense sensitivity matrix can take most of the machine's memory
+    X = np.array(G, dtype=float, order="F")
+    X *= (w / model_unit)[:, None]
     f = d * w
-    s = column_scaling(K, weighting)
-    X = np.asfortranarray(K / s)
+    s = column_scaling(X, weighting)
+    X /= s
     to_b = s * model_unit  # b = to_b * m
+    sigma_w = std.mean() if std is not None else 1.0
+
+    def on_point(i, n_lambdas, lam, residual_norm, sweeps):
+        if callback is not None:
+            callback(i, n_lambdas, lam, (residual_norm / sigma_w) ** 2, sweeps)
     lo = None if lower is None else np.asarray(lower, dtype=float) * to_b
     hi = None if upper is None else np.asarray(upper, dtype=float) * to_b
 
     path = elastic_net_path(X, f, alpha, n_decades=n_decades, step=step, lower=lo,
-                            upper=hi, tol=tol, with_dof=(criterion == "gcv"))
+                            upper=hi, tol=tol, with_dof=(criterion == "gcv"),
+                            callback=on_point, should_stop=should_stop)
+    if not len(path.lambdas):
+        raise ValueError("Stopped before the first lambda point finished: nothing to keep")
     warnings = []
+    if path.stopped:
+        warnings.append(f"Stopped by the user after {len(path.lambdas)} of {path.n_planned} "
+                        "lambda points; lambda is chosen from those")
     # Near lam_max, b ~ 0 and log P -> -inf; such points (P = 0, or a lone
     # coefficient left by rounding) make the spline ring and fake a corner.
     ok = path.penalty > 1e-6 * path.penalty.max()
-    corner = lcurve_corner_info(path.lambdas[ok], path.residual_norm[ok], path.penalty[ok])
+    try:
+        corner = lcurve_corner_info(path.lambdas[ok], path.residual_norm[ok], path.penalty[ok])
+    except ValueError:   # too few points (a path stopped early)
+        corner = {"beta": None, "valid": False}
     lam_lc = corner["beta"]
 
     chi2 = None
     lam_disc = None
     if std is not None:
-        sigma_w = std.mean()  # whitened residual = weighted residual / mean(std)
+        # whitened residual = weighted residual / mean(std)
         chi2 = (path.residual_norm / sigma_w) ** 2
         lam_disc = _discrepancy_lambda(path.lambdas, chi2, n_data)
         if lam_disc is None:
@@ -387,13 +457,17 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
         lam_gcv = gcv_minimum(path.lambdas, gcv)
 
     if not corner["valid"]:
-        if criterion == "lcurve" and fallback and lam_disc is not None:
+        if criterion == "lcurve" and (fallback or path.stopped) and lam_disc is not None:
             warnings.append(LCURVE_NO_CORNER + "; lambda from chi^2 = N instead")
             criterion = "discrepancy"
         else:
             warnings.append(LCURVE_NO_CORNER + "; its lambda is unreliable")
 
     lam_opt = {"lcurve": lam_lc, "discrepancy": lam_disc, "gcv": lam_gcv}[criterion]
+    if lam_opt is None and path.stopped:
+        # a stopped path keeps its result: its last (smallest-lambda) point
+        lam_opt = float(path.lambdas[-1])
+        warnings.append("No lambda could be chosen on the shortened path; the last point is kept")
     if lam_opt is None:
         raise ValueError("chi^2 = N is not reached on the lambda path; extend n_decades")
     # Solve at the chosen lam, warm-started from the nearest larger path lam
@@ -403,7 +477,8 @@ def invert_l1l2(G, d, alpha: float, weighting: str = "S2", model_unit: float = 1
                                  tol=tol)
     model = beta / to_b
     result = L1L2Result(alpha=alpha, weighting=weighting, criterion=criterion,
-                        lambda_opt=float(lam_opt), model=model, predicted=G @ model,
+                        lambda_opt=float(lam_opt), model=model,
+                        predicted=np.asarray(G) @ model,
                         path=path, lambda_lcurve=lam_lc, lambda_discrepancy=lam_disc,
                         lambda_gcv=lam_gcv, gcv=gcv, chi2=chi2, warnings=warnings)
     return result, s

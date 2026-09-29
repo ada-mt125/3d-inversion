@@ -13,7 +13,7 @@ import pytest
 
 import boto3
 
-from geoinv3d.cloud.aws import AWSRunner, INSTANCE_RESOURCES, task_id_from_job_name
+from geoinv3d.cloud.aws import AWSRunner, BatchBackend, INSTANCE_RESOURCES, task_id_from_job_name
 from geoinv3d.cloud import worker
 from geoinv3d.cloud.worker import S3Progress
 from tests.test_data_pipeline import SMALL_MESH, _station_grid, _synthetic, _write_csv
@@ -275,7 +275,7 @@ class FakeRunner:
 @pytest.fixture
 def api(monkeypatch, tmp_path):
     runner = FakeRunner(tmp_path)
-    monkeypatch.setattr(server, "_runner", runner)
+    monkeypatch.setattr(server, "_backend", BatchBackend(runner))
     monkeypatch.setattr(server, "_store", server.JobStore(tmp_path / "jobs.json"))
     return TestClient(server.app), runner
 
