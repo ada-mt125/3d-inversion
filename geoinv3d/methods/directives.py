@@ -133,29 +133,31 @@ class JointSensitivityWeights(InversionDirective):
     Computed once, at the start; place it before the beta estimator.
 
     Args:
-        targets: (regularization, mode) of each weighted model; the
-            regularization's mapping selects the model's slice.
+        targets: (regularization, mode) or (regularization, mode, threshold)
+            of each weighted model; the regularization's mapping selects the
+            model's slice.  ``threshold`` (default ``threshold``) clips the rms
+            weights at that share of their maximum.
     """
 
     def __init__(self, targets, threshold: float = 1e-12, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.targets = list(targets)
+        self.targets = [tuple(t) if len(t) == 3 else (t[0], t[1], threshold) for t in targets]
         self.threshold = threshold
 
     def initialize(self) -> None:
         m = self.invProb.model
-        modes = {mode for _, mode in self.targets}
+        modes = {mode for _, mode, _ in self.targets}
         weighted = unweighted = None
         sims, dmis = self.simulation, self.dmisfit.objfcts
         if "rms" in modes:
             weighted = sum(sim.getJtJdiag(m, W=d.W) for sim, d in zip(sims, dmis))
         if "column_norm" in modes:
             unweighted = sum(sim.getJtJdiag(m) for sim in sims)
-        for reg, mode in self.targets:
+        for reg, mode, threshold in self.targets:
             if mode == "rms":
                 vol = reg.regularization_mesh.vol
                 w = np.sqrt(np.asarray(reg.mapping * weighted) / vol**2)
-                w = np.maximum(w, self.threshold * w.max())
+                w = np.maximum(w, threshold * w.max())
                 w = w / w.max()
             elif mode == "column_norm":
                 w = np.sqrt(np.asarray(reg.mapping * unweighted))

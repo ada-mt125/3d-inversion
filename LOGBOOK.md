@@ -729,8 +729,12 @@ pymatsolver).  Next: restart the API
 
 Environment: macOS (Apple Silicon), Python 3.13.15 in `.venv` (uv), SimPEG 0.25.2.  Before these
 changes the suite gave 316 passed, 2 failed on this machine: `TestSolvers::test_solves_the_normal_equations[cg-cols0]`
-and `test_per_row_scaling` miss their CG tolerance by < 2× (2.1e-6 vs 1.3e-6; float32 rounding
-of this platform's BLAS).  Unchanged, and still the only failures.
+and `test_per_row_scaling` miss their CG tolerance by < 2× (2.1e-6 vs 1.3e-6).  Not a solver bug:
+with a float64 kernel CG is accurate to ~4e-9; with SimPEG's float32 kernel every CG iteration
+multiplies by it (one product rounds at ~9e-8) and the rounding accumulates to ~1.6e-6 on Apple
+Silicon (Accelerate), just under 1e-6 with MKL.  The Cholesky solves make their factors in float64
+(8.7e-8).  Fixed in the tests: 1e-5 for CG with a float32 kernel (`FLOAT32_SOLVE_TOL`), 1e-6 kept
+for Cholesky; the float32 kernel itself stays (memory).
 
 **Method one (`methods/joint.py`).**  `ModelRegularization` per model: "l2", "sparse", "l1l2" (IRLS),
 "mgs", "tv", or "smooth" (the old WeightedLeastSquares), each with its alphas, depth weighting
@@ -805,3 +809,44 @@ on Windows: opens the page if the server already answers /api/health, else start
 page.  Its Terminal window holds the server (closing it or Ctrl-C stops it), `caffeinate` keeps the
 Mac awake while the server runs, and it says what is missing (no .venv, no cloud extras, no AWS
 credentials).  Tested: start, second launch, window close (server and caffeinate gone), port taken.
+
+---
+
+## 2026-09-29 — MT / DC files in the pipeline; synthetic multiphysics run on EC2
+
+**Pipeline.**  MT and DC datasets come in one .npz each (`_load_em_dataset`): DC `electrodes`
+(n, 12) or `a`/`b`/`m`/`n`, MT `locations`, `frequencies`, `components`; `values`, optional `std`
+(else noise_pct + a required noise_floor), `method_kwargs` (sigma_background, data_type).  The mesh
+covers stations and electrodes; results plot one point per datum (DC: the electrodes' centre, MT: the
+station); the viewer labels log-conductivity models and V / Ω·m / Ω data.  The single path now starts
+from and regularizes towards the method's background (log σ_bg for MT/DC; it used 0, i.e. 1 S/m),
+and the padding alarm measures the anomaly relative to it.
+
+**Sensitivity threshold.**  Weights are clipped at 1e-12 of their maximum for potential fields
+(SimPEG's default) and 1e-2 for MT / DC (SimPEG's DC examples; `SENSITIVITY_THRESHOLD`, also per
+model in `JointSensitivityWeights`).  With 1e-12 the padding cells of a DC inversion ranged from
+log10 σ −10 to +5.
+
+**Synthetic data** (`examples/synthetic_multiphysics.py`, data in
+examples/output/multiphysics_synthetic/): one block 200 × 200 m, 75–225 m deep, +0.3 g/cc, 0.03 SI,
+0.1 S/m in 0.01 S/m; gz and TMI on 13 × 13 stations (modelled on a 25 m mesh), DC dipole-dipole
+(a = 50 m, 7 lines, 238 data) and MT (3 × 3 stations, 100 and 1000 Hz, 72 data) modelled on the
+inversion mesh itself (50 m core, 12 544 cells).  Why: on 50 m cells DC with 50 m dipoles is far off
+(χ² of the true model 9044 for N = 170; 182 on 25 m cells; 2610 with 100 m dipoles), and cells fine
+enough make MT slow.  One inversion then produced a resistive body from conductive-body data — the
+modelling error, not the code.
+
+**EC2 (ap-south-1, c5.xlarge; workspace "Synthetic multiphysics").**  χ² (N), mean in the body:
+gravity sparse 178 (169), 0.092 g/cc; TMI sparse 201 (169), 0.020 SI; DC l2 255 (238), log10 σ −1.74;
+MT l2 75 (72), −1.71 (true −1, background −2.00 exactly); joint gravity + TMI with per-model sparse
+and bounds 188 / 212, 0.087 / 0.022 (like the separate inversions, as it should be without coupling);
+group lasso + cross-gradient (λ3 = 0.1, λ1 from the L-curve corner) 0.277 g/cc and 0.030 SI — the true
+amplitudes — with 58 % of |anomaly| in the body against 11–20 % for the others.  Its χ² (34 / 1259)
+look uneven only because the jobs' errors did not match the synthetic noise (0.02 mGal for 0.0081,
+1.5 nT for 3.3: a perfect fit gives ~27 and ~820); the script now uses the true errors.
+The joint jobs with MT and DC were cancelled: MT with SimPEG's single-threaded SuperLU (no Pardiso or
+MUMPS on the instances) takes ~30 s per forward run and ~40 s per Jacobian locally, slower on EC2, so
+the group lasso needed ~27 min per λ1 point.  Speed-ups not done: pydiso (Pardiso + MKL; wheels exist
+for Linux x86_64 / Python 3.13) or python-mumps on the instances, and reusing the accepted trial's
+forward run at the next Gauss–Newton linearization (one of ~3 forward runs per step is repeated).
+Scope from here: joint gravity + magnetics only.

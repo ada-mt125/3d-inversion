@@ -192,6 +192,14 @@ class TestScaling:
 # ── The zeta update ─────────────────────────────────────────────────────
 
 
+# Accuracy of the zeta solves with a float32 kernel.  One product rounds at ~1e-7
+# (relative); the Cholesky factors are made in float64, but CG multiplies by the
+# float32 kernel in every iteration, and its rounding accumulates and is amplified
+# by the condition of the system: ~1.6e-6 on Apple Silicon (Accelerate), under
+# 1e-6 with MKL on Windows.  With a float64 kernel CG reaches ~4e-9.
+FLOAT32_SOLVE_TOL = {"cholesky": 1e-6, "cg": 1e-5}
+
+
 class TestSolvers:
     @pytest.mark.parametrize("cols", [slice(None), slice(0, 60)])   # N < M and N > M
     @pytest.mark.parametrize("solver", ["cholesky", "cg"])
@@ -203,9 +211,8 @@ class TestSolvers:
         X = _dense(op)
         rhs = np.random.default_rng(0).normal(size=X.shape[1])
         x = np.linalg.solve(X.T @ X + 3.0 * np.eye(X.shape[1]), rhs)
-        # products with the float32 kernel round at ~1e-7
         np.testing.assert_allclose(s.solve(rhs, np.zeros_like(rhs)), x, rtol=0,
-                                   atol=1e-6 * abs(x).max())
+                                   atol=FLOAT32_SOLVE_TOL[solver] * abs(x).max())
         if solver == "cholesky":
             expect = "data space" if K.shape[0] < K.shape[1] else "model space"
             assert expect in s.name
@@ -220,7 +227,7 @@ class TestSolvers:
         x = np.linalg.solve(X.T @ X + 2.0 * np.eye(X.shape[1]), rhs)
         for solver in ("cholesky", "cg"):
             np.testing.assert_allclose(gl.make_solver(op, 2.0, solver).solve(rhs, None), x,
-                                       rtol=0, atol=1e-6 * abs(x).max())
+                                       rtol=0, atol=FLOAT32_SOLVE_TOL[solver] * abs(x).max())
 
     def test_auto_picks_cg_when_the_factor_is_too_big(self, kernels):
         K, _, _ = kernels

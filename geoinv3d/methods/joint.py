@@ -517,7 +517,10 @@ class JointInversion:
             model_index = {m.name: k for k, m in enumerate(self.models)}
             model_of_dmis = [model_index[lbl] for lbl in self.model_labels]
             directive_list = []
-            targets = [(reg, m.regularization.sensitivity_mode)
+            # clipped at 1e-12 of the maximum for potential fields, 1e-2 for MT / DC
+            targets = [(reg, m.regularization.sensitivity_mode,
+                        1e-12 if all(getattr(self.setups[i].method, "linear", True)
+                                     for i in m.setups) else 1e-2)
                        for reg, m in zip(reg_list, self.models)
                        if m.regularization is not None and m.regularization.sensitivity_mode]
             if targets:

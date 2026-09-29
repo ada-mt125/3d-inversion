@@ -139,8 +139,10 @@ def _single_problem(task: InversionTask, mesh, sim=None):
     if has_active:
         n_active = int(task.active_cells.sum())
         if len(m0) != n_active:
-            m0 = np.zeros(n_active)
+            m0 = np.full(n_active, float(method.default_model_value))
 
+    # the reference model: the method's background (0, or log sigma for MT / DC)
+    reference = np.full(len(m0), float(method.default_model_value))
     if kind == "smooth":
         reg_kwargs = dict(
             alpha_s=effective_alpha_s(task, length_scales=False),
@@ -149,14 +151,14 @@ def _single_problem(task: InversionTask, mesh, sim=None):
             alpha_z=task.alpha_z,
         )
     elif kind == "l1l2":
-        reg_kwargs = dict(l1_ratio=task.l1_ratio, reference_model=np.zeros_like(m0))
+        reg_kwargs = dict(l1_ratio=task.l1_ratio, reference_model=reference)
     else:
         reg_kwargs = dict(
             alpha_s=effective_alpha_s(task),
             length_scale_x=task.alpha_x,
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
-            reference_model=np.zeros_like(m0),
+            reference_model=reference,
         )
         if kind == "sparse":
             reg_kwargs["norms"] = list(task.norms)
@@ -221,9 +223,23 @@ def _depth_weights(task: InversionTask, dmesh) -> np.ndarray:
     beta = float(task.depth_weighting_exponent)
     if not beta >= 0:
         raise ValueError(f"depth_weighting_exponent must be >= 0, got {beta}")
-    return depth_weighting(dmesh, np.asarray(task.station_locations, dtype=float),
+    return depth_weighting(dmesh, np.asarray(task.station_locations, dtype=float)[:, :3],
                            active_cells=task.active_cells, exponent=2.0 * beta,
                            threshold=0.5 * float(dmesh.h_gridded.min()))
+
+
+# Sensitivity weights are clipped at this share of their maximum: 1e-12 (SimPEG's
+# default) for potential fields, 1e-2 for MT / DC as SimPEG's DC examples do.  With
+# 1e-12 the padding cells of a DC inversion were all but unregularized and went to
+# log10 sigma of -10 and +5.
+SENSITIVITY_THRESHOLD = {True: 1e-12, False: 1e-2}
+
+
+def _sensitivity_directive(task):
+    """UpdateSensitivityWeights with the task's method's threshold."""
+    from simpeg import directives
+    return directives.UpdateSensitivityWeights(
+        threshold_value=SENSITIVITY_THRESHOLD[bool(_get_method(task).linear)])
 
 
 def _uses_sensitivity_weights(task, kind: str) -> bool:
@@ -282,7 +298,7 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
         if task.use_preconditioner:
             directive_list.insert(1, directives.UpdatePreconditioner())
     elif p.kind == "l2":
-        directive_list = ([directives.UpdateSensitivityWeights()]
+        directive_list = ([_sensitivity_directive(task)]
                           if _uses_sensitivity_weights(task, p.kind) else [])
         if beta is None:
             # No IRLS terms here: DampedUpdateIRLS only steers beta, up or down,
@@ -303,7 +319,7 @@ def _run_problem(task, p, beta=None, irls_thresholds=None):
             directive_list.append(directives.UpdatePreconditioner())
     else:
         weights = (ElasticNetSensitivityWeights() if p.kind == "l1l2"
-                   else directives.UpdateSensitivityWeights())
+                   else _sensitivity_directive(task))
         # with depth weighting the weights are set on the regularization
         weights = [weights] if _uses_sensitivity_weights(task, p.kind) else []
         if beta is None:
@@ -1059,6 +1075,8 @@ _DATA_EXTENSIONS = (".tif", ".tiff", ".grd", ".asc", ".csv", ".txt", ".dat", ".x
                     ".obs", ".npy", ".npz")
 # Methods whose surveys can be built from station/grid files alone
 _PIPELINE_METHODS = ("gravity", "magnetics")
+# Methods whose data come in one .npz file with their geometry (see _load_em_dataset)
+_EM_METHODS = ("dc_resistivity", "mt")
 _DEFAULT_COMPONENT = {"gravity": "gz", "magnetics": "tmi"}
 # Keys the upload page only sends in manual mode; auto mode ignores them.
 # (Iteration limits are editable in both modes.)
@@ -1109,6 +1127,18 @@ class PipelineDataset:
     decimation: dict | None = None    # how the data were thinned (target spacing, per file)
     model: str | None = None          # joint: model label (datasets with one label share a model)
     regularization: dict | None = None  # joint, manual mode: overrides for its model (JOINT_REG_KEYS)
+    # MT / DC: the points the mesh must cover (stations, electrodes) and one (x, y, z)
+    # per datum for plotting (DC: the electrodes' centre; MT: the station)
+    extent_points: np.ndarray | None = None
+    plot_locations: np.ndarray | None = None
+
+    @property
+    def mesh_points(self) -> np.ndarray:
+        return self.locations if self.extent_points is None else self.extent_points
+
+    @property
+    def data_locations(self) -> np.ndarray:
+        return self.locations if self.plot_locations is None else self.plot_locations
 
 
 def grid_strides(dx: float, dy: float, target: float | None, stride: int = 1) -> tuple:
@@ -1283,11 +1313,12 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
     """Load all files of one dataset spec and attach its noise model."""
     method = canonical_method(spec.get("method") or spec.get("type")
                               or params.get("method_type", "gravity"))
+    if method in _EM_METHODS:
+        return _load_em_dataset(spec, params, data_dir, method)
     if method not in _PIPELINE_METHODS:
         raise NotImplementedError(
-            f"The raw-data pipeline supports {', '.join(_PIPELINE_METHODS)}; "
-            f"'{method}' data also needs electrode/frequency metadata that the upload "
-            f"format does not carry yet"
+            f"The raw-data pipeline supports {', '.join(_PIPELINE_METHODS + _EM_METHODS)}; "
+            f"got '{method}'"
         )
 
     files = list(spec.get("files") or ([spec["file"]] if spec.get("file") else []))
@@ -1367,6 +1398,100 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
         model=spec.get("model") or None,
         regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
+    )
+
+
+def _nearest_spacing(points: np.ndarray) -> float | None:
+    """Median distance from each distinct (x, y) point to its nearest neighbour."""
+    from scipy.spatial import cKDTree
+    xy = np.unique(np.round(np.asarray(points, dtype=float)[:, :2], 6), axis=0)
+    if len(xy) < 2:
+        return None
+    dist, _ = cKDTree(xy).query(xy, k=2)
+    return float(np.median(dist[:, 1]))
+
+
+def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str) -> PipelineDataset:
+    """An MT or DC resistivity dataset from one .npz file.
+
+    DC: ``electrodes`` (n, 12: A, B, M, N as x, y, z; NaN B / N for poles) or
+    ``a``, ``b``, ``m``, ``n`` (n, 3 each; b, n optional), ``values`` (n), and
+    optionally ``std`` and ``data_type`` ("volt" or "apparent_resistivity").
+    MT: ``locations`` (stations, 3), ``frequencies``, ``components`` (e.g.
+    "xy_real"), ``values`` ordered frequency by frequency, then component by
+    component, then station by station, and optionally ``std``.  Without
+    ``std`` the spec's noise_pct and noise_floor (required: the data have no
+    natural floor) give it.  Elevations must be given (z of every point);
+    ``method_kwargs`` (e.g. sigma_background) go to the method, whose
+    background is the reference model.
+    """
+    from ..methods.dc_resistivity import electrode_rows
+
+    files = list(spec.get("files") or ([spec["file"]] if spec.get("file") else []))
+    if len(files) != 1 or not files[0].lower().endswith(".npz"):
+        raise ValueError(f"{method} data come in one .npz file with their geometry; got {files}")
+    path = os.path.join(data_dir, files[0])
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"{method} data file(s) not found in {data_dir}: {files}")
+    with np.load(path, allow_pickle=False) as z:
+        d = {k: z[k] for k in z.files}
+    if "values" not in d:
+        raise ValueError(f"{files[0]}: no 'values' array")
+    values = np.asarray(d["values"], dtype=float).ravel()
+    kwargs = dict(spec.get("method_kwargs") or {})
+    if method == "dc_resistivity":
+        if "electrodes" in d:
+            rows = np.asarray(d["electrodes"], dtype=float)
+        else:
+            rows = electrode_rows(d["a"], d.get("b"), d["m"], d.get("n"))
+        if "data_type" in d:
+            kwargs.setdefault("data_type", str(d["data_type"]))
+        if rows.shape != (values.size, 12):
+            raise ValueError(f"{files[0]}: electrodes have shape {rows.shape}, expected "
+                             f"({values.size}, 12)")
+        points = rows.reshape(-1, 3)
+        points = points[np.isfinite(points).all(axis=1)]
+        centres = np.nanmean(rows.reshape(len(rows), 4, 3), axis=1)
+        locations, plot = rows, centres
+        component = kwargs.get("data_type", "volt")
+    else:
+        stations = np.atleast_2d(np.asarray(d["locations"], dtype=float))
+        freqs = [float(f) for f in np.ravel(d["frequencies"])]
+        comps = [str(c) for c in np.ravel(d["components"])]
+        kwargs.setdefault("frequencies", freqs)
+        kwargs.setdefault("components", comps)
+        n = len(kwargs["frequencies"]) * len(kwargs["components"]) * len(stations)
+        if values.size != n:
+            raise ValueError(f"{files[0]}: {values.size} values for {len(kwargs['frequencies'])} "
+                             f"frequencies x {len(kwargs['components'])} components x "
+                             f"{len(stations)} stations = {n}")
+        points = stations
+        locations = stations
+        plot = np.tile(stations, (n // len(stations), 1))
+        component = "impedance"
+    if not np.isfinite(points[:, 2]).all():
+        raise ValueError(f"{method}: every station / electrode needs an elevation (z)")
+    if not np.isfinite(values).all():
+        raise ValueError(f"{method}: the data contain NaN or inf")
+    noise_pct = float(spec.get("noise_pct", 0.05))
+    if "std" in d:
+        std = np.broadcast_to(np.asarray(d["std"], dtype=float), values.shape).copy()
+        noise_floor = float(spec.get("noise_floor", 0.0))
+    else:
+        if "noise_floor" not in spec:
+            raise ValueError(f"{method}: give 'std' in the file or a noise_floor in the dataset")
+        noise_floor = float(spec["noise_floor"])
+        std = noise_pct * np.abs(values) + noise_floor
+    if np.any(std <= 0):
+        raise ValueError(f"{method}: uncertainty is zero for {int(np.sum(std <= 0))} data")
+    print(f"[Pipeline] Loading {method} data from {files[0]}: {values.size} data")
+    return PipelineDataset(
+        method=method, component=component, locations=locations, observed=values, std=std,
+        method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
+        spacing=_nearest_spacing(points), spacing_kind="points",
+        model=spec.get("model") or None,
+        regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
+        extent_points=points, plot_locations=plot,
     )
 
 
@@ -1691,6 +1816,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     surface, topo_info, has_dem = _load_topography(params, data_dir)
     station_height = float(params.get("station_height", 0.0))
     for ds in datasets:
+        if ds.extent_points is not None:   # MT / DC: elevations are part of the data
+            continue
         missing = np.isnan(ds.locations[:, 2])
         if missing.any():
             ds.locations[missing, 2] = (
@@ -1700,7 +1827,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     report("building_mesh")
 
     # ── Mesh over the union of all survey extents ──
-    all_locs = np.vstack([ds.locations for ds in datasets])
+    all_locs = np.vstack([ds.mesh_points for ds in datasets])
     extent = (float(all_locs[:, 0].min()), float(all_locs[:, 0].max()),
               float(all_locs[:, 1].min()), float(all_locs[:, 1].max()))
     n_data = int(sum(ds.observed.size for ds in datasets))
@@ -1813,7 +1940,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             method_kwargs=ds.method_kwargs,
             noise_pct=ds.noise_pct,
             noise_floor=ds.noise_floor,
-            initial_model=np.zeros(n_params),
+            initial_model=np.full(n_params, float(
+                _make_method(ds.method, ds.method_kwargs).default_model_value)),
             observed_data=ds.sign * ds.observed,
             data_std=ds.std,
             station_locations=ds.locations,
@@ -1865,7 +1993,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         result["active_cells"] = active
     if mode != "joint":
         ds = datasets[0]
-        result["data"] = {"locations": ds.locations, "observed": ds.observed, "std": ds.std}
+        result["data"] = {"locations": ds.data_locations, "observed": ds.observed,
+                          "std": ds.std}
         if ds.trend is not None:
             result["data"]["regional"] = ds.trend   # observed + regional = the data as loaded
         if result.get("predicted") is not None:
@@ -1876,7 +2005,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     for ds, label in zip(datasets, labels):
         jd = (result.get("joint_data") or {}).get(label)
         if jd is not None:
-            jd.update(locations=ds.locations, observed=ds.observed, std=ds.std,
+            jd.update(locations=ds.data_locations, observed=ds.observed, std=ds.std,
                       predicted=ds.sign * np.asarray(jd["predicted"], dtype=float))
             if ds.trend is not None:
                 jd["regional"] = ds.trend
@@ -1900,8 +2029,15 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     z_bottom = float(np.min(surface(gx, gy))) - depth_core_m
     models = result.get("recovered_models") or (
         {task.method_type: result["recovered_model"]} if "recovered_model" in result else {})
+    # the anomaly: the model minus its background (log sigma_background for MT / DC)
+    background = {}
+    labels = result.get("dataset_models") or [ds.method for ds in datasets]
+    for ds, label in zip(datasets, labels if mode == "joint" else [task.method_type]):
+        background.setdefault(label, float(
+            _make_method(ds.method, ds.method_kwargs).default_model_value))
     shares = {
-        name: _outside_core_share(dmesh, active, m, extent, core_cell_m, z_bottom)
+        name: _outside_core_share(dmesh, active, np.asarray(m) - background.get(name, 0.0),
+                                  extent, core_cell_m, z_bottom)
         for name, m in models.items() if np.size(m) == n_params
     }
     if shares:

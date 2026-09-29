@@ -455,9 +455,14 @@ class TestPipelinePlumbing:
 
 
 class TestPipelineErrors:
-    def test_dc_is_rejected_clearly(self, grav_grid_dir):
+    def test_dc_needs_its_npz_file(self, grav_grid_dir):
         params = _single("dc", ["grav.grd"])
-        with pytest.raises(NotImplementedError, match="gravity, magnetics"):
+        with pytest.raises(ValueError, match="one .npz file"):
+            run_data_pipeline(params, str(grav_grid_dir))
+
+    def test_unknown_method(self, grav_grid_dir):
+        params = _single("seismic", ["grav.grd"])
+        with pytest.raises(ValueError, match="Unknown method"):
             run_data_pipeline(params, str(grav_grid_dir))
 
     def test_missing_file(self, grav_grid_dir):
@@ -768,3 +773,81 @@ class TestMethodFixes:
         dm = rng.normal(size=3 * n) * 1e-6
         fd = pairs[1](m + dm) - pairs[1](m - dm)
         assert np.isclose(fd, 2 * pairs[1].deriv(m) @ dm, rtol=1e-4)
+
+
+class TestEMData:
+    """MT and DC resistivity data through the pipeline (one .npz file each)."""
+
+    @staticmethod
+    def _dc(tmp_path, sigma_body=0.1):
+        from geoinv3d.methods.dc_resistivity import DCResistivityMethod
+        from discretize import TensorMesh
+        xs = np.arange(-150.0, 151.0, 50.0)
+        rows = np.array([[xs[i], y, 0, xs[i + 1], y, 0, xs[i + 1 + n], y, 0, xs[i + 2 + n], y, 0]
+                         for y in (-50.0, 0.0, 50.0) for i in range(len(xs) - 1)
+                         for n in (1, 2) if i + 2 + n < len(xs)])
+        h = [(50.0, 4, -1.4), (50.0, 8), (50.0, 4, 1.4)]
+        tm = TensorMesh([h, h, [(50.0, 4, -1.4), (50.0, 6)]], origin="CCN")
+        mesh = Mesh3D(hx=tm.h[0], hy=tm.h[1], hz=tm.h[2], origin=tuple(tm.origin))
+        m = np.full(tm.nC, np.log(1e-2))
+        cc = tm.cell_centers
+        m[(abs(cc[:, 0]) < 60) & (abs(cc[:, 1]) < 60) & (cc[:, 2] > -150)] = np.log(sigma_body)
+        d = DCResistivityMethod().make_simulation_full(
+            mesh, SurveyData(locations=rows, observed=np.zeros(len(rows)),
+                             std=np.ones(len(rows)))).dpred(m)
+        std = 0.03 * abs(d) + 1e-3 * np.median(abs(d))
+        np.savez(tmp_path / "dc.npz", electrodes=rows, values=d, std=std)
+        return rows, d
+
+    def test_dc_single_inversion(self, tmp_path):
+        rows, d = self._dc(tmp_path)
+        params = {"method_type": "dc", "inversion_mode": "single", "param_mode": "manual",
+                  "datasets": [{"method": "dc", "files": ["dc.npz"],
+                                "method_kwargs": {"sigma_background": 0.01}}],
+                  "regularization_type": "l2", "max_iter": 6, "max_irls_iterations": 2,
+                  "core_cell_m": 50.0, "core_cell_z_m": 50.0, "depth_core_m": 300.0,
+                  "pad_distance_m": 400.0, "topography": {"flat_elevation": 0.0}}
+        result = run_data_pipeline(params, str(tmp_path))
+        assert result["method"] == "dc_resistivity"
+        m = np.asarray(result["recovered_model"])
+        # the start and reference is the background, log(0.01), not 0
+        assert abs(np.median(m) - np.log(0.01)) < 0.3
+        data = result["data"]
+        assert data["locations"].shape == (len(rows), 3)     # the electrodes' centres
+        np.testing.assert_allclose(data["locations"][:, 0],
+                                   np.nanmean(rows[:, [0, 3, 6, 9]], axis=1))
+        r = (data["observed"] - data["predicted"]) / data["std"]
+        assert r @ r < 0.2 * np.sum((data["observed"] / data["std"]) ** 2)
+        # no padding alarm for a log-conductivity background
+        assert not any("outside the core" in n for n in result.get("notes", []))
+
+    def test_mt_file_checks(self, tmp_path):
+        stations = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
+        np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],
+                 components=np.array(["xy_real", "xy_imag"]), values=np.ones(7))
+        params = {"method_type": "mt", "datasets": [{"method": "mt", "files": ["mt.npz"]}],
+                  **SMALL_MESH}
+        with pytest.raises(ValueError, match="2 frequencies x 2 components x 2 stations = 8"):
+            run_data_pipeline(params, str(tmp_path))
+        np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],
+                 components=np.array(["xy_real", "xy_imag"]), values=np.ones(8))
+        with pytest.raises(ValueError, match="noise_floor"):
+            run_data_pipeline(params, str(tmp_path))
+
+    def test_joint_dc_and_gravity_share_nothing_but_the_mesh(self, tmp_path, capture):
+        rows, _ = self._dc(tmp_path)
+        locs = _station_grid(0.0) - np.array([300.0, 300.0, 0.0])
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        params = {"inversion_mode": "joint", "param_mode": "manual",
+                  "datasets": [{"method": "gravity", "files": ["g.csv"], "noise_pct": 0.05,
+                                "noise_floor": 0.01},
+                               {"method": "dc", "files": ["dc.npz"], "model": "sigma"}],
+                  "regularization_type": "group_lasso", **SMALL_MESH}
+        run_data_pipeline(params, str(tmp_path))
+        t = capture["task"]
+        assert t.joint_methods == ["gravity", "dc_resistivity"]
+        assert t.joint_models == [None, "sigma"]
+        assert t.joint_surveys[1]["locations"].shape == (len(rows), 12)
+        # the mesh covers the electrodes too
+        cc = capture["mesh"].to_discretize().cell_centers
+        assert cc[:, 0].min() < rows[:, 0].min() and cc[:, 0].max() > rows[:, 9].max()

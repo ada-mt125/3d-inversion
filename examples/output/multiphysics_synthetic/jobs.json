@@ -1,0 +1,279 @@
+[
+  {
+    "name": "gravity (sparse)",
+    "files": [
+      "gravity.csv"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "gravity",
+      "inversion_mode": "single",
+      "datasets": [
+        {
+          "method": "gravity",
+          "files": [
+            "gravity.csv"
+          ],
+          "component": "gz",
+          "noise_pct": 0.0,
+          "noise_floor": 0.0081
+        }
+      ],
+      "regularization_type": "sparse",
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual",
+      "max_iter": 20,
+      "max_irls_iterations": 10,
+      "beta0_ratio": 1.0,
+      "cooling_factor": 2.0,
+      "use_preconditioner": true,
+      "bounds_lower": -0.5,
+      "bounds_upper": 1.0
+    }
+  },
+  {
+    "name": "magnetics (sparse)",
+    "files": [
+      "magnetics.csv"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "magnetic",
+      "inversion_mode": "single",
+      "datasets": [
+        {
+          "method": "magnetics",
+          "files": [
+            "magnetics.csv"
+          ],
+          "component": "tmi",
+          "noise_pct": 0.0,
+          "noise_floor": 3.3,
+          "method_kwargs": {
+            "inducing_field": [
+              50000.0,
+              60.0,
+              10.0
+            ]
+          }
+        }
+      ],
+      "regularization_type": "sparse",
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual",
+      "max_iter": 20,
+      "max_irls_iterations": 10,
+      "beta0_ratio": 1.0,
+      "cooling_factor": 2.0,
+      "use_preconditioner": true,
+      "bounds_lower": 0.0,
+      "bounds_upper": 0.2
+    }
+  },
+  {
+    "name": "dc (l2)",
+    "files": [
+      "dc.npz"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "dc",
+      "inversion_mode": "single",
+      "datasets": [
+        {
+          "method": "dc",
+          "files": [
+            "dc.npz"
+          ],
+          "method_kwargs": {
+            "sigma_background": 0.01
+          }
+        }
+      ],
+      "regularization_type": "l2",
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual",
+      "max_iter": 20,
+      "max_irls_iterations": 10,
+      "beta0_ratio": 1.0,
+      "cooling_factor": 2.0,
+      "use_preconditioner": true
+    }
+  },
+  {
+    "name": "mt (l2)",
+    "files": [
+      "mt.npz"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "mt",
+      "inversion_mode": "single",
+      "datasets": [
+        {
+          "method": "mt",
+          "files": [
+            "mt.npz"
+          ],
+          "method_kwargs": {
+            "sigma_background": 0.01
+          }
+        }
+      ],
+      "regularization_type": "l2",
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual",
+      "max_iter": 10,
+      "max_irls_iterations": 5,
+      "beta0_ratio": 1.0,
+      "cooling_factor": 2.0,
+      "use_preconditioner": true
+    }
+  },
+  {
+    "name": "joint gravity + magnetics: per-model regularization",
+    "files": [
+      "gravity.csv",
+      "magnetics.csv"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "joint",
+      "inversion_mode": "joint",
+      "datasets": [
+        {
+          "method": "gravity",
+          "files": [
+            "gravity.csv"
+          ],
+          "component": "gz",
+          "noise_pct": 0.0,
+          "noise_floor": 0.0081,
+          "regularization": {
+            "regularization_type": "sparse",
+            "bounds_lower": -0.5,
+            "bounds_upper": 1.0
+          }
+        },
+        {
+          "method": "magnetics",
+          "files": [
+            "magnetics.csv"
+          ],
+          "component": "tmi",
+          "noise_pct": 0.0,
+          "noise_floor": 3.3,
+          "method_kwargs": {
+            "inducing_field": [
+              50000.0,
+              60.0,
+              10.0
+            ]
+          },
+          "regularization": {
+            "regularization_type": "sparse",
+            "bounds_lower": 0.0,
+            "bounds_upper": 0.2
+          }
+        }
+      ],
+      "regularization_type": "sparse",
+      "cross_gradient_weight": 0.0,
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual",
+      "max_iter": 20,
+      "max_irls_iterations": 10,
+      "beta0_ratio": 1.0,
+      "cooling_factor": 2.0,
+      "use_preconditioner": true
+    }
+  },
+  {
+    "name": "joint gravity + magnetics: group lasso + cross-gradient",
+    "files": [
+      "gravity.csv",
+      "magnetics.csv"
+    ],
+    "instance_type": "c5.xlarge",
+    "params": {
+      "method_type": "joint",
+      "inversion_mode": "joint",
+      "datasets": [
+        {
+          "method": "gravity",
+          "files": [
+            "gravity.csv"
+          ],
+          "component": "gz",
+          "noise_pct": 0.0,
+          "noise_floor": 0.0081
+        },
+        {
+          "method": "magnetics",
+          "files": [
+            "magnetics.csv"
+          ],
+          "component": "tmi",
+          "noise_pct": 0.0,
+          "noise_floor": 3.3,
+          "method_kwargs": {
+            "inducing_field": [
+              50000.0,
+              60.0,
+              10.0
+            ]
+          }
+        }
+      ],
+      "regularization_type": "group_lasso",
+      "gl_n_lambda1": 8,
+      "gl_lambda1_decades": 2.5,
+      "gl_lambda2": 0.3,
+      "gl_cross_gradient": 0.1,
+      "topography": {
+        "flat_elevation": 0.0
+      },
+      "mesh_type": "tensor",
+      "core_cell_m": 50.0,
+      "core_cell_z_m": 50.0,
+      "depth_core_m": 400.0,
+      "pad_distance_m": 1500.0,
+      "param_mode": "manual"
+    }
+  }
+]

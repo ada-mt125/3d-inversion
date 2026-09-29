@@ -23,7 +23,11 @@ from typing import Optional
 
 import numpy as np
 
-UNITS = {"gravity": ("density", "g/cc", "mGal"), "magnetics": ("susceptibility", "SI", "nT")}
+UNITS = {"gravity": ("density", "g/cc", "mGal"), "magnetics": ("susceptibility", "SI", "nT"),
+         "dc_resistivity": ("log conductivity", "ln(S/m)", "V"),
+         "mt": ("log conductivity", "ln(S/m)", "Ω")}
+# the data unit of a DC dataset follows its data type
+DC_DATA_UNITS = {"volt": "V", "apparent_resistivity": "Ω·m"}
 
 
 def _round(a, digits=5):
@@ -327,7 +331,11 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
     prop = UNITS.get(method, ("model", "", ""))[0]
 
     def units(run):
-        return UNITS.get(run["datasets"][0]["method"], ("model", "", ""))
+        ds = run["datasets"][0]
+        prop, model_unit, data_unit = UNITS.get(ds["method"], ("model", "", ""))
+        if ds["method"] == "dc_resistivity":
+            data_unit = DC_DATA_UNITS.get(ds.get("component"), data_unit)
+        return prop, model_unit, data_unit
 
     # ids: the first mesh / survey / true model keep 1, 2, 3; inversions are
     # 10 + i; further meshes, surveys and branch nodes follow the inversions
