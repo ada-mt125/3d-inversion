@@ -106,14 +106,14 @@ and dual μ‖s − s_old‖ ≤ √(2M)·ε_abs + ε_rel·‖μu‖, with ε_re
 | `lambda2` | L2 damping of the unit-column variables (XᵀX has a unit diagonal) | 0.3 |
 | `mu` | ADMM penalty: speed only, not a regularization parameter | mean eigenvalue of XᵀX |
 | `gamma` | sensitivity weighting exponent | 2 |
-| `data_scaling` | `"max_ratio"` (paper), `"std"`, `"none"`, or (s_f, s_g) | `"max_ratio"` |
+| `data_scaling` | `"max_ratio"` (paper), `"std"`, `"none"`, `"auto"`, or scales | `"max_ratio"` (`JointGroupLassoProblem`), `"auto"` (worker) |
 | `tol_primal`, `tol_dual`, `tol_abs` | ADMM stopping | 1e-4, 1e-4, 1e-9 max\|Zᵀb\| |
 | `max_iter` | ADMM iterations per λ1 | 2000 (pipeline: 3000) |
 
 Pipeline keys (`InversionTask`, `params_json`): `gl_lambda1_selection`
 (`lcurve`/`discrepancy`/`fixed`), `gl_lambda1`, `gl_lambda1_ratio`, `gl_lambda2`,
 `gl_mu`, `gl_data_scaling`, `gl_gamma`, `gl_n_lambda1` (13), `gl_lambda1_decades`
-(3), `gl_max_iter`, `gl_tol`.
+(3), `gl_max_iter`, `gl_tol`, `gl_cross_gradient`, `gl_gn_max_iter`, `gl_gn_tol`.
 
 ## Validation (tests/test_group_lasso.py)
 
@@ -161,11 +161,65 @@ The upload page's Review step estimates this against the instance.
 Time: two products with each sensitivity per ADMM iteration (Cholesky path);
 on the synthetic, 70–350 iterations per λ1 with warm starts.
 
+## Beyond the paper: more models, nonlinear data, a cross-gradient
+
+`GroupLassoProblem` generalizes the problem; `JointGroupLassoProblem` is its
+two-model case and gives the same iterates as before, bit for bit.
+
+- **Models and datasets.** P models, each explained by one or more datasets
+  (`GroupLassoData`, with the index of its model); the group of cell k is
+  (ζ₁ₖ, …, ζ_Pₖ).  A model's datasets are stacked row-wise (`StackedOperator`),
+  its column weights come from all of them, and a scalar scale of its first
+  dataset is carried by the model variable as above.  In the worker, datasets
+  with the same model label (`joint_models`) share a model, e.g. gz and gzz of
+  one density model.
+- **Reference models.** m_p = ref_p + w_p ζ_p / c_p; potential fields use 0,
+  MT and DC log(σ_background), so an "empty" cell is the background.
+- **Nonlinear data (MT, DC).** Levenberg–Marquardt Gauss–Newton around ADMM:
+  at ζ_k each dataset is linearized, b = s(d − F(m_k)) + X ζ_k with the
+  simulation's J; ADMM solves the linearized problem plus ν/2‖ζ − ζ_k‖² on the
+  nonlinear models only (their ζ systems get μ + ν; the linear models keep
+  their factors); the step is accepted when the true objective decreases, and
+  ν follows the ratio of actual to predicted decrease.  Stop: KKT residual
+  < `gn_kkt_tol` (1e-2 of λ1), or an accepted step with ν ≤ μ that changes the
+  objective by < `gn_tol` (1e-5), or `gn_max_iter` (20).  A backtracking line
+  search on the undamped step stalled near the noise level (steps of ¼, the
+  objective changing 1e-5 per step).  `data_scaling="auto"` uses 1/σ as soon as
+  a dataset is nonlinear.
+- **Cross-gradient.** λ3 C(ζ), C = Σ_{i<j} f_ij φ(u_i, u_j) with φ SimPEG's
+  discretization of ∫|∇u_i × ∇u_j|² (`CrossGradientTerm`) and u_p = (w_p /
+  median w_p) ζ_p the anomaly without the depth weighting.  f_ij sets the
+  term's curvature, at the damped least-squares models (XᵀX + μI)⁻¹Xᵀb, equal
+  to the data term's (largest eigenvalues by power iteration), so λ3 does not
+  depend on the units of data or models and λ3 = 1 weighs the coupling like
+  the data; 0.01–1 is the useful range on the synthetics.  For fixed other
+  models C is quadratic and positive semidefinite in ζ_p, so the ζ update
+  solves one SPD system per model, Gauss–Seidel with the latest other models,
+  by CG preconditioned with the Cholesky solve (tolerance following the primal
+  residual).  Fixed points satisfy the KKT conditions of the whole nonconvex
+  objective (tested to 1e-3 at tight tolerances; without the coupling term's
+  gradient they would be violated by > 1e-2).
+
+| Parameter | Meaning | Default |
+|---|---|---|
+| `gl_cross_gradient` | λ3, unit-free weight of the cross-gradient | 0 (off) |
+| `gl_gn_max_iter` | Gauss–Newton linearizations per λ1 (nonlinear data) | 20 |
+| `gl_gn_tol` | relative objective change that ends Gauss–Newton | 1e-5 |
+| `gl_data_scaling` | as above, plus `"auto"` | `"auto"` |
+
+Validation (tests/test_group_lasso.py): stacked datasets equal one hand-stacked
+operator; a linear method given as a simulation takes the Gauss–Newton path
+and reaches the linear solution in ≤ 3 steps; gravity + DC recovers the
+conductor (log₁₀σ −1.3 in the body for −1, −2.00 outside) and never increases
+the objective; the cross-gradient matches SimPEG, lowers C monotonically in
+λ3 and is unit-free.
+
 ## Not in this version
 
-Bounds / non-negativity, spatial smoothness, cross-gradient coupling, adaptive
-μ or over-relaxation, uncertainty estimates, more than two methods, and a DAG
-node (the solver is reached through the cloud pipeline or called directly).
+Bounds / non-negativity, spatial smoothness, adaptive μ or over-relaxation,
+uncertainty estimates; the upload page has no controls for model labels or
+`gl_cross_gradient` yet (the pipeline accepts them), and MT / DC files are not
+read by the pipeline (Python and `JointRegularizedInversionNode` only).
 
 ## Using it from Python
 
@@ -178,4 +232,14 @@ lc = P.lcurve(lambda2=0.3)                      # λ1 sweep with warm starts
 res = P.solve_at(lc, lc.lambda1_corner, 0.3)    # or P.solve(lambda1, lambda2)
 res.beta_physical, res.rho_physical, res.converged, res.primal_residual_history
 plot_lcurve(lc)
+
+# any models and datasets, nonlinear ones by Gauss–Newton, with a cross-gradient
+from geoinv3d.methods.group_lasso import GroupLassoData, GroupLassoProblem
+P = GroupLassoProblem([GroupLassoData("gz", g, 0, sg, operator=G),
+                       GroupLassoData("gzz", gzz, 0, szz, operator=Gzz),
+                       GroupLassoData("dc", d, 1, sd, simulation=dc_sim)],   # log-conductivity
+                      model_names=["density", "log_conductivity"],
+                      references=[None, np.full(n, np.log(1e-2))], mesh=dmesh)
+res = P.solve(0.05 * P.lambda1_max(), 0.3, cross_gradient=0.1)
+res.model("log_conductivity"), res.prediction("dc"), res.gauss_newton
 ```

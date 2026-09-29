@@ -104,14 +104,29 @@ class InversionTask:
     noise_pct: float = 0.05
     noise_floor: float = 0.5
 
-    # Joint inversion (multiple methods)
+    # Joint inversion (multiple datasets)
     joint_methods: Optional[list[str]] = None
     joint_kwargs_list: Optional[list[dict]] = None
     joint_weights: Optional[list[float]] = None
     cross_gradient_weight: float = 0.0
+    # Model label of each dataset: datasets with the same label share one model
+    # (e.g. gz and gzz data of one density model, MT and DC data of one
+    # conductivity model); None or a missing entry: a model of its own
+    joint_models: Optional[list[Optional[str]]] = None
+    # Per-dataset overrides of the regularization settings above for its model
+    # (the first dataset of a model decides): any of JOINT_REG_KEYS, e.g.
+    # {"regularization_type": "mgs", "bounds_lower": 0.0}.  The joint
+    # inversion (not the group lasso) regularizes each model with
+    # regularization_type l2 / sparse / l1l2 (by IRLS) / mgs / tv, or the
+    # legacy WeightedLeastSquares for any other type.
+    joint_regularizations: Optional[list[dict]] = None
+    # Balance the models' regularizations against their data (see
+    # JointRegularizationBalance); not used by the legacy path
+    joint_balance: bool = True
 
-    # Joint gravity-magnetic group lasso (regularization_type "group_lasso";
-    # Utsugi 2025; see geoinv3d/methods/group_lasso.py).  lambda1 (group
+    # Joint group lasso (regularization_type "group_lasso"; Utsugi 2025, extended
+    # to any number of models and datasets, nonlinear methods and a
+    # cross-gradient; see geoinv3d/methods/group_lasso.py).  lambda1 (group
     # sparsity) is chosen on a sweep of gl_n_lambda1 values over
     # gl_lambda1_decades decades below lambda1_max, by gl_lambda1_selection
     # "lcurve" (log misfit vs log group penalty, falling back to chi^2 = N) or
@@ -120,18 +135,27 @@ class InversionTask:
     # variables (X^T X has a unit diagonal); gl_mu the ADMM penalty (None:
     # mean eigenvalue of X^T X).  On the 16 x 16 x 8 synthetic, lambda2 = 0.3
     # gave the true amplitudes; 0.01 inflated them ~6x, 1 spread the body and
-    # kept chi^2 above N for small errors (LOGBOOK 2026-09-29).
+    # kept chi^2 above N for small errors (LOGBOOK 2026-09-29).  gl_data_scaling
+    # "auto" is the paper's "max_ratio" for potential fields and "std" when a
+    # dataset is nonlinear (MT, DC).  gl_cross_gradient (lambda3, dimensionless:
+    # 1 weighs the structural coupling like the data) adds a cross-gradient
+    # between every pair of models.  Nonlinear datasets are solved by
+    # Levenberg–Marquardt Gauss–Newton: at most gl_gn_max_iter linearizations
+    # per lambda1, until the objective changes by less than gl_gn_tol.
     gl_lambda1_selection: str = "lcurve"
     gl_lambda1: Optional[float] = None
     gl_lambda1_ratio: float = 0.02
     gl_lambda2: float = 0.3
     gl_mu: Optional[float] = None
-    gl_data_scaling: str = "max_ratio"
+    gl_data_scaling: str = "auto"
     gl_gamma: float = 2.0
     gl_n_lambda1: int = 13
     gl_lambda1_decades: float = 3.0
     gl_max_iter: int = 3000
     gl_tol: float = 1e-4
+    gl_cross_gradient: float = 0.0
+    gl_gn_max_iter: int = 20
+    gl_gn_tol: float = 1e-5
 
     # Arrays stored separately in the archive
     initial_model: Optional[NDArray] = None
@@ -193,15 +217,29 @@ class InversionTask:
             d["joint_kwargs_list"] = self.joint_kwargs_list or []
             d["joint_weights"] = self.joint_weights or []
             d["cross_gradient_weight"] = self.cross_gradient_weight
+            d["joint_balance"] = self.joint_balance
+            if self.joint_models is not None:
+                d["joint_models"] = list(self.joint_models)
+            if self.joint_regularizations is not None:
+                d["joint_regularizations"] = [dict(r or {}) for r in self.joint_regularizations]
         if self.regularization_type == "group_lasso":
             d.update({k: getattr(self, k) for k in GROUP_LASSO_KEYS})
         return d
 
 
+# Regularization settings a joint dataset may override for its model
+# (InversionTask.joint_regularizations)
+JOINT_REG_KEYS = (
+    "regularization_type", "alpha_s", "alpha_x", "alpha_y", "alpha_z", "norms", "l1_ratio",
+    "focusing_percentile", "focusing_scale", "depth_weighting", "depth_weighting_exponent",
+    "bounds_lower", "bounds_upper",
+)
+
+
 GROUP_LASSO_KEYS = (
     "gl_lambda1_selection", "gl_lambda1", "gl_lambda1_ratio", "gl_lambda2", "gl_mu",
     "gl_data_scaling", "gl_gamma", "gl_n_lambda1", "gl_lambda1_decades", "gl_max_iter",
-    "gl_tol",
+    "gl_tol", "gl_cross_gradient", "gl_gn_max_iter", "gl_gn_tol",
 )
 
 
@@ -307,6 +345,9 @@ def unpack_task(archive_path: str) -> InversionTask:
             joint_kwargs_list=meta.get("joint_kwargs_list"),
             joint_weights=meta.get("joint_weights"),
             cross_gradient_weight=meta.get("cross_gradient_weight", 0.0),
+            joint_models=meta.get("joint_models"),
+            joint_regularizations=meta.get("joint_regularizations"),
+            joint_balance=meta.get("joint_balance", True),
             **{k: meta[k] for k in GROUP_LASSO_KEYS if k in meta},
         )
 

@@ -37,7 +37,10 @@ from pathlib import Path
 
 import numpy as np
 
-from .task import GROUP_LASSO_KEYS, InversionTask, effective_alpha_s, unpack_task, pack_task
+from .task import (
+    GROUP_LASSO_KEYS, JOINT_REG_KEYS, LENGTH_SCALE_ALPHA_S, InversionTask, effective_alpha_s,
+    unpack_task, pack_task,
+)
 
 
 def _build_mesh(task: InversionTask):
@@ -647,49 +650,93 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     return run_smooth_inversion(task, mesh)
 
 
-def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
-    """Execute a joint inversion from a task specification.
+JOINT_REGULARIZATION_TYPES = ("l2", "sparse", "l1l2", "mgs", "tv")
 
-    Each method gets an L2 (WeightedLeastSquares) regularization using the
-    task's alpha_s and, as in run_sparse_inversion, alpha_x/y/z as length
-    scales.  task.cross_gradient_weight > 0 couples the models structurally.
+
+def joint_regularization(task: InversionTask, i: int):
+    """The ModelRegularization of joint dataset ``i``'s model, or None (legacy path).
+
+    The task's settings, overridden by ``task.joint_regularizations[i]``
+    (keys JOINT_REG_KEYS).  A regularization_type outside
+    JOINT_REGULARIZATION_TYPES selects the legacy WeightedLeastSquares (None).
     """
-    from ..datamodel.survey import SurveyData
-    from ..methods.joint import JointInversion, MethodSetup
+    from ..methods.joint import ModelRegularization
 
-    if mesh is None:
-        mesh = _build_mesh(task)
+    over = {}
+    if task.joint_regularizations and i < len(task.joint_regularizations):
+        over = dict(task.joint_regularizations[i] or {})
+    unknown = set(over) - set(JOINT_REG_KEYS)
+    if unknown:
+        raise ValueError(f"Unknown joint regularization settings {sorted(unknown)} "
+                         f"(expected some of {JOINT_REG_KEYS})")
+
+    def get(key):
+        return over[key] if key in over else getattr(task, key)
+    kind = get("regularization_type")
+    if kind not in JOINT_REGULARIZATION_TYPES:
+        return None
+    alpha_s = over.get("alpha_s", task.alpha_s)
+    return ModelRegularization(
+        kind=kind,
+        alpha_s=LENGTH_SCALE_ALPHA_S if alpha_s is None else float(alpha_s),
+        length_scale_x=float(get("alpha_x")), length_scale_y=float(get("alpha_y")),
+        length_scale_z=float(get("alpha_z")),
+        norms=tuple(float(v) for v in get("norms")), l1_ratio=float(get("l1_ratio")),
+        focusing_percentile=float(get("focusing_percentile")),
+        focusing_scale=get("focusing_scale"),
+        depth_weighting=get("depth_weighting"),
+        depth_weighting_exponent=float(get("depth_weighting_exponent")),
+        lower=get("bounds_lower"), upper=get("bounds_upper"),
+    )
+
+
+def _joint_setups(task: InversionTask, mesh, regularized: bool = True):
+    """MethodSetups of a joint task: one per dataset, on the task's active cells."""
+    from ..datamodel.survey import SurveyData
+    from ..methods.joint import MethodSetup
+
     active = task.active_cells
     n_params = int(active.sum()) if active is not None else mesh.n_cells
-
+    labels = list(task.joint_models or [])
     setups = []
     for i, method_name in enumerate(task.joint_methods):
         method_name = canonical_method(method_name)
-        kwargs = (task.joint_kwargs_list or [{}])[i] if task.joint_kwargs_list else {}
+        kwargs = (task.joint_kwargs_list[i] if task.joint_kwargs_list
+                  and i < len(task.joint_kwargs_list) else None) or {}
         method = _make_method(method_name, kwargs)
-
-        survey_data = task.joint_surveys[i]
-        survey = SurveyData(
-            locations=survey_data["locations"],
-            observed=survey_data["observed"],
-            std=survey_data["std"],
-            method=method_name,
-        )
-
-        weight = (task.joint_weights or [1.0])[i] if task.joint_weights else 1.0
-        initial = task.joint_initial_models[i] if task.joint_initial_models else None
+        sd = task.joint_surveys[i]
+        survey = SurveyData(locations=sd["locations"], observed=sd["observed"], std=sd["std"],
+                            method=method_name, name=str(sd.get("name") or ""))
+        weight = task.joint_weights[i] if task.joint_weights else 1.0
+        initial = task.joint_initial_models[i] if task.joint_initial_models \
+            and i < len(task.joint_initial_models) else None
         if initial is None or len(initial) != n_params:
-            initial = np.zeros(n_params)
-
+            initial = np.full(n_params, float(method.default_model_value))
         setups.append(MethodSetup(
-            method=method,
-            survey=survey,
-            mesh=mesh,
-            initial_model=initial,
-            weight=weight,
-            active_cells=active,
+            method=method, survey=survey, mesh=mesh, initial_model=initial, weight=weight,
+            active_cells=active, model=(labels[i] if i < len(labels) else None) or None,
+            regularization=joint_regularization(task, i) if regularized else None,
         ))
+    return setups
 
+
+def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
+    """Execute a joint inversion from a task specification.
+
+    Each model is regularized as :func:`joint_regularization` says: l2,
+    sparse, l1l2 (IRLS), mgs or tv as in a single-method inversion, with
+    depth weighting, bounds and per-model overrides; any other
+    regularization_type keeps the original joint path (WeightedLeastSquares
+    with alpha_s and alpha_x/y/z as length scales, BetaSchedule cooling).
+    task.cross_gradient_weight > 0 couples the models structurally.  Beta
+    follows the discrepancy principle (chi^2 = N); L-curve / GCV sweeps are
+    single-method.
+    """
+    from ..methods.joint import JointInversion
+
+    if mesh is None:
+        mesh = _build_mesh(task)
+    setups = _joint_setups(task, mesh)
     joint = JointInversion(
         setups=setups,
         max_iter=task.max_iter,
@@ -702,6 +749,10 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
             length_scale_y=task.alpha_y,
             length_scale_z=task.alpha_z,
         ),
+        max_irls_iterations=task.max_irls_iterations,
+        irls_cooling_factor=task.irls_cooling_factor,
+        use_preconditioner=task.use_preconditioner,
+        balance=task.joint_balance,
     )
 
     result = joint.run()
@@ -720,85 +771,134 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
             "model_mean": float(vals.mean()),
         })
 
+    models = result.extras["models"]
+    labels = sorted({info["regularization"] for info in models.values()})
+    joint_data = {}
+    for (label, info), setup in zip(result.extras["datasets"].items(), setups):
+        if "predicted" in info:
+            joint_data[label] = {"locations": setup.survey.locations,
+                                 "observed": setup.survey.observed, "std": setup.survey.std,
+                                 "predicted": info["predicted"]}
     stopped = {} if result.converged else {
         "stopped_early": {"reason": "stopped by the user", "at_iteration": len(iterations)}}
     return {
         **stopped,
         "task_id": task.task_id,
         "methods": [canonical_method(m) for m in task.joint_methods],
-        "regularization": "joint_L2",
+        "regularization": "joint_L2" if joint.legacy
+        else "joint_" + (labels[0] if len(labels) == 1 else "mixed"),
         "cross_gradient_weight": task.cross_gradient_weight,
         "converged": result.converged,
         "n_iterations": len(iterations),
         "iterations": iterations,
-        "recovered_models": {
-            k: v for k, v in result.recovered_models.items()
-        },
+        "recovered_models": {k: v for k, v in result.recovered_models.items()},
+        "models": {name: {k: v for k, v in info.items()} for name, info in models.items()},
+        "dataset_models": list(joint.model_labels),
+        "dataset_labels": list(joint.dataset_labels),
+        "chi2": {label: info.get("chi2") for label, info in result.extras["datasets"].items()},
+        # SimPEG sign convention; the pipeline turns them back into the files' convention
+        "joint_data": joint_data,
     }
 
 
 GROUP_LASSO_SELECTIONS = ("lcurve", "discrepancy", "fixed")
 
 
-def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
-    """Joint gravity–magnetic inversion with L2 + group lasso (Utsugi 2025), by ADMM.
+def _group_lasso_problem(task: InversionTask, mesh):
+    """The GroupLassoProblem of a joint task, with its setups and labels.
 
-    One gravity and one magnetic dataset on the same active cells.  SimPEG's
-    integral simulations provide the sensitivities (float32, used as stored);
-    :mod:`geoinv3d.methods.group_lasso` does the rest.  lambda1 comes from a
-    sweep down from lambda1_max (warm-started, one factorization for all
-    points) by the L-curve corner, falling back to chi^2 = N when the curve has
-    no corner, or by chi^2 = N; or it is fixed.  Each sweep point is reported
-    as an "iteration" with ``beta`` = lambda1, ``phi_d`` = chi^2 of both
-    datasets and ``phi_m`` = the group penalty.  The user's stop request ends
-    the sweep (lambda1 is then chosen from the points done) or the ADMM solve
-    (its current iterate is kept).
+    One model per model label (see :func:`geoinv3d.methods.joint.assign_models`):
+    by default one per dataset, e.g. "gravity" and "magnetics"; datasets
+    with the same label share a model.  Potential-field datasets contribute
+    their SimPEG sensitivity matrices (float32, as stored); MT and DC
+    datasets their simulations (log-conductivity, relative to the method's
+    background), linearized at every Gauss–Newton step.
+    """
+    from ..methods.group_lasso import GroupLassoData, GroupLassoProblem
+    from ..methods.joint import assign_models
+
+    setups = _joint_setups(task, mesh, regularized=False)
+    model_labels, dataset_labels = assign_models(setups)
+    names = list(dict.fromkeys(model_labels))
+    if len(names) < 2:
+        raise ValueError("The group lasso couples at least two models (e.g. a gravity and a "
+                         f"magnetic dataset); these datasets make one model: {names}")
+    active = task.active_cells
+    n_params = int(active.sum()) if active is not None else mesh.n_cells
+    datasets, refs, kinds = [], [None] * len(names), [None] * len(names)
+    for setup, model, label in zip(setups, model_labels, dataset_labels):
+        p = names.index(model)
+        method, survey = setup.method, setup.survey
+        kind = (bool(method.linear), float(method.default_model_value))
+        if kinds[p] is not None and kinds[p] != kind:
+            raise ValueError(f"The datasets of model '{model}' measure different properties "
+                             "(a linear and a nonlinear method, or different backgrounds)")
+        kinds[p] = kind
+        sim = (method.make_simulation_active(mesh, survey, active) if active is not None
+               else method.make_simulation_full(mesh, survey))
+        n = len(survey.observed)
+        if method.linear:
+            print(f"[Group lasso] {label}: computing the {n} x {n_params} sensitivity matrix")
+            datasets.append(GroupLassoData(label, survey.observed, p, survey.std,
+                                           operator=sim.G))
+        else:
+            print(f"[Group lasso] {label}: {n} data, nonlinear (Gauss–Newton)")
+            datasets.append(GroupLassoData(label, survey.observed, p, survey.std,
+                                           simulation=sim))
+        if refs[p] is None:
+            refs[p] = np.full(n_params, float(method.default_model_value))
+    dmesh = mesh.to_discretize() if task.gl_cross_gradient > 0 else None
+    problem = GroupLassoProblem(
+        datasets, task.gl_mu, model_names=names, references=refs, gamma=task.gl_gamma,
+        data_scaling=task.gl_data_scaling, mesh=dmesh,
+        active_cells=active if dmesh is not None else None)
+    return problem, setups, model_labels, dataset_labels
+
+
+def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
+    """Joint inversion with L2 + group lasso (Utsugi 2025), by ADMM.
+
+    Any number of datasets and models (see :func:`_group_lasso_problem`):
+    gravity and magnetics as in the paper, several datasets of one property,
+    and MT / DC resistivity (nonlinear: Levenberg–Marquardt Gauss–Newton
+    around ADMM), with an optional cross-gradient between the models
+    (``gl_cross_gradient``).  lambda1 comes from a sweep down from
+    lambda1_max (warm-started; one factorization for all points of the
+    linear models) by the L-curve corner, falling back to chi^2 = N when
+    the curve has no corner, or by chi^2 = N; or it is fixed.  Each sweep
+    point is reported as an "iteration" with ``beta`` = lambda1, ``phi_d`` =
+    chi^2 of all datasets and ``phi_m`` = the group penalty.  The user's stop
+    request ends the sweep (lambda1 is then chosen from the points done) or
+    the solve (its current iterate is kept).
     """
     from types import SimpleNamespace
 
-    from ..datamodel.survey import SurveyData
     from ..methods.directives import IterationCollector, stop_requested
-    from ..methods.group_lasso import JointGroupLassoProblem
     from ..methods.l1l2_cda import _discrepancy_lambda
     from ..methods.regparam import LCURVE_NO_CORNER
 
-    names = [canonical_method(m) for m in task.joint_methods]
-    if sorted(names) != ["gravity", "magnetics"]:
-        raise ValueError("The group-lasso joint inversion couples one gravity and one magnetic "
-                         f"dataset; got {names}")
     selection = task.gl_lambda1_selection
     if selection not in GROUP_LASSO_SELECTIONS:
         raise ValueError(f"Unknown gl_lambda1_selection '{selection}' "
                          f"(expected one of {GROUP_LASSO_SELECTIONS})")
     if mesh is None:
         mesh = _build_mesh(task)
-    active = task.active_cells
-    kernels, surveys = {}, {}
-    for i, name in enumerate(names):
-        kwargs = (task.joint_kwargs_list[i] if task.joint_kwargs_list else None) or {}
-        sd = task.joint_surveys[i]
-        survey = SurveyData(locations=sd["locations"], observed=sd["observed"], std=sd["std"],
-                            method=name)
-        method = _make_method(name, kwargs)
-        sim = (method.make_simulation_active(mesh, survey, active) if active is not None
-               else method.make_simulation_full(mesh, survey))
-        print(f"[Group lasso] {name}: computing the {len(sd['observed'])} x "
-              f"{int(active.sum()) if active is not None else mesh.n_cells} sensitivity matrix")
-        kernels[name] = sim.G
-        surveys[name] = sd
-    mag, grav = surveys["magnetics"], surveys["gravity"]
-    problem = JointGroupLassoProblem(
-        kernels["magnetics"], kernels["gravity"], mag["observed"], grav["observed"],
-        mu=task.gl_mu, gamma=task.gl_gamma, data_scaling=task.gl_data_scaling,
-        std_f=mag["std"], std_g=grav["std"])
-    n_data = len(mag["observed"]) + len(grav["observed"])
+    problem, setups, model_labels, dataset_labels = _group_lasso_problem(task, mesh)
+    n_data = sum(len(s.survey.observed) for s in setups)
     lam_max = problem.lambda1_max()
     lam2 = float(task.gl_lambda2)
+    lam3 = float(task.gl_cross_gradient)
     solve_kw = dict(max_iter=int(task.gl_max_iter), tol_primal=float(task.gl_tol),
-                    tol_dual=float(task.gl_tol), history_every=10)
-    print(f"[Group lasso] {problem.solver_name}, mu = {problem.mu:.4g}, lambda1_max = "
-          f"{lam_max:.4g}, data scales {task.gl_data_scaling} "
-          f"(set up in {problem.setup_seconds:.1f} s)")
+                    tol_dual=float(task.gl_tol), history_every=10, cross_gradient=lam3,
+                    gn_max_iter=int(task.gl_gn_max_iter), gn_tol=float(task.gl_gn_tol))
+    scales = {d.name: (float(sc) if np.ndim(sc) == 0 else "per datum")
+              for d, sc in zip(problem.datasets, problem.scales)}
+    print(f"[Group lasso] {len(problem.model_names)} models {problem.model_names}, "
+          f"{problem.solver_name}, mu = {problem.mu:.4g}, lambda1_max = {lam_max:.4g}, "
+          f"data scales {task.gl_data_scaling} {scales}"
+          + (f", cross-gradient {lam3:g}" if lam3 else "")
+          + ("" if problem.linear else ", Gauss–Newton")
+          + f" (set up in {problem.setup_seconds:.1f} s)")
 
     def report(i, n, lam, chi2, extra=None):
         callback = IterationCollector.on_iteration
@@ -821,6 +921,7 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
             print(f"[Group lasso] lambda1 {i + 1}/{n} = {p['lambda1']:.4g}: chi2 = {p['chi2']:.4g} "
                   f"(target {n_data}), group penalty {p['group_penalty']:.4g}, "
                   f"{p['n_active']} active cells, {p['n_iterations']} ADMM iterations"
+                  + (f", {p['gn_iterations']} Gauss–Newton steps" if "gn_iterations" in p else "")
                   + ("" if p["converged"] else " (not converged)"))
         lc = problem.lcurve(lam2, n_lambda1=int(task.gl_n_lambda1),
                             decades=float(task.gl_lambda1_decades), point_callback=on_point,
@@ -856,16 +957,20 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
         if lc.stopped:   # no new solve: the finished point nearest lambda1
             k = int(np.argmin(np.abs(np.log(a["lambda1"] / lam1))))
             lam1 = float(a["lambda1"][k])
-            result = problem.solve(lam1, lam2, state=lc.states[k], max_iter=0)
+            result = problem.solve(lam1, lam2, state=lc.states[k], max_iter=0,
+                                   cross_gradient=lam3, gn_max_iter=0)
         else:
             result = problem.solve_at(lc, lam1, lam2, should_stop=stop_requested, **solve_kw)
 
-    chi2_final = problem.chi2(result)
+    chi2_final = problem.chi2_of(result)
     if result.stopped and stopped_at is None:
         stopped_at = result.n_iterations
     if not result.converged and not result.stopped and result.n_iterations:
         warnings_.append(f"ADMM did not converge in {task.gl_max_iter} iterations at lambda1 = "
-                         f"{lam1:.4g}; raise gl_max_iter or try another mu")
+                         f"{lam1:.4g}; raise gl_max_iter or try another mu"
+                         if problem.linear else
+                         f"Gauss–Newton did not converge at lambda1 = {lam1:.4g} "
+                         f"({getattr(problem, 'gn_stop', '')}); raise gl_gn_max_iter")
     for w in warnings_:
         print(f"[Group lasso] Warning: {w}")
 
@@ -883,38 +988,49 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
     stopped = {"stopped_early": {"reason": "stopped by the user", "at_iteration": stopped_at,
                                  **({"of": lc.n_planned} if lc is not None and lc.stopped else {})}} \
         if stopped_at is not None else {}
-    scale = problem.s_g
     info = {
         "reference": "Utsugi (2025), Earth Planets Space 77:146",
         "criterion": criterion, "lambda1": result.lambda1, "lambda2": lam2, "mu": problem.mu,
         "lambda1_max": lam_max, "lambda1_lcurve": lam_lcurve, "lambda1_discrepancy": lam_disc,
-        "data_scaling": task.gl_data_scaling,
-        "gravity_scale": float(scale) if np.ndim(scale) == 0 else "per datum",
+        "data_scaling": task.gl_data_scaling, "data_scales": scales,
         "gamma": task.gl_gamma, "solver": problem.solver_name,
         "admm_iterations": result.n_iterations, "admm_converged": result.converged,
         "n_active_cells": result.n_active, "chi2": chi2_final,
         "primal_residual": (result.primal_residual_history or [None])[-1],
         "dual_residual": (result.dual_residual_history or [None])[-1],
+        "models": {name: [dataset_labels[i] for i, m in enumerate(model_labels) if m == name]
+                   for name in problem.model_names},
         "warnings": warnings_,
     }
+    if "gravity" in scales:
+        info["gravity_scale"] = scales["gravity"]
+    if lam3:
+        info["cross_gradient"] = lam3
+        info["cross_gradient_value"] = result.final_terms.get("cross_gradient")
+    if not problem.linear:
+        info["gauss_newton"] = [dict(r) for r in result.gauss_newton]
+        info["gauss_newton_stop"] = getattr(problem, "gn_stop", None)
     if lc is not None:
         info["sweep"] = [dict(p) for p in lc.points]
+    joint_data = {}
+    for label, setup, pred in zip(dataset_labels, setups, result.predicted):
+        # SimPEG sign convention; the pipeline turns them back into the files' convention
+        joint_data[label] = {"locations": setup.survey.locations,
+                             "observed": setup.survey.observed, "std": setup.survey.std,
+                             "predicted": pred}
     return {
         **stopped,
         "task_id": task.task_id,
-        "methods": names,
+        "methods": [canonical_method(m) for m in task.joint_methods],
         "regularization": "group_lasso_ADMM",
         "converged": bool(result.converged and stopped_at is None),
         "n_iterations": len(iterations),
         "iterations": iterations,
-        "recovered_models": {"magnetics": result.beta_physical, "gravity": result.rho_physical},
-        # SimPEG sign convention; the pipeline turns them back into the files' convention
-        "joint_data": {
-            "magnetics": {"locations": mag["locations"], "observed": mag["observed"],
-                          "std": mag["std"], "predicted": result.predicted_magnetic},
-            "gravity": {"locations": grav["locations"], "observed": grav["observed"],
-                        "std": grav["std"], "predicted": result.predicted_gravity},
-        },
+        "recovered_models": {name: m for name, m in zip(problem.model_names,
+                                                        result.models_physical)},
+        "dataset_models": list(model_labels),
+        "dataset_labels": list(dataset_labels),
+        "joint_data": joint_data,
         "group_lasso": info,
     }
 
@@ -931,8 +1047,8 @@ def execute_task(task: InversionTask, mesh=None) -> dict:
             return run_group_lasso_joint(task, mesh)
         return run_joint_inversion(task, mesh)
     if task.regularization_type == "group_lasso":
-        raise ValueError("The group lasso couples a gravity and a magnetic dataset: "
-                         "it needs a joint inversion")
+        raise ValueError("The group lasso couples several models (e.g. a gravity and a "
+                         "magnetic dataset): it needs a joint inversion")
     return run_single_inversion(task, mesh)
 
 
@@ -991,6 +1107,8 @@ class PipelineDataset:
     # observed (file convention) x sign = SimPEG convention; see _simpeg_sign
     sign: float = 1.0
     decimation: dict | None = None    # how the data were thinned (target spacing, per file)
+    model: str | None = None          # joint: model label (datasets with one label share a model)
+    regularization: dict | None = None  # joint, manual mode: overrides for its model (JOINT_REG_KEYS)
 
 
 def grid_strides(dx: float, dy: float, target: float | None, stride: int = 1) -> tuple:
@@ -1247,6 +1365,8 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
         trend=(raw - dobs) if regional else None,
         sign=_simpeg_sign(method, component, spec, params),
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
+        model=spec.get("model") or None,
+        regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
     )
 
 
@@ -1651,6 +1771,10 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             joint_kwargs_list=[ds.method_kwargs for ds in datasets],
             joint_weights=weights,
             cross_gradient_weight=xgrad,
+            joint_models=[ds.model for ds in datasets] if any(ds.model for ds in datasets)
+            else None,
+            joint_regularizations=[ds.regularization for ds in datasets]
+            if param_mode != "auto" and any(ds.regularization for ds in datasets) else None,
             joint_surveys=[
                 {"locations": ds.locations, "observed": ds.sign * ds.observed, "std": ds.std}
                 for ds in datasets
@@ -1669,17 +1793,16 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 notes.append("The group lasso chooses lambda1 by gl_lambda1_selection="
                              f"'{task.gl_lambda1_selection}'; beta_selection is not applied")
         elif task.regularization_type == "l1l2":
-            notes.append("Joint inversion uses L2 regularization; the L1–L2 "
-                         "regularization is not applied")
-        elif task.regularization_type in ("mgs", "tv"):
-            notes.append("Joint inversion uses L2 regularization; MGS/TV focusing is "
-                         "not applied")
-        elif task.regularization_type == "sparse" and tuple(task.norms) != (2.0,) * 4:
-            notes.append("Joint inversion uses L2 regularization; norms/IRLS settings "
-                         "are not applied")
+            if task.l1l2_solver == "cda":
+                notes.append("Joint inversion runs the L1–L2 regularization by IRLS; the "
+                             "coordinate-descent lambda path (l1l2_solver='cda') is "
+                             "single-method")
+            notes.append("L1–L2 regularizes the model values only (no smoothness "
+                         "term); norms and alpha_x/y/z are not used")
         if task.regularization_type != "group_lasso":
             if task.bounds_lower is not None or task.bounds_upper is not None:
-                notes.append("Joint inversion does not apply bounds")
+                notes.append("The bounds apply to every model of the joint inversion "
+                             "(joint_regularizations sets them per dataset)")
             if task.beta_selection not in ("auto", "discrepancy"):
                 notes.append("Joint inversion chooses beta by the discrepancy principle; "
                              f"beta_selection='{task.beta_selection}' is not applied")
@@ -1748,8 +1871,10 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         if result.get("predicted") is not None:
             # back to the file's sign convention, like "observed"
             result["data"]["predicted"] = ds.sign * np.asarray(result.pop("predicted"), dtype=float)
-    for ds in datasets:   # per-dataset data of a joint run, in the files' convention too
-        jd = (result.get("joint_data") or {}).get(ds.method)
+    # per-dataset data of a joint run, in the files' convention too
+    labels = result.get("dataset_labels") or [ds.method for ds in datasets]
+    for ds, label in zip(datasets, labels):
+        jd = (result.get("joint_data") or {}).get(label)
         if jd is not None:
             jd.update(locations=ds.locations, observed=ds.observed, std=ds.std,
                       predicted=ds.sign * np.asarray(jd["predicted"], dtype=float))

@@ -8,6 +8,7 @@ A Python framework for 3D geophysical joint inversion that uses a Directed Acycl
 
 - **DAG-based workflow tracking** — Every step (mesh creation, model setup, forward modeling, inversion, parameter tuning) is a node in a DAG. Every parameter change is recorded automatically.
 - **SimPEG backend** — Uses [SimPEG](https://simpeg.xyz/) for forward modeling and inversion, supporting gravity, magnetics, DC resistivity, and joint inversion.
+- **Joint inversion** — Any regularization per model (smooth L2, sparse lp, L1–L2, MGS, TV) with bounds and a cross-gradient, or L2 + group lasso (Utsugi 2025) for any number of models, MT/DC by Gauss–Newton, with a unit-free cross-gradient; several datasets may share one model.  See [docs/group_lasso_joint.md](docs/group_lasso_joint.md).
 - **Workflow serialization** — Save/load entire inversion workflows as JSON. Every exported result carries a provenance sidecar recording exactly how it was produced.
 - **Visualization** — 2D slices (matplotlib), 3D models (PyVista/VTK), DAG graph rendering (networkx), and Mermaid diagram export.
 - **Immutable data model** — All data payloads are frozen dataclasses with read-only arrays. Transformations produce new objects, never mutate.

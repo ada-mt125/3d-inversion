@@ -79,6 +79,12 @@ class JointInversionResult:
     per_method_phi_d: dict[str, list[float]] = field(default_factory=dict)
     recovered_models: dict[str, NDArray] = field(default_factory=dict)
     weights: list[float] = field(default_factory=list)
+    # Per model (regularization, balance, bounds, datasets) and per dataset
+    # (method, model, chi^2, predicted data); see JointInversion.run and
+    # JointRegularizedInversionNode
+    extras: dict = field(default_factory=dict)
+    # One PhysicalModel per model (JointRegularizedInversionNode)
+    final_models: dict = field(default_factory=dict)
 
     def add_iteration(self, snap: IterationSnapshot) -> None:
         self.iterations.append(snap)

@@ -378,14 +378,34 @@ class TestPipelinePlumbing:
         assert capture["task"].l1_ratio == 0.5
         assert capture["task"].regularization_type == "sparse"
 
-    def test_joint_with_l1l2_is_reported(self, tmp_path, capture):
+    def test_joint_with_l1l2_runs_it_by_irls(self, tmp_path, capture):
         locs = _station_grid(0.0)
         _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
         _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
         params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
                                regularization_type="l1l2", l1_ratio=0.5)
         result = run_data_pipeline(params, str(tmp_path))
-        assert any("L1–L2 regularization is not applied" in n for n in result["notes"])
+        assert any("by IRLS" in n for n in result["notes"])
+        assert capture["task"].regularization_type == "l1l2"
+
+    def test_joint_per_dataset_settings_forwarded(self, tmp_path, capture):
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual")
+        params["datasets"][0]["model"] = "density"
+        params["datasets"][1]["regularization"] = {"regularization_type": "mgs",
+                                                   "bounds_lower": 0.0}
+        run_data_pipeline(params, str(tmp_path))
+        t = capture["task"]
+        assert t.joint_models == ["density", None]
+        assert t.joint_regularizations == [None, {"regularization_type": "mgs",
+                                                  "bounds_lower": 0.0}]
+        # auto mode keeps the model labels but not the regularization overrides
+        params["param_mode"] = "auto"
+        run_data_pipeline(params, str(tmp_path))
+        assert capture["task"].joint_models == ["density", None]
+        assert capture["task"].joint_regularizations is None
 
     def test_mesh_recommended_from_data_spacing(self, grav_grid_dir, capture):
         """Without mesh settings the mesh follows the data (100 m grid, 600 m wide)."""
@@ -576,6 +596,32 @@ class TestPipelineEndToEnd:
         # Only the padding diagnostic may speak up (joint L2 on this tiny mesh)
         assert set(result["outside_core_share"]) == {"gravity", "magnetics"}
         assert all("outside the core" in n for n in result.get("notes", []))
+
+
+    def test_joint_per_model_regularization_and_bounds(self, tmp_path):
+        """sparse gravity + bounded MGS magnetics in one joint run."""
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
+                               regularization_type="sparse", max_iter=10,
+                               max_irls_iterations=3)
+        params["datasets"][1]["regularization"] = {
+            "regularization_type": "mgs", "bounds_lower": 0.0, "bounds_upper": 0.1}
+        result = run_data_pipeline(params, str(tmp_path))
+        assert result["regularization"] == "joint_mixed"
+        models = result["models"]
+        assert models["gravity"]["kind"] == "sparse" and models["gravity"]["norms"] == [0, 2, 2, 1]
+        assert models["magnetics"]["kind"] == "mgs"
+        assert models["magnetics"]["bounds"] == [0.0, 0.1]
+        assert all("balance" in m for m in models.values())
+        chi = result["recovered_models"]["magnetics"]
+        assert chi.min() >= 0.0 and chi.max() <= 0.1
+        # per-dataset data fits come back for the viewer, as for the group lasso
+        assert set(result["joint_data"]) == {"gravity", "magnetics"}
+        for name, jd in result["joint_data"].items():
+            assert jd["predicted"].shape == jd["observed"].shape
+        assert set(result["chi2"]) == {"gravity", "magnetics"}
 
 
 class TestElasticNetEndToEnd:

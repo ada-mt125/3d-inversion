@@ -92,7 +92,21 @@ def _extract_output_summary(node: Node) -> dict | None:
             "n_iterations": out.n_iterations,
             "iterations": [],
         }
-        for snap in out.iterations:
+        stats = out.extras.get("iteration_stats")
+        if stats is not None:
+            result["iterations"] = [dict(s) for s in stats]
+            result["n_iterations"] = len(stats)
+        for key in ("regularization", "selection", "models", "datasets", "group_lasso",
+                    "stopped_early"):
+            if key in out.extras:
+                result[key] = out.extras[key]
+        if out.final_models:
+            result["final_models"] = {
+                name: {"prop": m.prop.value if hasattr(m.prop, "value") else str(m.prop),
+                       "min": float(np.min(m.values)), "max": float(np.max(m.values)),
+                       "mean": float(np.mean(m.values)), "n_cells": int(np.size(m.values))}
+                for name, m in out.final_models.items()}
+        for snap in out.iterations if stats is None else ():
             vals = np.asarray(snap.model_values)
             result["iterations"].append({
                 "iteration": snap.iteration,

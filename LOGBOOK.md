@@ -722,3 +722,86 @@ Full test suite after these changes: 318 passed (8 warnings, all from SimPEG / d
 pymatsolver).  Next: restart the API
 (GeoInv3D.bat) to use the new page option; nothing has been run on AWS with the group lasso yet
 (the user approves every instance launch).
+
+---
+
+## 2026-09-29 — Joint inversion with any regularization; group lasso for many models, MT/DC and a cross-gradient
+
+Environment: macOS (Apple Silicon), Python 3.13.15 in `.venv` (uv), SimPEG 0.25.2.  Before these
+changes the suite gave 316 passed, 2 failed on this machine: `TestSolvers::test_solves_the_normal_equations[cg-cols0]`
+and `test_per_row_scaling` miss their CG tolerance by < 2× (2.1e-6 vs 1.3e-6; float32 rounding
+of this platform's BLAS).  Unchanged, and still the only failures.
+
+**Method one (`methods/joint.py`).**  `ModelRegularization` per model: "l2", "sparse", "l1l2" (IRLS),
+"mgs", "tv", or "smooth" (the old WeightedLeastSquares), each with its alphas, depth weighting
+("sensitivity" / "depth" / "none") and bounds (ProjectedGNCG on the joint vector).  Without any, the
+original path runs unchanged (tested).  `MethodSetup.model` labels: datasets with one label share a
+model (gz + gzz of one density model; MT + DC of one conductivity model); unlabelled datasets keep a
+model each ("gravity", "gravity_2", …), so results stay keyed by method name.  Worker: joint tasks
+use `regularization_type` for every model, `joint_regularizations` (per-dataset overrides,
+`JOINT_REG_KEYS`), `joint_models`, `joint_balance`; the upload pipeline takes `model` and
+`regularization` per dataset (the latter in manual mode only) and applies task-level bounds to all
+models.  Results carry per-model info, per-dataset χ² and `joint_data` (the viewer now shows method-one
+joint runs too).
+
+Findings.  (1) One beta for several models needs two things SimPEG does not do: `UpdateSensitivityWeights`
+normalizes all models together, so the model with the smaller sensitivities is barely regularized
+(`JointSensitivityWeights`: per model, same formula); and the models' penalties add up in their own
+units (`JointRegularizationBalance`: multipliers from the ratio of the data and regularization
+Hessians' largest eigenvalues per model, like BetaEstimate_ByEig).  (2) That start is not enough: L1–L2
+ended at χ² = 103 and 1 for two datasets of N = 49 (total on target).  The directive now also moves
+regularization from the better- to the worse-fitting model after every iteration (step in log capped
+at 2×, geometric mean kept, only once χ² < 3N — before, χ²/N measures each dataset's signal).
+All kinds then end at χ²_k ≈ N_k and, with a negligible coupling, correlate > 0.9 with their
+single-method inversions.  (3) SimPEG's `UpdatePreconditioner` drops the combo multipliers;
+`JointUpdatePreconditioner` applies them.
+
+**DC and MT.**  `DCResistivityMethod` was a skeleton without a survey: now `SurveyData.locations` is
+(n, 12) A/B/M/N rows (NaN B / N: pole source / receiver), consecutive rows with one source form one
+SimPEG source (data keep their order), "volt" or "apparent_resistivity", log-conductivity model with
+active cells (inactive: `sigma_inactive`), `storeJ`.  Half-space apparent resistivity 105–122 Ω·m for
+100 on a 25 m mesh.  `MTMethod`: `make_simulation_mapped` passed the joint slice as conductivity while
+`make_simulation` used ExpMap; now log-conductivity everywhere, with active cells; half-space ρa 97.8
+for 100.  `MethodBase.default_model_value` (0, or log σ_background) and `linear`.
+
+**Method two (`methods/group_lasso.py`).**  `GroupLassoProblem`: P models, datasets `GroupLassoData`
+(linear: an operator; nonlinear: a SimPEG simulation), a model's datasets stacked (`StackedOperator`),
+groups (ζ_1k, …, ζ_Pk), references (log σ_background: "empty" = background).  `JointGroupLassoProblem`
+is its two-model case; on the paper's problem it gives bit-identical iterations, models and L-curve
+to the previous code (checked against a copy of it, both scalings, Cholesky and CG).
+- Cross-gradient λ3 C(ζ) between every pair: `CrossGradientTerm` (SimPEG's discretization; value and
+  gradient equal to `CrossGradient` to 1e-12), on the anomalies without the depth weighting.  For fixed
+  other models it is quadratic and PSD, so the ζ update solves one SPD system per model (Gauss–Seidel,
+  PCG preconditioned by the Cholesky solve) and fixed points satisfy the KKT conditions of the whole
+  nonconvex objective (tested).  Normalization: the pair factor makes the term's curvature at the
+  damped least-squares models equal to the data term's (power iteration), so λ3 is unit-free (tested
+  with density in g/cc vs kg/m³ and mGal vs µGal) and 1 weighs the coupling like the data; useful range
+  ~0.01–1.  A first normalization by max|Xᵀb| was ~10⁶ too weak (λ3 ~ 1000 needed).  Inexact ADMM
+  (CG tolerance following the primal residual) halved the time at default tolerances.
+- Nonlinear datasets: Levenberg–Marquardt Gauss–Newton around ADMM (damping ν/2‖ζ − ζ_k‖² on the
+  nonlinear models only, ν from the actual/predicted decrease ratio; the linear models keep their
+  factors).  A plain backtracking line search stalled (steps of ¼ with the objective changing 1e-5 per
+  step): near the noise level the second-order residual term matters.  Stop when the KKT residual
+  < 1e-2 or an accepted step with ν ≤ μ changes the objective < 1e-5.  Gravity + DC synthetic: 14 steps,
+  1.7 s; log10 σ −1.3 in the body (true −1), −2.00 outside (true −2); density 0.17 (true 0.3).
+- `gl_data_scaling="auto"` (new default): the paper's max_ratio for potential fields, 1/std when a
+  dataset is nonlinear.  Worker: any methods and model labels (≥ 2 models), `gl_cross_gradient`,
+  `gl_gn_max_iter`, `gl_gn_tol`; results keyed by model and dataset label.
+
+**DAG.**  `JointRegularizedInversionNode` runs the worker's joint paths (as RegularizedInversionNode does
+for single ones): method one with any regularization and per-dataset overrides, or the group lasso
+(`group_lasso={gl_*}`); outputs one PhysicalModel per model, per-model/per-dataset summaries and the
+λ1 sweep as `selection`.  `JointInversionNode` is unchanged (saved workflows rebuild as before).
+
+Tests: 356 passed, the 2 platform failures above (tests/test_joint_regularization.py 16,
+tests/test_em_methods.py 7, tests/test_joint_node.py 3, test_group_lasso.py +12, test_data_pipeline.py
++2).  Not yet: the upload page has no controls for the per-dataset settings, model labels or
+`gl_cross_gradient` (the pipeline accepts them), and MT/DC files are not read by the pipeline (Python
+and DAG only); nothing of this has run on AWS.
+
+**macOS launcher.**  `GeoInv3D.command` (repo root; double-click in Finder) does what GeoInv3D.bat does
+on Windows: opens the page if the server already answers /api/health, else starts
+`.venv/bin/python -m geoinv3d.api` on 127.0.0.1:8000 (`GEOINV3D_PORT`), waits up to 30 s and opens the
+page.  Its Terminal window holds the server (closing it or Ctrl-C stops it), `caffeinate` keeps the
+Mac awake while the server runs, and it says what is missing (no .venv, no cloud extras, no AWS
+credentials).  Tested: start, second launch, window close (server and caffeinate gone), port taken.

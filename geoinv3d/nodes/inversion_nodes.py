@@ -333,7 +333,13 @@ class SparseInversionNode(Node[InversionResult]):
 
 @register_node
 class JointInversionNode(Node[JointInversionResult]):
-    """Joint inversion combining multiple methods.
+    """Joint inversion combining multiple methods (the original L2 path).
+
+    WeightedLeastSquares with SimPEG's default alphas for every model, beta
+    cooled to chi^2 = N, and an optional cross-gradient.  Kept as it was so
+    that saved workflows rebuild unchanged;
+    :class:`JointRegularizedInversionNode` has the other regularizations,
+    bounds, per-model settings and the group lasso.
 
     Inputs: [model1, survey1, reg1, model2, survey2, reg2, ...]
        (groups of 3 per method)
@@ -459,6 +465,20 @@ def selection_summary(result: dict, n_data: int) -> dict | None:
             "penalty": floats(info["penalty"]), "gcv": floats(info.get("gcv")),
             "chosen": {k: float(v) for k, v in chosen.items() if v is not None},
             "weighting": info.get("weighting"),
+            "warnings": list(info.get("warnings", [])),
+        }
+    info = result.get("group_lasso")
+    if info is not None and info.get("sweep"):  # group-lasso lambda1 sweep
+        chosen = {"L-curve": info.get("lambda1_lcurve"),
+                  "Discrepancy": info.get("lambda1_discrepancy")}
+        sweep = info["sweep"]
+        return {
+            "parameter": "λ1", "criterion": info["criterion"],
+            "selected": float(info["lambda1"]), "n_data": int(n_data),
+            "values": [float(p["lambda1"]) for p in sweep],
+            "misfit": [None if p.get("chi2") is None else float(p["chi2"]) for p in sweep],
+            "penalty": [float(p["group_penalty"]) for p in sweep], "gcv": None,
+            "chosen": {k: float(v) for k, v in chosen.items() if v is not None},
             "warnings": list(info.get("warnings", [])),
         }
     sel = result.get("beta_selection")
@@ -633,4 +653,251 @@ class RegularizedInversionNode(Node[InversionResult]):
             beta0_ratio=p.get("beta0_ratio", 1.0),
             use_preconditioner=p.get("use_preconditioner", True),
             name=p.get("name", "RegularizedInversion"),
+        )
+
+
+JOINT_REGULARIZATION_TYPES = REGULARIZATION_TYPES + ("group_lasso",)
+
+
+@register_node
+class JointRegularizedInversionNode(Node[JointInversionResult]):
+    """Joint inversion with any of the worker's joint regularizations.
+
+    Runs :func:`geoinv3d.cloud.worker.execute_task` on a joint task, so it
+    offers the same choices as cloud jobs:
+
+    * ``regularization_type`` "l2", "sparse", "l1l2" (by IRLS), "mgs" or
+      "tv": :class:`~geoinv3d.methods.joint.JointInversion`, one
+      regularization per model with depth weighting and bounds, the models
+      balanced against their data (``balance``) and an optional
+      cross-gradient (``cross_gradient_weight``);
+    * "group_lasso": L2 + group lasso (Utsugi 2025) by ADMM for any number
+      of models, nonlinear methods (MT, DC) by Gauss–Newton, and a
+      normalized cross-gradient; its settings (the task's ``gl_*`` keys, e.g.
+      ``{"gl_lambda2": 0.3, "gl_cross_gradient": 0.1}``) in ``group_lasso``.
+
+    Per dataset: ``models`` labels (datasets with the same label share one
+    model, e.g. gz and gzz of one density model) and ``regularizations``
+    (overrides of this node's settings for the dataset's model, keys
+    JOINT_REG_KEYS, e.g. ``{"regularization_type": "mgs", "bounds_lower": 0}``;
+    the first dataset of a model decides).
+
+    Inputs: [model_1, survey_1, reg_1, model_2, survey_2, reg_2, ...] (groups
+    of 3 per dataset, as JointInversionNode): the start model (all on one
+    mesh; MT and DC models are log-conductivity), the data, and the alphas of
+    the dataset's model (RegularizationNode).
+    Output: JointInversionResult; ``final_models`` holds one PhysicalModel
+    per model, ``extras`` the regularization label, per-model and
+    per-dataset summaries, the iteration statistics and, for the group
+    lasso's lambda1 sweep, the selection curve.
+    """
+
+    evictable = False
+
+    def __init__(
+        self,
+        method_types: list[str],
+        method_kwargs_list: list[dict] | None = None,
+        weights: list[float] | None = None,
+        models: list[str | None] | None = None,
+        regularization_type: str = "sparse",
+        regularizations: list[dict | None] | None = None,
+        cross_gradient_weight: float = 0.0,
+        norms: tuple[float, ...] = (0.0, 2.0, 2.0, 1.0),
+        l1_ratio: float = 0.5,
+        focusing_percentile: float = 95.0,
+        focusing_scale: float | None = None,
+        depth_weighting: str = "sensitivity",
+        depth_weighting_exponent: float = 2.0,
+        bounds: tuple[float | None, float | None] = (None, None),
+        balance: bool = True,
+        max_iter: int = 30,
+        max_irls_iterations: int = 30,
+        beta0_ratio: float = 1.0,
+        cooling_factor: float = 2.0,
+        use_preconditioner: bool = True,
+        group_lasso: dict | None = None,
+        name: str = "JointRegularizedInversion",
+        *,
+        inputs: list[Node] | None = None,
+    ) -> None:
+        from ..cloud.task import GROUP_LASSO_KEYS, JOINT_REG_KEYS
+
+        super().__init__(name, inputs=inputs or [])
+        n = len(method_types)
+        if regularization_type not in JOINT_REGULARIZATION_TYPES:
+            raise ValueError(f"regularization_type must be one of {JOINT_REGULARIZATION_TYPES}")
+        if inputs is not None and len(inputs) != 3 * n:
+            raise ValueError(f"{len(inputs)} inputs for {n} datasets (3 per dataset: model, "
+                             "survey, regularization)")
+        for label, lst in (("method_kwargs_list", method_kwargs_list), ("weights", weights),
+                           ("models", models), ("regularizations", regularizations)):
+            if lst is not None and len(lst) != n:
+                raise ValueError(f"{label} has {len(lst)} entries for {n} datasets")
+        for over in regularizations or []:
+            unknown = set(over or {}) - set(JOINT_REG_KEYS)
+            if unknown:
+                raise ValueError(f"Unknown regularization settings {sorted(unknown)} "
+                                 f"(expected some of {JOINT_REG_KEYS})")
+        unknown = set(group_lasso or {}) - set(GROUP_LASSO_KEYS)
+        if unknown:
+            raise ValueError(f"Unknown group_lasso settings {sorted(unknown)} "
+                             f"(expected some of {GROUP_LASSO_KEYS})")
+        self.method_types = list(method_types)
+        self.method_kwargs_list = [dict(k or {}) for k in (method_kwargs_list or [{}] * n)]
+        self.weights = [float(w) for w in (weights or [1.0] * n)]
+        self.models = list(models) if models is not None else [None] * n
+        self.regularization_type = regularization_type
+        self.regularizations = [dict(r) if r else None for r in (regularizations or [None] * n)]
+        self.cross_gradient_weight = cross_gradient_weight
+        self.norms = tuple(norms)
+        self.l1_ratio = l1_ratio
+        self.focusing_percentile = focusing_percentile
+        self.focusing_scale = focusing_scale
+        self.depth_weighting = depth_weighting
+        self.depth_weighting_exponent = depth_weighting_exponent
+        self.bounds = tuple(bounds)
+        self.balance = balance
+        self.max_iter = max_iter
+        self.max_irls_iterations = max_irls_iterations
+        self.beta0_ratio = beta0_ratio
+        self.cooling_factor = cooling_factor
+        self.use_preconditioner = use_preconditioner
+        self.group_lasso = dict(group_lasso or {})
+
+    def _task(self, models, surveys, regs):
+        from ..cloud.task import InversionTask
+
+        overrides = []
+        for reg, over in zip(regs, self.regularizations):
+            d = {"alpha_s": reg.alpha_s, "alpha_x": reg.alpha_x, "alpha_y": reg.alpha_y,
+                 "alpha_z": reg.alpha_z}
+            d.update(over or {})
+            overrides.append(d)
+        return InversionTask(
+            task_id=self.name, method_type="joint",
+            regularization_type=self.regularization_type,
+            joint_methods=self.method_types, joint_kwargs_list=self.method_kwargs_list,
+            joint_weights=self.weights, joint_models=self.models,
+            joint_regularizations=overrides, joint_balance=self.balance,
+            cross_gradient_weight=self.cross_gradient_weight,
+            # datasets are labelled by method ("gravity", "gravity_2", ...), as in cloud jobs
+            joint_surveys=[{"locations": sv.locations, "observed": sv.observed, "std": sv.std}
+                           for sv in surveys],
+            joint_initial_models=[np.asarray(m.values, dtype=float) for m in models],
+            max_iter=self.max_iter, max_irls_iterations=self.max_irls_iterations,
+            beta0_ratio=self.beta0_ratio, cooling_factor=self.cooling_factor,
+            use_preconditioner=self.use_preconditioner, norms=self.norms,
+            l1_ratio=self.l1_ratio, l1l2_solver="irls",
+            focusing_percentile=self.focusing_percentile, focusing_scale=self.focusing_scale,
+            depth_weighting=self.depth_weighting,
+            depth_weighting_exponent=self.depth_weighting_exponent,
+            bounds_lower=self.bounds[0], bounds_upper=self.bounds[1],
+            **self.group_lasso,
+        )
+
+    def _compute(self, inputs: list[Any]) -> JointInversionResult:
+        from ..cloud.worker import _jsonable, execute_task
+
+        n = len(self.method_types)
+        models = [inputs[3 * i] for i in range(n)]
+        surveys = [inputs[3 * i + 1] for i in range(n)]
+        regs = [inputs[3 * i + 2] for i in range(n)]
+        mesh = models[0].mesh
+        if any(m.mesh.n_cells != mesh.n_cells for m in models[1:]):
+            raise ValueError("All start models of a joint inversion live on one mesh")
+        out = execute_task(self._task(models, surveys, regs), mesh=mesh)
+
+        result = JointInversionResult(methods=list(out["methods"]), weights=list(self.weights),
+                                      converged=bool(out["converged"]))
+        stats = [dict(it) for it in out["iterations"]]
+        for it in stats:
+            vals = [it[k] for k in ("model_min", "model_mean", "model_max") if k in it] or [0.0]
+            result.add_iteration(IterationSnapshot(
+                iteration=it["iteration"], model_values=np.array(vals, dtype=float),
+                phi_d=it["phi_d"], phi_m=it["phi_m"], phi_total=it["phi_total"],
+                beta=it["beta"]))
+        labels = out.get("dataset_labels") or list(out["methods"])
+        dataset_models = out.get("dataset_models") or labels
+        for name, values in out["recovered_models"].items():
+            values = np.asarray(values, dtype=float)
+            result.recovered_models[name] = values
+            first = dataset_models.index(name) if name in dataset_models else 0
+            start = models[first]
+            result.final_models[name] = PhysicalModel(
+                mesh=mesh, values=values, prop=start.prop,
+                name=f"{start.name or name} ({out['regularization']})")
+        chi2 = out.get("chi2") or (out.get("group_lasso") or {}).get("chi2") or {}
+        datasets = {}
+        for label, model in zip(labels, dataset_models):
+            datasets[label] = {"model": model}
+            if chi2.get(label) is not None:
+                datasets[label]["chi2"] = float(chi2[label])
+                result.per_method_phi_d[label] = [float(chi2[label])]
+        result.extras = {"regularization": out["regularization"], "iteration_stats": stats,
+                         "datasets": datasets}
+        if out.get("models") is not None:
+            result.extras["models"] = _jsonable(out["models"])
+        if out.get("group_lasso") is not None:
+            result.extras["group_lasso"] = _jsonable(out["group_lasso"])
+        if out.get("stopped_early"):
+            result.extras["stopped_early"] = _jsonable(out["stopped_early"])
+        selection = selection_summary(out, sum(len(sv.observed) for sv in surveys))
+        if selection is not None:
+            result.extras["selection"] = selection
+        return result
+
+    def params(self) -> dict:
+        return {
+            "method_types": self.method_types,
+            "method_kwargs_list": self.method_kwargs_list,
+            "weights": self.weights,
+            "models": self.models,
+            "regularization_type": self.regularization_type,
+            "regularizations": self.regularizations,
+            "cross_gradient_weight": self.cross_gradient_weight,
+            "norms": list(self.norms),
+            "l1_ratio": self.l1_ratio,
+            "focusing_percentile": self.focusing_percentile,
+            "focusing_scale": self.focusing_scale,
+            "depth_weighting": self.depth_weighting,
+            "depth_weighting_exponent": self.depth_weighting_exponent,
+            "bounds": list(self.bounds),
+            "balance": self.balance,
+            "max_iter": self.max_iter,
+            "max_irls_iterations": self.max_irls_iterations,
+            "beta0_ratio": self.beta0_ratio,
+            "cooling_factor": self.cooling_factor,
+            "use_preconditioner": self.use_preconditioner,
+            "group_lasso": self.group_lasso,
+            "name": self.name,
+        }
+
+    @classmethod
+    def from_params(cls, params: dict, inputs: list[Node]) -> JointRegularizedInversionNode:
+        p = dict(params)
+        return cls(
+            method_types=p["method_types"],
+            method_kwargs_list=p.get("method_kwargs_list"),
+            weights=p.get("weights"),
+            models=p.get("models"),
+            regularization_type=p.get("regularization_type", "sparse"),
+            regularizations=p.get("regularizations"),
+            cross_gradient_weight=p.get("cross_gradient_weight", 0.0),
+            norms=tuple(p.get("norms", [0.0, 2.0, 2.0, 1.0])),
+            l1_ratio=p.get("l1_ratio", 0.5),
+            focusing_percentile=p.get("focusing_percentile", 95.0),
+            focusing_scale=p.get("focusing_scale"),
+            depth_weighting=p.get("depth_weighting", "sensitivity"),
+            depth_weighting_exponent=p.get("depth_weighting_exponent", 2.0),
+            bounds=tuple(p.get("bounds", [None, None])),
+            balance=p.get("balance", True),
+            max_iter=p.get("max_iter", 30),
+            max_irls_iterations=p.get("max_irls_iterations", 30),
+            beta0_ratio=p.get("beta0_ratio", 1.0),
+            cooling_factor=p.get("cooling_factor", 2.0),
+            use_preconditioner=p.get("use_preconditioner", True),
+            group_lasso=p.get("group_lasso"),
+            name=p.get("name", "JointRegularizedInversion"),
+            inputs=inputs,
         )

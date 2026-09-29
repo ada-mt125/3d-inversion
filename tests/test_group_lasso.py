@@ -642,6 +642,34 @@ class TestPipeline:
         assert any("Stopped by the user" in w for w in result["group_lasso"]["warnings"])
         assert np.all(np.isfinite(result["recovered_models"]["gravity"]))
 
+    def test_two_gravity_datasets_of_one_density_model(self, tmp_path):
+        """Upload-page datasets with a "model" label share it; the viewer shows the model
+        with its first dataset."""
+        from tests.test_data_pipeline import _joint_params, _station_grid, _synthetic, _write_csv
+        from geoinv3d.cloud.worker import pack_result, run_data_pipeline
+        from geoinv3d.viz.result_workflow import build_workflow, load_result
+
+        _pipeline_files(tmp_path)
+        locs = _station_grid() + np.array([50.0, 50.0, 0.0])      # a second, offset survey
+        _write_csv(tmp_path / "g2.csv", locs, _synthetic("gravity", locs))
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
+                               regularization_type="group_lasso", gl_n_lambda1=5,
+                               gl_lambda1_decades=2.0)
+        second = dict(params["datasets"][0], files=["g2.csv"])
+        params["datasets"].insert(1, second)
+        params["datasets"][0]["model"] = params["datasets"][1]["model"] = "density"
+        result = run_data_pipeline(params, str(tmp_path))
+        assert set(result["recovered_models"]) == {"density", "magnetics"}
+        assert result["dataset_labels"] == ["gravity", "gravity_2", "magnetics"]
+        assert set(result["joint_data"]) == {"gravity", "gravity_2", "magnetics"}
+        assert result["group_lasso"]["models"]["density"] == ["gravity", "gravity_2"]
+        run = load_result(pack_result(result, str(tmp_path / "result.zip")))
+        run["_name"] = "joint"
+        inv = [nd for nd in build_workflow([run])["nodes"]
+               if nd["type"] == "RegularizedInversionNode"]
+        assert sorted(nd["output"]["final_model"]["prop"] for nd in inv) == \
+            ["density", "susceptibility"]
+
     def test_needs_a_gravity_and_a_magnetic_dataset(self, tmp_path):
         from tests.test_data_pipeline import _single
         from geoinv3d.cloud.worker import run_data_pipeline
@@ -665,3 +693,337 @@ def test_workflow_skips_joint_runs_without_data(tmp_path):
     runs, skipped = split_joint_runs([{"_name": "xgrad", "_model": None,
                                        "_models": {"gravity": np.zeros(3)}}])
     assert runs == [] and skipped == ["xgrad"]
+
+
+# ── Generalization: P models, several datasets, cross-gradient, nonlinear ──
+
+
+class TestStackedOperator:
+    def test_matches_the_dense_stack(self, kernels):
+        K, G, _ = kernels
+        w = np.random.default_rng(0).uniform(0.5, 2.0, K.shape[1])
+        s2 = np.linspace(0.5, 2.0, G.shape[0])
+        op = gl.StackedOperator([gl.WeightedOperator(K, w, 3.0), gl.WeightedOperator(G, w, s2)])
+        dense = np.vstack([3.0 * K.astype(float), s2[:, None] * G.astype(float)]) * w
+        v, y = np.random.default_rng(1).normal(size=(2, K.shape[1])), None
+        y = np.random.default_rng(2).normal(size=op.shape[0])
+        # float32 kernels: products round at ~1e-7 of their magnitude
+        ref = dense @ v[0]
+        np.testing.assert_allclose(op.matvec(v[0]), ref, rtol=0, atol=1e-5 * abs(ref).max())
+        ref = dense.T @ y
+        np.testing.assert_allclose(op.rmatvec(y), ref, rtol=0, atol=1e-5 * abs(ref).max())
+        np.testing.assert_allclose(np.triu(op.gram()), np.triu(dense @ dense.T), rtol=1e-5,
+                                   atol=1e-6 * abs(dense @ dense.T).max())
+        np.testing.assert_allclose(np.triu(op.normal()), np.triu(dense.T @ dense), rtol=1e-5,
+                                   atol=1e-6 * abs(dense.T @ dense).max())
+        np.testing.assert_allclose(op.diag_normal(), np.sum(dense ** 2, axis=0), rtol=1e-5)
+        with pytest.raises(ValueError, match="column weights"):
+            gl.StackedOperator([gl.WeightedOperator(K, w), gl.WeightedOperator(G, 2 * w)])
+
+
+def test_group_shrink_of_three_models():
+    rng = np.random.default_rng(3)
+    qs = [rng.normal(size=300) * 2 for _ in range(3)]
+    qs[0][:5] = qs[1][:5] = qs[2][:5] = 0.0
+    lam1, lam2, mu = 1.5, 0.4, 3.0
+    s = gl.group_shrink_many(qs, lam1, lam2, mu)
+    r = np.sqrt(sum(x ** 2 for x in s))
+    g = [mu * (q - x) - lam2 * x for q, x in zip(qs, s)]
+    on = r > 0
+    for gp, x in zip(g, s):
+        np.testing.assert_allclose(gp[on], lam1 * x[on] / r[on], atol=1e-12)
+    assert np.all(np.sqrt(sum(gp[~on] ** 2 for gp in g)) <= lam1 + 1e-12)
+    # two models: the same as group_shrink
+    a = gl.group_shrink_many(qs[:2], lam1, lam2, mu)
+    b = gl.group_shrink(qs[0], qs[1], lam1, lam2, mu)
+    np.testing.assert_array_equal(a[0], b[0])
+
+
+class TestCrossGradient:
+    def test_matches_simpeg(self):
+        from simpeg import maps
+        from simpeg.regularization import CrossGradient
+        mesh = Mesh3D_uniform()
+        n = mesh.nC
+        rng = np.random.default_rng(4)
+        u1, u2, v = rng.normal(size=(3, n))
+        t = gl.CrossGradientTerm(mesh)
+        ref = CrossGradient(mesh, wire_map=maps.Wires(("a", n), ("b", n)))
+        assert t.value(u1, u2) == pytest.approx(ref(np.r_[u1, u2]), rel=1e-12)
+        np.testing.assert_allclose(t.gradient(u1, u2), ref.deriv(np.r_[u1, u2])[:n], rtol=1e-10,
+                                   atol=1e-12 * abs(t.gradient(u1, u2)).max())
+        Q = t.quadratic(u2)
+        assert u1 @ Q(u1) == pytest.approx(t.value(u1, u2), rel=1e-12)
+        assert v @ Q(u1) == pytest.approx(u1 @ Q(v), rel=1e-10)          # symmetric
+        assert all(x @ Q(x) >= -1e-9 for x in rng.normal(size=(5, n)))   # PSD
+
+    def test_kkt_and_monotone_coupling(self, small):
+        """At convergence the conditions of the whole (nonconvex) objective hold, and a
+        larger lambda3 gives better aligned models."""
+        K, G, f, g, mesh = small
+        P = gl.JointGroupLassoProblem(K, G, f, g, mesh=mesh)
+        lam1 = 0.03 * P.lambda1_max()
+        values = []
+        for lam3 in (0.0, 0.03, 0.3):
+            r = P.solve(lam1, 0.3, cross_gradient=lam3, tol_primal=1e-7, tol_dual=1e-7,
+                        max_iter=30000)
+            assert r.converged
+            # the Gauss–Seidel zeta update leaves a floor of ~1e-4; without the
+            # cross-gradient's gradient the conditions would be violated far more
+            assert P.kkt_residual(r.beta_scaled, r.rho_scaled, lam1, 0.3, lam3) < 1e-3
+            if lam3 > 0:
+                assert P.kkt_residual(r.beta_scaled, r.rho_scaled, lam1, 0.3, 0.0) > 1e-2
+            values.append(P.cross_gradient_value(r.models_scaled))
+            np.testing.assert_allclose(r.objective_history[-1], r.misfit_history[-1]
+                                       + lam1 * r.group_penalty_history[-1]
+                                       + 0.3 * r.l2_penalty_history[-1]
+                                       + lam3 * r.cross_gradient_history[-1], rtol=1e-10)
+        assert values[0] > values[1] > values[2]
+        # zero is still the solution above lambda1_max
+        assert P.solve(1.001 * P.lambda1_max(), 0.3, cross_gradient=0.3).n_active == 0
+        with pytest.raises(ValueError, match="mesh"):
+            gl.JointGroupLassoProblem(K, G, f, g).solve(lam1, 0.3, cross_gradient=0.1)
+
+    def test_weight_is_unit_free(self, small):
+        """lambda3 means the same whatever the units of the models and the data."""
+        K, G, f, g, mesh = small
+        tight = dict(tol_primal=1e-8, tol_dual=1e-8, max_iter=30000)
+        runs = []
+        for Gu, gu in ((G, g), (G / 1000.0, g), (1000.0 * G, 1000.0 * g)):
+            P = gl.JointGroupLassoProblem(K, Gu, f, gu, mesh=mesh)
+            runs.append(P.solve(0.03 * P.lambda1_max(), 0.3, cross_gradient=0.1, **tight))
+        a, b, c = runs
+        for r in (b, c):
+            np.testing.assert_allclose(r.rho_scaled, a.rho_scaled, rtol=0,
+                                       atol=1e-5 * abs(a.rho_scaled).max())
+            assert r.final_terms["cross_gradient"] == pytest.approx(
+                a.final_terms["cross_gradient"], rel=1e-5)
+        np.testing.assert_allclose(b.rho_physical, 1000.0 * a.rho_physical, rtol=0,
+                                   atol=1e-5 * abs(b.rho_physical).max())
+
+
+@pytest.fixture(scope="module")
+def small():
+    """Magnetic and gravity kernels (float64) of 8 x 8 x 6 cells, and noisy data of a block."""
+    from geoinv3d.datamodel.mesh import Mesh3D
+    from geoinv3d.datamodel.survey import SurveyData
+    from geoinv3d.methods.gravity import GravityMethod
+    from geoinv3d.methods.magnetics import MagneticsMethod
+    mesh = Mesh3D.uniform(8, 8, 6, 50.0, 50.0, 50.0, origin=(0.0, 0.0, -300.0))
+    xy = np.linspace(25, 375, 8)
+    xx, yy = np.meshgrid(xy, xy)
+    locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, 20.0)])
+    sv = SurveyData(locations=locs, observed=np.zeros(64), std=np.ones(64))
+    K = np.asarray(MagneticsMethod(inducing_field=(50000.0, 60.0, 10.0))
+                   .make_simulation_full(mesh, sv).G, dtype=float)
+    G = np.asarray(GravityMethod().make_simulation_full(mesh, sv).G, dtype=float)
+    cc = mesh.to_discretize().cell_centers
+    body = (cc[:, 0] > 100) & (cc[:, 0] < 250) & (cc[:, 1] > 100) & (cc[:, 1] < 250) \
+        & (cc[:, 2] > -200) & (cc[:, 2] < -50)
+    rng = np.random.default_rng(6)
+    f, g = K @ (0.05 * body), G @ (0.3 * body)
+    f, g = (d + rng.normal(scale=0.02 * abs(d).max(), size=d.size) for d in (f, g))
+    return K, G, f, g, mesh.to_discretize()
+
+
+def Mesh3D_uniform():
+    from geoinv3d.datamodel.mesh import Mesh3D
+    return Mesh3D.uniform(NX, NY, NZ, H, H, H, origin=(0.0, 0.0, -NZ * H)).to_discretize()
+
+
+class TestGeneralProblem:
+    def test_datasets_of_one_model_stack(self, kernels):
+        """gz and gzz of one density model = one stacked gravity operator."""
+        from geoinv3d.datamodel.mesh import Mesh3D
+        from geoinv3d.datamodel.survey import SurveyData
+        from geoinv3d.methods.gravity import GravityMethod
+        K, G, cc = kernels
+        mesh = Mesh3D.uniform(NX, NY, NZ, H, H, H, origin=(0.0, 0.0, -NZ * H))
+        xy = np.linspace(25, NX * H - 25, 12)
+        xx, yy = np.meshgrid(xy, xy)
+        locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, 20.0)])
+        Gzz = np.asarray(GravityMethod("gzz").make_simulation_full(
+            mesh, SurveyData(locations=locs, observed=np.zeros(144), std=np.ones(144))).G)
+        body = _block(cc, 250, 450, 250, 450)
+        f, sf, g, sg = _data(kernels, 0.05 * body, 0.3 * body)
+        gzz = Gzz @ (0.3 * body)
+        szz = 0.02 * abs(gzz).max()
+        gzz = gzz + np.random.default_rng(5).normal(scale=szz, size=gzz.size)
+        std = dict(data_scaling="std")
+        K, G, Gzz = (np.asarray(a, dtype=float) for a in (K, G, Gzz))   # for a tight check
+        P = gl.GroupLassoProblem([gl.GroupLassoData("magnetic", f, 0, sf, operator=K),
+                                  gl.GroupLassoData("gz", g, 1, sg, operator=G),
+                                  gl.GroupLassoData("gzz", gzz, 1, szz, operator=Gzz)],
+                                 model_names=["susceptibility", "density"], **std)
+        assert isinstance(P.ops[1], gl.StackedOperator)
+        Q = gl.JointGroupLassoProblem(K, np.vstack([G, Gzz]), f, np.r_[g, gzz],
+                                      std_f=sf, std_g=np.r_[np.full(144, sg), np.full(144, szz)],
+                                      **std)
+        assert P.mu == pytest.approx(Q.mu) and P.lambda1_max() == pytest.approx(Q.lambda1_max())
+        lam1 = 0.03 * P.lambda1_max()
+        tight = dict(tol_primal=1e-8, tol_dual=1e-8, max_iter=30000)
+        a, b = P.solve(lam1, 0.3, **tight), Q.solve(lam1, 0.3, **tight)
+        np.testing.assert_allclose(a.model("density"), b.rho_physical, rtol=0,
+                                   atol=1e-5 * abs(b.rho_physical).max())
+        chi2 = P.chi2_of(a)
+        assert set(chi2) == {"magnetic", "gz", "gzz", "total"}
+        assert a.prediction("gzz").shape == (144,)
+
+    def test_linear_data_through_the_gauss_newton_path(self, kernels):
+        """A linear method given as a simulation takes the nonlinear path and gets the
+        same answer (the linearization is exact) in few steps."""
+        from geoinv3d.datamodel.mesh import Mesh3D
+        from geoinv3d.datamodel.survey import SurveyData
+        from geoinv3d.methods.gravity import GravityMethod
+        K, G, cc = kernels
+        mesh = Mesh3D.uniform(NX, NY, NZ, H, H, H, origin=(0.0, 0.0, -NZ * H))
+        xy = np.linspace(25, NX * H - 25, 12)
+        xx, yy = np.meshgrid(xy, xy)
+        locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, 20.0)])
+        sim = GravityMethod().make_simulation_full(
+            mesh, SurveyData(locations=locs, observed=np.zeros(144), std=np.ones(144)))
+        body = _block(cc, 250, 450, 250, 450)
+        f, sf, g, sg = _data(kernels, 0.05 * body, 0.3 * body)
+        make = lambda grav: gl.GroupLassoProblem(
+            [gl.GroupLassoData("magnetic", f, 0, sf, operator=K), grav], data_scaling="std")
+        lin = make(gl.GroupLassoData("gravity", g, 1, sg, operator=G))
+        nl = make(gl.GroupLassoData("gravity", g, 1, sg, simulation=sim))
+        assert lin.linear and not nl.linear
+        lam1 = 0.03 * lin.lambda1_max()
+        a = lin.solve(lam1, 0.3, tol_primal=1e-6, tol_dual=1e-6, max_iter=20000)
+        b = nl.solve(lam1, 0.3, tol_primal=1e-6, tol_dual=1e-6, max_iter=20000)
+        assert b.converged and len(b.gauss_newton) <= 3
+        np.testing.assert_allclose(b.rho_physical, a.rho_physical, rtol=1e-3,
+                                   atol=1e-3 * abs(a.rho_physical).max())
+
+    def test_scaling_auto(self, kernels):
+        K, G, _ = kernels
+        f, g = np.ones(K.shape[0]), 2 * np.ones(G.shape[0])
+        (s1, s2), _ = gl.dataset_scales([f, g], "auto", linear=[True, True])
+        assert s1 == 1.0 and s2 == 0.5
+        (s1, s2), _ = gl.dataset_scales([f, g], "auto", [np.full(f.size, 2.0), 0.5],
+                                        linear=[True, False])
+        np.testing.assert_allclose(s1, 0.5)
+
+
+@pytest.fixture(scope="module")
+def dc_problem():
+    """Gravity (linear) + DC resistivity (nonlinear) of one conductive, dense block."""
+    from discretize import TensorMesh
+    from geoinv3d.datamodel.mesh import Mesh3D
+    from geoinv3d.datamodel.survey import SurveyData
+    from geoinv3d.methods.dc_resistivity import DCResistivityMethod
+    from geoinv3d.methods.gravity import GravityMethod
+    h = [(50.0, 2, -1.5), (50.0, 12), (50.0, 2, 1.5)]
+    tm = TensorMesh([h, h, [(50.0, 2, -1.5), (50.0, 8)]], origin="CCN")
+    mesh = Mesh3D(hx=tm.h[0], hy=tm.h[1], hz=tm.h[2], origin=tuple(tm.origin))
+    cc = tm.cell_centers
+    body = (abs(cc[:, 0]) < 100) & (abs(cc[:, 1]) < 100) & (cc[:, 2] < -75) & (cc[:, 2] > -225)
+    rng = np.random.default_rng(0)
+    xy = np.linspace(-250, 250, 9)
+    X, Y = np.meshgrid(xy, xy)
+    glocs = np.column_stack([X.ravel(), Y.ravel(), np.full(X.size, 1.0)])
+    G = np.asarray(GravityMethod().make_simulation_full(
+        mesh, SurveyData(locations=glocs, observed=np.zeros(81), std=np.ones(81))).G)
+    g = G @ (0.3 * body)
+    sg = 0.02 * abs(g).max()
+    g = g + rng.normal(scale=sg, size=g.size)
+    rows = []
+    for y in (-100.0, 0.0, 100.0):
+        xs = np.arange(-275.0, 276.0, 50.0)
+        for i in range(len(xs) - 1):
+            for k in range(1, 5):
+                j = i + 1 + k
+                if j + 1 < len(xs):
+                    rows.append([xs[i], y, 0, xs[i + 1], y, 0, xs[j], y, 0, xs[j + 1], y, 0])
+    rows = np.array(rows)
+    dc = DCResistivityMethod(sigma_background=1e-2)
+    sim = dc.make_simulation_full(mesh, SurveyData(locations=rows, observed=np.zeros(len(rows)),
+                                                   std=np.ones(len(rows))))
+    m_true = np.full(tm.nC, np.log(1e-2))
+    m_true[body] = np.log(1e-1)
+    d = sim.dpred(m_true)
+    sd = 0.03 * abs(d) + 1e-3 * abs(d).max()
+    d = d + sd * rng.normal(size=d.size)
+    return dict(tm=tm, mesh=mesh, body=body, G=G, g=g, sg=sg, sim=sim, d=d, sd=sd, rows=rows,
+                glocs=glocs)
+
+
+class TestNonlinear:
+    def test_gravity_and_dc(self, dc_problem):
+        p = dc_problem
+        P = gl.GroupLassoProblem(
+            [gl.GroupLassoData("gravity", p["g"], 0, p["sg"], operator=p["G"]),
+             gl.GroupLassoData("dc", p["d"], 1, p["sd"], simulation=p["sim"])],
+            model_names=["density", "log_conductivity"],
+            references=[None, np.full(p["tm"].nC, np.log(1e-2))])
+        assert all(np.ndim(s) for s in P.scales)          # "auto": std for nonlinear data
+        seen = []
+        r = P.solve(0.03 * P.lambda1_max(), 0.3, gn_callback=lambda k, rec: seen.append(rec))
+        assert r.converged and P.gn_stop in ("kkt", "objective")
+        objectives = [rec["objective"] for rec in seen]
+        assert all(b <= a for a, b in zip(objectives, objectives[1:]))   # never worse
+        # predictions are the forward modelling of the final model
+        np.testing.assert_allclose(r.prediction("dc"), p["sim"].dpred(r.model("log_conductivity")),
+                                   rtol=1e-10)
+        chi2 = P.chi2_of(r)
+        assert chi2["dc"] < 2 * len(p["d"]) and chi2["gravity"] < 3 * len(p["g"])
+        body = p["body"]
+        log_sigma = r.model("log_conductivity") / np.log(10)
+        assert log_sigma[body].mean() > -1.6 and abs(log_sigma[~body].mean() + 2) < 0.05
+        assert r.model("density")[body].mean() > 0.1
+
+    def test_cross_gradient_with_dc(self, dc_problem):
+        p = dc_problem
+        make = lambda: gl.GroupLassoProblem(
+            [gl.GroupLassoData("gravity", p["g"], 0, p["sg"], operator=p["G"]),
+             gl.GroupLassoData("dc", p["d"], 1, p["sd"], simulation=p["sim"])],
+            references=[None, np.full(p["tm"].nC, np.log(1e-2))], mesh=p["tm"])
+        P = make()
+        lam1 = 0.1 * P.lambda1_max()
+        a = P.solve(lam1, 0.3)
+        b = P.solve(lam1, 0.3, cross_gradient=0.1, state=a.state)
+        assert b.final_terms["cross_gradient"] < P.cross_gradient_value(a.models_scaled)
+        assert b.gauss_newton and b.cross_gradient == 0.1
+
+
+class TestWorkerGeneral:
+    def test_shared_density_model_and_dc(self, dc_problem):
+        from geoinv3d.cloud.task import InversionTask
+        from geoinv3d.cloud.worker import execute_task
+        from geoinv3d.datamodel.survey import SurveyData
+        from geoinv3d.methods.gravity import GravityMethod
+        p = dc_problem
+        tm, mesh = p["tm"], p["mesh"]
+        gzz = GravityMethod("gzz").make_simulation_full(
+            mesh, SurveyData(locations=p["glocs"], observed=np.zeros(81), std=np.ones(81))
+        ).dpred(0.3 * p["body"])
+        szz = 0.02 * abs(gzz).max()
+        surveys = [{"locations": p["glocs"], "observed": p["g"], "std": np.full(81, p["sg"])},
+                   {"locations": p["glocs"], "observed": gzz, "std": np.full(81, szz)},
+                   {"locations": p["rows"], "observed": p["d"], "std": p["sd"]}]
+        task = InversionTask(task_id="t", hx=tm.h[0], hy=tm.h[1], hz=tm.h[2],
+                             origin=tuple(tm.origin), regularization_type="group_lasso",
+                             joint_methods=["gravity", "gravity", "dc"],
+                             joint_kwargs_list=[{}, {"component": "gzz"}, {}],
+                             joint_models=["density", "density", None], joint_surveys=surveys,
+                             gl_lambda1_selection="fixed", gl_lambda1_ratio=0.05)
+        result = execute_task(task)
+        assert list(result["recovered_models"]) == ["density", "dc_resistivity"]
+        assert result["dataset_labels"] == ["gravity", "gravity_2", "dc_resistivity"]
+        assert result["dataset_models"] == ["density", "density", "dc_resistivity"]
+        assert set(result["joint_data"]) == {"gravity", "gravity_2", "dc_resistivity"}
+        info = result["group_lasso"]
+        assert info["models"] == {"density": ["gravity", "gravity_2"],
+                                  "dc_resistivity": ["dc_resistivity"]}
+        assert info["data_scales"]["gravity"] == "per datum"      # auto -> std
+        assert info["gauss_newton"] and info["gauss_newton_stop"] in ("kkt", "objective",
+                                                                      "max_iter")
+        # one model only: nothing to couple
+        task.joint_models = ["density", "density", "density"]
+        with pytest.raises(ValueError, match="different properties|at least two"):
+            execute_task(task)
+        task.joint_methods, task.joint_models = ["gravity", "gravity"], ["density", "density"]
+        task.joint_surveys, task.joint_kwargs_list = surveys[:2], [{}, {"component": "gzz"}]
+        with pytest.raises(ValueError, match="at least two models"):
+            execute_task(task)

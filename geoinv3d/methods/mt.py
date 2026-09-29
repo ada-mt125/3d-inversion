@@ -1,7 +1,11 @@
 """Magnetotellurics (MT) method: forward modeling and inversion via SimPEG.
 
 Wraps SimPEG's natural_source module for conductivity -> impedance.
-Supports impedance (Zxy, Zyx, etc.) and tipper data.
+The model is the natural log of the conductivity (S/m) on the active cells
+(like the DC method, so the two can share one model in a joint inversion).
+
+Data order (SimPEG's): frequency by frequency, then component by component
+(``components``), then station by station (``SurveyData.locations``, (n, 3)).
 """
 
 from __future__ import annotations
@@ -25,12 +29,15 @@ class MTMethod(MethodBase):
     """
 
     method_name = "mt"
+    linear = False
 
     def __init__(
         self,
         frequencies: list[float] | NDArray | None = None,
         components: list[str] | None = None,
         sigma_background: float = 1e-2,
+        sigma_inactive: float | None = None,
+        store_sensitivities: bool = True,
     ) -> None:
         """
         Args:
@@ -39,14 +46,28 @@ class MTMethod(MethodBase):
                 Each is "{orientation}_{part}", e.g. "xy_real", "xy_imag".
                 Defaults to ["xy_real", "xy_imag"].
             sigma_background: Background conductivity (S/m) for
-                primary field computation.
+                primary field computation; its log is the reference and
+                default starting model.
+            sigma_inactive: conductivity of inactive cells (S/m); None: the
+                background (the primary field is that of a uniform
+                background, see Simulation3DPrimarySecondary).
+            store_sensitivities: keep the sensitivity matrix once computed
+                (``storeJ``: fast Jvec / Jtvec, sensitivity weights and the
+                group lasso's Gauss–Newton steps; n_data x n_cells floats).
         """
         self.frequencies = (
-            np.asarray(frequencies) if frequencies is not None
+            np.asarray(frequencies, dtype=float) if frequencies is not None
             else np.logspace(-3, 1, 5)
         )
-        self.components = components or ["xy_real", "xy_imag"]
-        self.sigma_background = sigma_background
+        self.components = list(components or ["xy_real", "xy_imag"])
+        self.sigma_background = float(sigma_background)
+        self.sigma_inactive = None if sigma_inactive is None else float(sigma_inactive)
+        self.store_sensitivities = bool(store_sensitivities)
+        self._parse_components()
+
+    @property
+    def default_model_value(self) -> float:
+        return float(np.log(self.sigma_background))
 
     def _parse_components(self) -> list[tuple[str, str]]:
         """Parse component strings into (orientation, part) tuples."""
@@ -92,22 +113,33 @@ class MTMethod(MethodBase):
 
         return survey.Survey(src_list)
 
-    def make_simulation(self, mesh: Mesh3D, survey: SurveyData, **kwargs) -> Any:
+    def _sigma_map(self, dmesh, mapping=None, active_cells=None):
+        """ExpMap of the (injected) log-conductivity: model -> sigma on every cell."""
+        from simpeg import maps
+
+        m = maps.ExpMap(dmesh)
+        if active_cells is not None:
+            inactive = self.sigma_background if self.sigma_inactive is None \
+                else self.sigma_inactive
+            m = m * maps.InjectActiveCells(dmesh, np.asarray(active_cells, dtype=bool),
+                                           np.log(inactive))
+        if mapping is not None:
+            m = m * mapping
+        return m
+
+    def make_simulation(self, mesh: Mesh3D, survey: SurveyData, mapping=None,
+                        active_cells=None, **kwargs) -> Any:
         from simpeg.electromagnetics.natural_source import (
             Simulation3DPrimarySecondary,
         )
-        from simpeg import maps
 
         dmesh = mesh.to_discretize()
-        simpeg_survey = self._build_survey(survey.locations)
-
-        sigma_bg = np.full(dmesh.nC, self.sigma_background)
-
+        kwargs.setdefault("storeJ", self.store_sensitivities)
         return Simulation3DPrimarySecondary(
             mesh=dmesh,
-            survey=simpeg_survey,
-            sigmaMap=maps.ExpMap(dmesh),
-            sigmaPrimary=sigma_bg,
+            survey=self._build_survey(survey.locations),
+            sigmaMap=self._sigma_map(dmesh, mapping, active_cells),
+            sigmaPrimary=np.full(dmesh.nC, self.sigma_background),
             **kwargs,
         )
 
@@ -128,24 +160,22 @@ class MTMethod(MethodBase):
     def make_simulation_full(
         self, mesh: Mesh3D, survey: SurveyData, **kwargs
     ) -> Any:
+        """Model: log-conductivity on every cell."""
         return self.make_simulation(mesh, survey, **kwargs)
 
-    def make_simulation_mapped(
-        self, mesh: Mesh3D, survey: SurveyData, mapping: Any, **kwargs
+    def make_simulation_active(
+        self, mesh: Mesh3D, survey: SurveyData, active_cells: NDArray, **kwargs
     ) -> Any:
-        """Simulation with a custom mapping (for joint inversion)."""
-        from simpeg.electromagnetics.natural_source import (
-            Simulation3DPrimarySecondary,
-        )
+        """Model: log-conductivity on the active cells."""
+        return self.make_simulation(mesh, survey, active_cells=active_cells, **kwargs)
 
-        dmesh = mesh.to_discretize()
-        simpeg_survey = self._build_survey(survey.locations)
-        sigma_bg = np.full(dmesh.nC, self.sigma_background)
+    def make_simulation_mapped(
+        self, mesh: Mesh3D, survey: SurveyData, mapping: Any,
+        active_cells: NDArray | None = None, **kwargs
+    ) -> Any:
+        """Simulation of a slice of a joint model (``mapping``: joint -> active cells).
 
-        return Simulation3DPrimarySecondary(
-            mesh=dmesh,
-            survey=simpeg_survey,
-            sigmaMap=mapping,
-            sigmaPrimary=sigma_bg,
-            **kwargs,
-        )
+        The slice is log-conductivity, as for the other simulations.
+        """
+        return self.make_simulation(mesh, survey, mapping=mapping, active_cells=active_cells,
+                                    **kwargs)

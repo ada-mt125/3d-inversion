@@ -184,8 +184,10 @@ def split_joint_runs(runs: list[dict]) -> tuple[list[dict], list[str]]:
     """One run per property model of each joint run, so that the viewer shows it
     like a single inversion (its own data node, 3D model and data fit).
 
-    Joint runs without per-dataset data (the cross-gradient inversion keeps
-    none yet) cannot be shown: their names come back as the second value.
+    A model is shown with the data of its first dataset (``dataset_models``
+    maps datasets to models; without it, a model's dataset has its name).
+    Joint runs without per-dataset data (e.g. legacy cross-gradient results)
+    cannot be shown: their names come back as the second value.
     """
     out, skipped = [], []
     for run in runs:
@@ -193,17 +195,28 @@ def split_joint_runs(runs: list[dict]) -> tuple[list[dict], list[str]]:
             out.append(run)
             continue
         models, datas = run["_models"], run.get("_datas") or {}
-        parts = [m for m in sorted(models) if m in datas]
+        labels = run.get("dataset_labels") or []
+        of_model = dict(zip(labels, run.get("dataset_models") or labels))
+        # each model with the first of its datasets that has data
+        parts = []
+        for name in sorted(models):
+            mine = [lbl for lbl in labels if of_model.get(lbl) == name and lbl in datas]
+            if name in datas and name not in mine:
+                mine.insert(0, name)
+            if mine:
+                parts.append((name, mine[0]))
         if not parts:
             skipped.append(str(run.get("_name")))
             continue
-        for name in parts:
-            ds = next((d for d in run.get("datasets", []) if d.get("method") == name),
-                      {"method": name})
-            prop = UNITS.get(name, (name,))[0]
-            out.append({**run, "_model": models[name], "_data": datas[name], "datasets": [ds],
-                        "method": name, "_joint_part": prop,
-                        "_name": f"{run.get('_name')} · {prop}"})
+        runs_datasets = run.get("datasets", [])
+        for name, label in parts:
+            k = labels.index(label) if label in labels else None
+            ds = runs_datasets[k] if k is not None and k < len(runs_datasets) else next(
+                (d for d in runs_datasets if d.get("method") == label), {"method": label})
+            prop = UNITS.get(ds.get("method"), UNITS.get(name, (name,)))[0]
+            out.append({**run, "_model": models[name], "_data": datas[label], "datasets": [ds],
+                        "method": ds.get("method", name), "_joint_part": prop,
+                        "_name": f"{run.get('_name')} · {name if name not in UNITS else prop}"})
     return out, skipped
 
 

@@ -1,4 +1,4 @@
-"""Joint magnetic–gravity inversion with L2 + group-lasso regularization (Utsugi 2025).
+"""Joint inversion with L2 + group-lasso regularization (Utsugi 2025), by ADMM.
 
 Utsugi (2025, Earth Planets Space 77:146) couples a magnetic model beta and a
 density model rho on the same M cells through a group lasso.  With
@@ -17,16 +17,34 @@ group lasso alone concentrates into a few cells.  X and Y are the sensitivities
 with unit columns (sensitivity weighting with gamma = 2) and the data of the
 two methods are scaled to comparable amplitudes.
 
+Generalization (:class:`GroupLassoProblem`; :class:`JointGroupLassoProblem`
+is the two-model problem of the paper):
+
+* any number P of models (physical properties), each explained by one or
+  more datasets (e.g. gz and gzz data of one density model); the group of
+  cell k is (zeta_1k, ..., zeta_Pk);
+* nonlinear methods (MT, DC resistivity: log-conductivity relative to its
+  background) by Gauss–Newton: at the current model each dataset is
+  linearized, d ~ F(m_k) + J (m - m_k), the group-lasso problem of the
+  linearization is solved by ADMM (warm-started), and the step to its
+  solution is damped by a backtracking line search on the true objective;
+* an optional cross-gradient term lambda3 C(zeta) between every pair of
+  models (see :class:`CrossGradientTerm`), which asks for structurally
+  similar models on top of the group lasso's co-location.
+
 ADMM (Boyd et al. 2011) with the split s = zeta and the scaled dual u:
 
-    zeta <- (Z^T Z + mu I)^-1 (Z^T b + mu (s + u))     two independent systems
+    zeta <- (Z^T Z + mu I)^-1 (Z^T b + mu (s + u))     one system per model
     s    <- per cell, with q = zeta - u:
             s_k = mu / (mu + lambda2) * max(1 - lambda1 / (mu ||q_k||), 0) * q_k
     u    <- u + s - zeta
 
 until the primal residual ||s - zeta|| and the dual residual mu ||s - s_old||
 are both within tolerance.  mu is the ADMM penalty: it changes how fast the
-iteration gets there, not the minimizer.
+iteration gets there, not the minimizer.  With the cross-gradient the zeta
+systems are coupled; they are solved model by model (Gauss–Seidel) with the
+other models at their latest values, which is exact per model because the
+cross-gradient is quadratic in each model when the others are fixed.
 
 Large problems: X and Y are never formed (the sensitivity K is applied with the
 weights on the fly, float32 as stored), no M x M or 2M x 2M matrix is built
@@ -43,6 +61,8 @@ from __future__ import annotations
 import time
 import warnings
 from dataclasses import dataclass, field
+from itertools import combinations
+from typing import Any
 
 import numpy as np
 import scipy.sparse as sp
@@ -50,11 +70,12 @@ from scipy.linalg import cho_factor, cho_solve
 from scipy.linalg.blas import dsyrk
 from scipy.sparse.linalg import LinearOperator, cg
 
-# Largest N x N (or M x M) float64 matrix factorized per method before
+# Largest N x N (or M x M) float64 matrix factorized per model before
 # switching to conjugate gradients
 FACTOR_MAX_BYTES = 4e9
 # Column blocks of the sensitivity converted to float64 at a time
 CHUNK_BYTES = 256e6
+DATA_SCALINGS = ("auto", "max_ratio", "std", "none")
 
 
 # ── Scaling ────────────────────────────────────────────────────────────
@@ -99,8 +120,65 @@ def sensitivity_weights(K=None, gamma: float = 2.0, norms=None, row_scale=None) 
     return np.maximum(norms, 1e-12 * top) ** (-gamma / 2.0)
 
 
+def dataset_scales(data, mode="max_ratio", stds=None, names=None, linear=None):
+    """Row scale of every dataset, so that the datasets have comparable influence.
+
+    mode:
+        "max_ratio" (the paper): s_0 = 1, s_d = max|d_0| / max|d_d|.
+        "std": s = 1 / std (whitening), so the misfit is chi^2.
+        "none": all 1.
+        "auto": "max_ratio" when every dataset is linear (``linear``), else
+            "std" (the amplitudes of MT or DC data say little about their
+            weight; their errors do).
+        a sequence of scalars or per-datum arrays: those.
+
+    Returns (scales, notes); notes say when a scale could not be computed.
+    """
+    data = [np.asarray(d, dtype=float).ravel() for d in data]
+    names = list(names) if names is not None else [f"dataset {i}" for i in range(len(data))]
+    stds = list(stds) if stds is not None else [None] * len(data)
+    notes = []
+    if isinstance(mode, (tuple, list)):
+        if len(mode) != len(data):
+            raise ValueError(f"{len(mode)} data scales for {len(data)} datasets")
+        scales = list(mode)
+    else:
+        if mode == "auto":
+            mode = "max_ratio" if linear is None or all(linear) else "std"
+        if mode == "max_ratio":
+            top0 = float(np.max(np.abs(data[0]))) if data[0].size else 0.0
+            scales = [1.0]
+            for d, name in zip(data[1:], names[1:]):
+                top = float(np.max(np.abs(d))) if d.size else 0.0
+                if top0 > 0 and top > 0:
+                    scales.append(top0 / top)
+                else:
+                    scales.append(1.0)
+                    notes.append(f"max|{names[0]}| or max|{name}| is zero: the amplitude ratio "
+                                 f"is undefined, so the {name} data are not scaled (scale 1)")
+        elif mode == "std":
+            if any(s is None for s in stds):
+                raise ValueError("data_scaling='std' needs the standard deviations of every "
+                                 "dataset")
+            scales = [1.0 / np.asarray(s, dtype=float) for s in stds]
+        elif mode == "none":
+            scales = [1.0] * len(data)
+        else:
+            raise ValueError(f"Unknown data_scaling {mode!r} (expected one of {DATA_SCALINGS} "
+                             "or one scale per dataset)")
+
+    def check(s, n, name):
+        s = float(s) if np.ndim(s) == 0 else np.asarray(s, dtype=float)
+        if np.ndim(s) and np.shape(s) != (n,):
+            raise ValueError(f"The scale of {name} has shape {np.shape(s)}, expected ({n},)")
+        if not np.all(np.asarray(s) > 0) or not np.all(np.isfinite(s)):
+            raise ValueError(f"The scale of {name} must be positive and finite")
+        return s
+    return [check(s, len(d), name) for s, d, name in zip(scales, data, names)], notes
+
+
 def data_scaling(f, g, mode="max_ratio", std_f=None, std_g=None):
-    """Row scales (s_f, s_g) that bring the two datasets to comparable influence.
+    """Row scales (s_f, s_g) of a magnetic and a gravity dataset (see :func:`dataset_scales`).
 
     mode:
         "max_ratio" (the paper): s_f = 1, s_g = C = max|f| / max|g|.
@@ -110,40 +188,8 @@ def data_scaling(f, g, mode="max_ratio", std_f=None, std_g=None):
 
     Returns (s_f, s_g, notes); notes say when a scale could not be computed.
     """
-    notes = []
-    if isinstance(mode, (tuple, list)):
-        s_f, s_g = mode
-    elif mode == "max_ratio":
-        top_f, top_g = float(np.max(np.abs(f))), float(np.max(np.abs(g)))
-        s_f = 1.0
-        if top_f > 0 and top_g > 0:
-            s_g = top_f / top_g
-        else:
-            s_g = 1.0
-            notes.append("max|f| or max|g| is zero: the amplitude ratio C is undefined, "
-                         "so the gravity data are not scaled (C = 1)")
-    elif mode == "std":
-        if std_f is None or std_g is None:
-            raise ValueError("data_scaling='std' needs std_f and std_g")
-        s_f = 1.0 / np.asarray(std_f, dtype=float)
-        s_g = 1.0 / np.asarray(std_g, dtype=float)
-    elif mode == "none":
-        s_f = s_g = 1.0
-    else:
-        raise ValueError(f"Unknown data_scaling {mode!r} (expected 'max_ratio', 'std', "
-                         "'none' or a pair of scales)")
-
-    def check(s, n, name):
-        s = float(s) if np.ndim(s) == 0 else np.asarray(s, dtype=float)
-        if np.ndim(s) and np.shape(s) != (n,):
-            raise ValueError(f"{name} has shape {np.shape(s)}, expected ({n},)")
-        if not np.all(np.asarray(s) > 0) or not np.all(np.isfinite(s)):
-            raise ValueError(f"{name} must be positive and finite")
-        return s
-    return check(s_f, len(f), "s_f"), check(s_g, len(g), "s_g"), notes
-
-
-_data_scaling = data_scaling   # JointGroupLassoProblem's argument of that name shadows it
+    (s_f, s_g), notes = dataset_scales([f, g], mode, [std_f, std_g], ("magnetic", "gravity"))
+    return s_f, s_g, notes
 
 
 class WeightedOperator:
@@ -183,6 +229,12 @@ class WeightedOperator:
 
     def _row_scales(self):
         return self.S if np.ndim(self.S) else np.full(self.shape[0], self.S)
+
+    def diag_normal(self) -> np.ndarray:
+        """diag(X^T X) = (w_j ||S K_j||)^2 (explicit operators)."""
+        per_row = np.ndim(self.S) > 0
+        return (self.w * column_norms(self.K, self.S if per_row else None)
+                * (1.0 if per_row else self.S)) ** 2
 
     def gram(self, chunk_bytes: float = CHUNK_BYTES) -> np.ndarray:
         """Upper triangle of X X^T (N x N, float64, Fortran order).
@@ -225,15 +277,111 @@ class WeightedOperator:
         return np.asfortranarray(block, dtype=float)
 
 
+class StackedOperator:
+    """The rows of several WeightedOperators with the same column weights.
+
+    The operator of a model explained by several datasets: X = [X_1; X_2; ...]
+    with X_d = diag(S_d) K_d diag(w).
+    """
+
+    def __init__(self, blocks):
+        self.blocks = list(blocks)
+        if not self.blocks:
+            raise ValueError("A stacked operator needs at least one block")
+        m = self.blocks[0].shape[1]
+        if any(b.shape[1] != m for b in self.blocks):
+            raise ValueError("The stacked operators have different numbers of columns")
+        self.w = self.blocks[0].w
+        if any(not np.array_equal(b.w, self.w) for b in self.blocks[1:]):
+            raise ValueError("The stacked operators have different column weights")
+        self.shape = (sum(b.shape[0] for b in self.blocks), m)
+        self.explicit = all(b.explicit for b in self.blocks)
+        self.dense = all(b.dense for b in self.blocks)
+        self._splits = np.cumsum([b.shape[0] for b in self.blocks])[:-1]
+
+    @property
+    def n_matvec(self) -> int:
+        return max(b.n_matvec for b in self.blocks)
+
+    def matvec(self, v) -> np.ndarray:
+        return np.concatenate([b.matvec(v) for b in self.blocks])
+
+    def rmatvec(self, y) -> np.ndarray:
+        parts = np.split(np.asarray(y, dtype=float), self._splits)
+        out = self.blocks[0].rmatvec(parts[0])
+        for b, part in zip(self.blocks[1:], parts[1:]):
+            out = out + b.rmatvec(part)
+        return out
+
+    def diag_normal(self) -> np.ndarray:
+        return sum(b.diag_normal() for b in self.blocks)
+
+    def gram(self, chunk_bytes: float = CHUNK_BYTES) -> np.ndarray:
+        n, m = self.shape
+        G = np.zeros((n, n), order="F")
+        step = max(1, int(chunk_bytes // (8 * max(n, 1))))
+        for j in range(0, m, step):
+            block = np.vstack([b._columns(j, min(j + step, m)) * b._row_scales()[:, None]
+                               for b in self.blocks])
+            G = dsyrk(1.0, np.asfortranarray(block), beta=1.0, c=G, trans=0, lower=0,
+                      overwrite_c=1)
+        return G
+
+    def normal(self, chunk_bytes: float = CHUNK_BYTES) -> np.ndarray:
+        H = self.blocks[0].normal(chunk_bytes)
+        for b in self.blocks[1:]:
+            H += b.normal(chunk_bytes)
+        return H
+
+
 # ── Solvers for the zeta update: (X^T X + mu I) x = rhs ────────────────
 
 
-class _DataSpaceCholesky:
+def _pcg(apply_A, rhs, x0, precond, m: int, rtol: float, maxiter: int):
+    """Preconditioned CG on an SPD operator; returns (x, iterations, info)."""
+    A = LinearOperator((m, m), dtype=float, matvec=apply_A)
+    M = None if precond is None else LinearOperator((m, m), dtype=float, matvec=precond)
+    count = [0]
+
+    def cb(_):
+        count[0] += 1
+    x, info = cg(A, rhs, x0=x0, rtol=rtol, atol=0.0, maxiter=maxiter, M=M, callback=cb)
+    return x, count[0], info
+
+
+class _Solver:
+    """Common part: ``solve_coupled`` adds a symmetric PSD term to the system.
+
+    (X^T X + mu I + E) x = rhs by preconditioned CG, preconditioned by the
+    plain solve (exact for the Cholesky solvers).
+    """
+
+    coupled_rtol = 1e-10    # the tightest tolerance of the coupled solve
+    coupled_maxiter = 500
+
+    def _precond(self):
+        return self.solve
+
+    def solve_coupled(self, rhs, x0, extra, rtol=None):
+        """``rtol``: the CG tolerance (default ``coupled_rtol``); ADMM passes one that
+        tightens as it converges (inexact ADMM)."""
+        op, mu = self.op, self.mu
+        rtol = self.coupled_rtol if rtol is None else max(rtol, self.coupled_rtol)
+        x, n, info = _pcg(lambda v: op.rmatvec(op.matvec(v)) + mu * v + extra(v), rhs, x0,
+                          self._precond(), op.shape[1], rtol, self.coupled_maxiter)
+        self.coupled_iterations = getattr(self, "coupled_iterations", 0) + n
+        if info > 0:
+            warnings.warn(f"The coupled zeta update did not reach rtol={rtol} in "
+                          f"{self.coupled_maxiter} CG iterations")
+        return x
+
+
+class _DataSpaceCholesky(_Solver):
     """Woodbury with a Cholesky factor of X X^T + mu I (fewer data than cells)."""
 
     name = "cholesky (data space)"
 
-    def __init__(self, op: WeightedOperator, mu: float):
+    def __init__(self, op, mu: float):
         self.op, self.mu = op, mu
         G = op.gram()
         G[np.diag_indices_from(G)] += mu
@@ -244,12 +392,13 @@ class _DataSpaceCholesky:
         return (rhs - self.op.rmatvec(w)) / self.mu
 
 
-class _ModelSpaceCholesky:
+class _ModelSpaceCholesky(_Solver):
     """Cholesky factor of X^T X + mu I (fewer cells than data)."""
 
     name = "cholesky (model space)"
 
-    def __init__(self, op: WeightedOperator, mu: float):
+    def __init__(self, op, mu: float):
+        self.op, self.mu = op, mu
         H = op.normal()
         H[np.diag_indices_from(H)] += mu
         self.factor = cho_factor(H, lower=False, overwrite_a=True, check_finite=False)
@@ -258,7 +407,7 @@ class _ModelSpaceCholesky:
         return cho_solve(self.factor, rhs, check_finite=False)
 
 
-class _ConjugateGradient:
+class _ConjugateGradient(_Solver):
     """Matrix-free CG on X^T X + mu I, warm-started from the previous zeta.
 
     Jacobi preconditioner when the column norms are known (with gamma = 2 the
@@ -267,15 +416,21 @@ class _ConjugateGradient:
 
     name = "conjugate gradients"
 
-    def __init__(self, op: WeightedOperator, mu: float, rtol: float = 1e-8,
+    def __init__(self, op, mu: float, rtol: float = 1e-8,
                  maxiter: int = 500, diag=None):
         m = op.shape[1]
+        self.op, self.mu = op, mu
         self.A = LinearOperator((m, m), dtype=float,
                                 matvec=lambda v: op.rmatvec(op.matvec(v)) + mu * v)
+        self._diag = diag
         self.M = None if diag is None else LinearOperator(
             (m, m), dtype=float, matvec=lambda v: v / (diag + mu))
         self.rtol, self.maxiter = rtol, maxiter
+        self.coupled_rtol, self.coupled_maxiter = min(rtol, 1e-10), maxiter
         self.iterations = 0
+
+    def _precond(self):
+        return None if self._diag is None else (lambda v: v / (self._diag + self.mu))
 
     def solve(self, rhs, x0=None):
         count = [0]
@@ -290,10 +445,10 @@ class _ConjugateGradient:
         return x
 
 
-def make_solver(op: WeightedOperator, mu: float, solver: str = "auto",
+def make_solver(op, mu: float, solver: str = "auto",
                 factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
                 cg_maxiter: int = 500):
-    """The zeta-update solver for one method.
+    """The zeta-update solver for one model.
 
     "auto": a Cholesky factor in the smaller of data and model space when the
     operator is explicit and the factor fits in ``factor_max_bytes``, else CG.
@@ -307,16 +462,43 @@ def make_solver(op: WeightedOperator, mu: float, solver: str = "auto",
             raise ValueError("A Cholesky factor needs an explicit (dense or sparse) operator")
         return _DataSpaceCholesky(op, mu) if n < m else _ModelSpaceCholesky(op, mu)
     if solver == "cg":
-        diag = None
-        if op.explicit:   # diag(X^T X) = (w_j ||S K_j||)^2
-            per_row = np.ndim(op.S) > 0
-            diag = (op.w * column_norms(op.K, op.S if per_row else None)
-                    * (1.0 if per_row else op.S)) ** 2
+        diag = op.diag_normal() if op.explicit else None   # diag(X^T X) = (w_j ||S K_j||)^2
         return _ConjugateGradient(op, mu, rtol=cg_rtol, maxiter=cg_maxiter, diag=diag)
     raise ValueError(f"Unknown solver {solver!r} (expected 'auto', 'cholesky' or 'cg')")
 
 
 # ── Group soft threshold ───────────────────────────────────────────────
+
+
+def group_shrink_many(qs, lambda1: float, lambda2: float, mu: float, out=None,
+                      coupling: str = "group"):
+    """Proximal step of lambda1 ||.||_group + lambda2/2 ||.||^2 at mu, for P models.
+
+    s_pk = mu / (mu + lambda2) * max(1 - lambda1 / (mu r_k), 0) * q_pk with
+    r_k = sqrt(sum_p q_pk^2): all components of a cell shrink together, and a
+    cell with r_k <= lambda1 / mu (also r_k = 0) is emptied.  O(P M), vectorized.
+
+    ``coupling="none"`` soft-thresholds every model separately (ordinary
+    elastic net on each model): a reference for comparisons, not the method.
+    """
+    damp = mu / (mu + lambda2)
+    t = lambda1 / mu
+    if out is None:
+        out = [np.empty_like(np.asarray(q, dtype=float)) for q in qs]
+    if coupling == "none":
+        for q, o in zip(qs, out):
+            o[:] = np.sign(q) * np.maximum(np.abs(q) - t, 0.0) * damp
+        return out
+    if coupling != "group":
+        raise ValueError(f"Unknown coupling {coupling!r} (expected 'group' or 'none')")
+    r = np.sqrt(sum(np.square(q) for q in qs)) if len(qs) != 2 else np.hypot(qs[0], qs[1])
+    # factor = damp * max(1 - t / r, 0), with r = 0 (and r <= t) giving 0
+    factor = np.subtract(r, t, out=np.zeros_like(r), where=r > t)
+    np.divide(factor, r, out=factor, where=r > t)
+    factor *= damp
+    for q, o in zip(qs, out):
+        np.multiply(factor, q, out=o)
+    return out
 
 
 def group_shrink(q_beta, q_rho, lambda1: float, lambda2: float, mu: float,
@@ -326,80 +508,211 @@ def group_shrink(q_beta, q_rho, lambda1: float, lambda2: float, mu: float,
     s_k = mu / (mu + lambda2) * max(1 - lambda1 / (mu r_k), 0) * q_k with
     r_k = sqrt(q_beta_k^2 + q_rho_k^2): both components of a cell shrink
     together, and a cell with r_k <= lambda1 / mu (also r_k = 0) is emptied.
-    O(M), vectorized.
+    O(M), vectorized.  (Two models; see :func:`group_shrink_many`.)
 
     ``coupling="none"`` soft-thresholds beta and rho separately (ordinary
     elastic net on each model): a reference for comparisons, not the method.
     """
-    damp = mu / (mu + lambda2)
-    t = lambda1 / mu
-    if coupling == "none":
-        sb = np.sign(q_beta) * np.maximum(np.abs(q_beta) - t, 0.0) * damp
-        sr = np.sign(q_rho) * np.maximum(np.abs(q_rho) - t, 0.0) * damp
-        if out_beta is not None:
-            out_beta[:], out_rho[:] = sb, sr
-            return out_beta, out_rho
-        return sb, sr
-    if coupling != "group":
-        raise ValueError(f"Unknown coupling {coupling!r} (expected 'group' or 'none')")
-    r = np.hypot(q_beta, q_rho)
-    # factor = damp * max(1 - t / r, 0), with r = 0 (and r <= t) giving 0
-    factor = np.subtract(r, t, out=np.zeros_like(r), where=r > t)
-    np.divide(factor, r, out=factor, where=r > t)
-    factor *= damp
-    out_beta = np.multiply(factor, q_beta, out=out_beta)
-    out_rho = np.multiply(factor, q_rho, out=out_rho)
-    return out_beta, out_rho
+    out = None
+    if out_beta is not None:
+        out = [out_beta, out_rho]
+    sb, sr = group_shrink_many([q_beta, q_rho], lambda1, lambda2, mu, out, coupling)
+    return sb, sr
 
 
-def group_norms(beta, rho) -> np.ndarray:
-    return np.hypot(beta, rho)
+def group_norms(*models) -> np.ndarray:
+    """||(m_1k, ..., m_Pk)|| of every cell."""
+    if len(models) == 2:
+        return np.hypot(models[0], models[1])
+    return np.sqrt(sum(np.square(m) for m in models))
 
 
-# ── The problem ────────────────────────────────────────────────────────
+# ── Cross-gradient ─────────────────────────────────────────────────────
+
+
+def largest_eigenvalue(apply, m: int, n_iter: int = 30, seed: int = 0) -> float:
+    """Largest eigenvalue of a symmetric PSD operator by power iteration."""
+    x = np.random.default_rng(seed).normal(size=m)
+    x /= np.linalg.norm(x)
+    lam = 0.0
+    for _ in range(n_iter):
+        y = apply(x)
+        lam = float(x @ y)
+        norm = np.linalg.norm(y)
+        if not norm > 0:
+            return 0.0
+        x = y / norm
+    return lam
+
+
+class CrossGradientTerm:
+    """phi(u_i, u_j) = sum_c |grad u_i x grad u_j|^2 dv, discretized as SimPEG's CrossGradient.
+
+    phi = sum_c (A g_i^2)(A g_j^2) - (A (g_i g_j))^2 with g = G u the face
+    gradients and A = diag(sqrt(v)) (faces -> cells average) (Haber & Gazit
+    2013).  For fixed u_j it is the quadratic u_i^T Q(u_j) u_i with
+
+        Q(u_j) v = G^T [ (A^T A g_j^2) (G v) - g_j (A^T A (g_j (G v))) ],
+
+    positive semidefinite (Cauchy–Schwarz, cell by cell), so the zeta update
+    stays an SPD system and d phi / d u_i = 2 Q(u_j) u_i exactly.
+
+    Args:
+        mesh: discretize mesh of the models.
+        active_cells: the cells the models live on (None: all).
+    """
+
+    def __init__(self, mesh, active_cells=None):
+        from simpeg.regularization import RegularizationMesh
+
+        regmesh = RegularizationMesh(mesh, active_cells=active_cells)
+        self.G = regmesh.cell_gradient.tocsr()
+        Av = sp.diags(np.sqrt(regmesh.vol)) @ regmesh.average_face_to_cell
+        self.Av = Av.tocsr()
+        self.AtA = (Av.T @ Av).tocsr()
+        self.n_cells = int(regmesh.nC)
+
+    def value(self, u_i, u_j) -> float:
+        g_i, g_j = self.G @ u_i, self.G @ u_j
+        Av = self.Av
+        return float(np.sum((Av @ g_i**2) * (Av @ g_j**2) - (Av @ (g_i * g_j)) ** 2))
+
+    def quadratic(self, u_other):
+        """v -> Q(u_other) v."""
+        g = self.G @ u_other
+        d = self.AtA @ (g**2)
+        G, AtA = self.G, self.AtA
+
+        def apply(v):
+            gv = G @ v
+            return G.T @ (d * gv - g * (AtA @ (g * gv)))
+        return apply
+
+    def gradient(self, u, u_other) -> np.ndarray:
+        """d phi(u, u_other) / d u."""
+        return 2.0 * self.quadratic(u_other)(u)
+
+
+# ── Datasets and the problem ───────────────────────────────────────────
+
+
+@dataclass
+class GroupLassoData:
+    """One dataset of a group-lasso joint problem.
+
+    Args:
+        name: label (used in results, e.g. "magnetic", "gravity_2").
+        data: observed data.
+        model: index of the model it constrains.
+        std: standard deviations (for chi^2 and data_scaling="std").
+        operator: linear methods: the sensitivity K (d = K m), dense (float32
+            is kept), sparse or a LinearOperator.
+        simulation: nonlinear methods: a SimPEG simulation of the model (e.g.
+            log-conductivity on the active cells); its ``dpred`` and ``getJ``
+            (else matrix-free Jvec / Jtvec) are used at every Gauss–Newton
+            iteration.
+    """
+
+    name: str
+    data: Any
+    model: int = 0
+    std: Any = None
+    operator: Any = None
+    simulation: Any = None
+
+    def __post_init__(self) -> None:
+        self.data = np.asarray(self.data, dtype=float).ravel()
+        if self.std is not None:
+            self.std = np.broadcast_to(np.asarray(self.std, dtype=float), self.data.shape)
+        if (self.operator is None) == (self.simulation is None):
+            raise ValueError(f"Dataset '{self.name}' needs either an operator (linear) or a "
+                             "simulation (nonlinear)")
+
+    @property
+    def linear(self) -> bool:
+        return self.operator is not None
+
+    @property
+    def n_params(self) -> int:
+        if self.linear:
+            return int(self.operator.shape[1])
+        sim = self.simulation
+        for attr in ("sigmaMap", "rhoMap", "chiMap", "model_map"):
+            mapping = getattr(sim, attr, None)
+            if mapping is not None:
+                return int(mapping.nP)
+        raise ValueError(f"Cannot tell the number of model parameters of '{self.name}'")
+
+    def forward(self, m) -> np.ndarray:
+        if self.linear:
+            K = self.operator
+            dtype = getattr(K, "dtype", np.float64)
+            x = np.asarray(m, dtype=dtype if dtype in (np.float32, np.float64) else float)
+            return np.asarray(K @ x, dtype=float)
+        return np.asarray(self.simulation.dpred(np.asarray(m, dtype=float)), dtype=float)
+
+    def jacobian(self, m):
+        """d data / d m at ``m``: the operator (linear) or the simulation's J."""
+        if self.linear:
+            return self.operator
+        sim = self.simulation
+        if hasattr(sim, "getJ"):
+            try:
+                return np.asarray(sim.getJ(np.asarray(m, dtype=float)), dtype=float)
+            except NotImplementedError:
+                pass
+        return sensitivity_of(sim, np.asarray(m, dtype=float))[0]
 
 
 @dataclass
 class ADMMState:
-    """Iterates of ADMM (scaled variables), for warm starts."""
+    """Iterates of ADMM (scaled variables, one array per model), for warm starts."""
 
-    zeta_beta: np.ndarray
-    zeta_rho: np.ndarray
-    s_beta: np.ndarray
-    s_rho: np.ndarray
-    u_beta: np.ndarray
-    u_rho: np.ndarray
+    zeta: list
+    s: list
+    u: list
 
     @classmethod
-    def zeros(cls, m: int) -> "ADMMState":
-        return cls(*(np.zeros(m) for _ in range(6)))
+    def zeros(cls, m: int, n_models: int = 2) -> "ADMMState":
+        return cls(*([np.zeros(m) for _ in range(n_models)] for _ in range(3)))
 
     def copy(self) -> "ADMMState":
-        return ADMMState(*(a.copy() for a in (self.zeta_beta, self.zeta_rho, self.s_beta,
-                                               self.s_rho, self.u_beta, self.u_rho)))
+        return ADMMState([a.copy() for a in self.zeta], [a.copy() for a in self.s],
+                         [a.copy() for a in self.u])
+
+    # the two-model names of JointGroupLassoProblem (magnetic, gravity)
+    zeta_beta = property(lambda self: self.zeta[0])
+    zeta_rho = property(lambda self: self.zeta[1])
+    s_beta = property(lambda self: self.s[0])
+    s_rho = property(lambda self: self.s[1])
+    u_beta = property(lambda self: self.u[0])
+    u_rho = property(lambda self: self.u[1])
 
 
 @dataclass
 class GroupLassoResult:
-    """Outcome of one ADMM solve.
+    """Outcome of one solve.
 
-    Models: ``*_scaled`` are the inversion variables (the s iterate, which has
-    exact zeros); ``*_physical`` = weights * scaled / (scalar data scale), in
-    the units of the given sensitivities (e.g. SI susceptibility and g/cc).
-    Predicted data and residuals are in the units of the given data.
-    Histories: ``misfit`` is 1/2 ||b - Z s||^2 (scaled data), ``group_penalty``
-    sum_k ||s_k||, ``l2_penalty`` 1/2 ||s||^2 (without the lambdas);
-    ``objective`` = misfit + lambda1 group + lambda2 l2.
+    Models: ``models_scaled`` are the inversion variables (the s iterate,
+    which has exact zeros); ``models_physical`` = reference + weights *
+    scaled / (scalar data scale), in the units of the sensitivities (e.g. SI
+    susceptibility, g/cc, log(S/m)).  Predicted data and residuals (one per
+    dataset) are in the units of the data.  Histories (ADMM iterations, over
+    all Gauss–Newton iterations of a nonlinear problem): ``misfit`` is
+    1/2 ||b - Z s||^2 (scaled data, of the linearization), ``group_penalty``
+    sum_k ||s_k||, ``l2_penalty`` 1/2 ||s||^2, ``cross_gradient`` C(s)
+    (without the lambdas); ``objective`` = misfit + lambda1 group + lambda2 l2
+    + lambda3 cross_gradient.
+
+    ``beta_*`` / ``rho_*`` and ``*_magnetic`` / ``*_gravity`` are the first
+    and second model / dataset, which :class:`JointGroupLassoProblem` makes
+    the magnetic and the gravity ones.
     """
 
-    beta_scaled: np.ndarray
-    rho_scaled: np.ndarray
-    beta_physical: np.ndarray
-    rho_physical: np.ndarray
-    predicted_magnetic: np.ndarray
-    predicted_gravity: np.ndarray
-    residual_magnetic: np.ndarray
-    residual_gravity: np.ndarray
+    models_scaled: list
+    models_physical: list
+    predicted: list
+    residuals: list
     objective_history: list
     misfit_history: list
     group_penalty_history: list
@@ -419,6 +732,12 @@ class GroupLassoResult:
     seconds: float = 0.0
     notes: list = field(default_factory=list)
     state: ADMMState | None = field(default=None, repr=False)
+    model_names: list = field(default_factory=list)
+    dataset_names: list = field(default_factory=list)
+    cross_gradient: float = 0.0            # lambda3
+    cross_gradient_history: list = field(default_factory=list)
+    gauss_newton: list = field(default_factory=list)   # per GN iteration (nonlinear)
+    final_terms: dict = field(default_factory=dict)
 
     @property
     def objective(self) -> float:
@@ -432,277 +751,695 @@ class GroupLassoResult:
     def group_penalty(self) -> float:
         return self.group_penalty_history[-1] if self.group_penalty_history else float("nan")
 
+    def model(self, name: str) -> np.ndarray:
+        """The physical model named ``name``."""
+        return self.models_physical[self.model_names.index(name)]
 
-class JointGroupLassoProblem:
-    """Scaled joint problem; solves it for any (lambda1, lambda2) at fixed mu.
+    def prediction(self, name: str) -> np.ndarray:
+        """The predicted data of the dataset named ``name``."""
+        return self.predicted[self.dataset_names.index(name)]
+
+    beta_scaled = property(lambda self: self.models_scaled[0])
+    rho_scaled = property(lambda self: self.models_scaled[1])
+    beta_physical = property(lambda self: self.models_physical[0])
+    rho_physical = property(lambda self: self.models_physical[1])
+    predicted_magnetic = property(lambda self: self.predicted[0])
+    predicted_gravity = property(lambda self: self.predicted[1])
+    residual_magnetic = property(lambda self: self.residuals[0])
+    residual_gravity = property(lambda self: self.residuals[1])
+
+
+class GroupLassoProblem:
+    """Scaled joint problem of P models; solves it for any (lambda1, lambda2, lambda3).
+
+    Minimizes, in the scaled variables zeta_p (physical model
+    m_p = ref_p + w_p zeta_p / c_p),
+
+        1/2 sum_d ||s_d (d_d - F_d(m_p(d)))||^2 + lambda1 sum_k ||(zeta_1k, ..., zeta_Pk)||
+        + lambda2/2 sum_p ||zeta_p||^2 + lambda3 C(zeta)
+
+    with s_d the data scales, w_p the sensitivity weights of model p (from all
+    its datasets, at the reference model) and C the normalized cross-gradient
+    (below).  Linear datasets (F = K m) make one ADMM solve; nonlinear ones a
+    Gauss–Newton loop of ADMM solves (see the module docstring).
+
+    Cross-gradient normalization: C = sum_{i<j} f_ij phi(u_i, u_j), where
+    u_p = (w_p / median w_p) zeta_p is model p's anomaly in the scaled units
+    without the depth weighting (the structure the cross-gradient compares).
+    f_ij makes the curvature of the term, at a reference pair of models,
+    equal to that of the data term: with the damped least-squares models
+    zeta_p = (X_p^T X_p + mu I)^-1 X_p^T b_p (one solve with the factors ADMM
+    uses) and lambda_max by power iteration,
+
+        f_ij = sqrt(lambda_max(X_i^T X_i) lambda_max(X_j^T X_j)
+                    / (lambda_max(H_i|j) lambda_max(H_j|i))),
+
+    H_i|j = d^2 phi / d zeta_i^2 at the reference u_j.  So lambda3 is
+    dimensionless, independent of the units of data and models, and
+    lambda3 = 1 weighs the structural coupling like the data (the way
+    BetaEstimate_ByEig sets beta).
 
     Args:
-        magnetic_operator, gravity_operator: sensitivities K (N_f x M) and
-            G (N_g x M) on the same M cells: dense arrays (float32 is kept),
-            sparse matrices, or LinearOperators (then give the weights).
-        magnetic_data, gravity_data: observed f and g (in the operators' units).
-        sensitivity_weighting: True for w = ||column||^(-gamma/2), False for
-            none (the operators are already scaled), or supply
-            ``magnetic_weights`` / ``gravity_weights``.
-        data_scaling: see :func:`data_scaling`; std_f / std_g for "std".
+        datasets: :class:`GroupLassoData`, each with the index of its model.
         mu: ADMM penalty; the zeta-update factorizations are made for it once
-            and reused by every solve.  Default: the mean non-zero eigenvalue of
-            X^T X and Y^T Y (M / min(N, M) with unit columns).
+            (per Gauss–Newton iteration for nonlinear models).  Default: the
+            mean non-zero eigenvalue of X_p^T X_p over the models.
+        model_names: one name per model (default "model_0", ...).
+        references: reference model of each model (default 0), in the
+            simulations' units (e.g. log(sigma_background)).
+        sensitivity_weighting, gamma, model_weights: w_p = ||column||^(-gamma/2)
+            of the model's stacked, row-scaled sensitivities, or none, or the
+            given weights.
+        data_scaling: see :func:`dataset_scales` ("auto" by default).
         solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
-
-    Memory: the operators are used as given (no weighted copies); the
-    Cholesky solver adds one min(N, M)^2 float64 matrix per method, CG none.
+        mesh, active_cells: the models' mesh (discretize) and cells, for the
+            cross-gradient; None: no cross-gradient.
     """
 
-    def __init__(self, magnetic_operator, gravity_operator, magnetic_data, gravity_data,
-                 mu: float | None = None, *, sensitivity_weighting: bool = True,
-                 gamma: float = 2.0, magnetic_weights=None, gravity_weights=None,
-                 data_scaling="max_ratio", std_f=None, std_g=None, solver: str = "auto",
+    def __init__(self, datasets, mu: float | None = None, *, model_names=None, references=None,
+                 sensitivity_weighting: bool = True, gamma: float = 2.0, model_weights=None,
+                 data_scaling="auto", solver: str = "auto",
                  factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
-                 cg_maxiter: int = 500):
-        K, G = magnetic_operator, gravity_operator
-        if K.shape[1] != G.shape[1]:
-            raise ValueError(f"The operators have {K.shape[1]} and {G.shape[1]} cells; "
-                             "both models live on the same cells")
-        self.f = np.asarray(magnetic_data, dtype=float).ravel()
-        self.g = np.asarray(gravity_data, dtype=float).ravel()
-        if self.f.size != K.shape[0] or self.g.size != G.shape[0]:
-            raise ValueError("Data and operator rows do not match")
-        self.m = K.shape[1]
+                 cg_maxiter: int = 500, mesh=None, active_cells=None):
+        self.datasets = list(datasets)
+        if not self.datasets:
+            raise ValueError("A group-lasso problem needs at least one dataset")
+        self.n_models = max(d.model for d in self.datasets) + 1
+        self.model_datasets = [[i for i, d in enumerate(self.datasets) if d.model == p]
+                               for p in range(self.n_models)]
+        if any(not ds for ds in self.model_datasets):
+            raise ValueError("Every model index needs at least one dataset")
+        self.model_names = list(model_names) if model_names is not None \
+            else [f"model_{p}" for p in range(self.n_models)]
+        if len(self.model_names) != self.n_models:
+            raise ValueError(f"{len(self.model_names)} model names for {self.n_models} models")
+        sizes = {d.n_params for d in self.datasets}
+        if len(sizes) > 1:
+            raise ValueError(f"The operators have {sorted(sizes)} cells; all models live on the "
+                             "same cells")
+        self.m = sizes.pop()
+        for d in self.datasets:
+            if d.linear and d.data.size != d.operator.shape[0]:
+                raise ValueError(f"Data and operator rows do not match ({d.name})")
+        self.references = [np.zeros(self.m) if references is None or references[p] is None
+                           else np.broadcast_to(np.asarray(references[p], dtype=float),
+                                                (self.m,)).copy()
+                           for p in range(self.n_models)]
+        self.linear = all(d.linear for d in self.datasets)
+        self.model_linear = [all(self.datasets[i].linear for i in ds)
+                             for ds in self.model_datasets]
         self.gamma = gamma
         self.notes = []
-        # standard deviations, when given, also report chi^2 (whatever the scaling)
-        self.std_f = None if std_f is None else np.broadcast_to(
-            np.asarray(std_f, dtype=float), self.f.shape)
-        self.std_g = None if std_g is None else np.broadcast_to(
-            np.asarray(std_g, dtype=float), self.g.shape)
-        s_f, s_g, notes = _data_scaling(self.f, self.g, data_scaling, std_f, std_g)
+        self._solver_args = (solver, factor_max_bytes, cg_rtol, cg_maxiter)
+
+        # data scales; a scalar scale of a model's first dataset is carried by the
+        # model variable, as in the paper: the operator keeps unit columns and
+        # scaled = c * physical / w, so the components of a group are in
+        # comparable (data) units.  A per-datum scale (e.g. 1/std) cannot be, so it
+        # weights the operator's rows, and the column weights are computed from
+        # the weighted rows.
+        names = [d.name for d in self.datasets]
+        self.scales, notes = dataset_scales([d.data for d in self.datasets], data_scaling,
+                                            [d.std for d in self.datasets], names,
+                                            [d.linear for d in self.datasets])
         self.notes += notes
         for n in notes:
             warnings.warn(n)
-        self.s_f, self.s_g = s_f, s_g
-        self.bf = s_f * self.f      # scaled data b = [S_f f, S_g g]
-        self.bg = s_g * self.g
+        self.model_factors = []
+        for ds in self.model_datasets:
+            s0 = self.scales[ds[0]]
+            self.model_factors.append(float(s0) if np.ndim(s0) == 0 else 1.0)
+        self.row_scales = [s / self.model_factors[d.model] if np.ndim(s) == 0
+                           else np.asarray(s) / self.model_factors[d.model]
+                           for s, d in zip(self.scales, self.datasets)]
 
-        # A scalar data scale is carried by the model variable, as in the paper: the
-        # operator keeps unit columns and scaled = S * physical / w, so the two
-        # components of a group are in comparable (data) units.  A per-datum scale
-        # (e.g. 1/std) cannot be, so it weights the operator's rows, and the column
-        # weights are computed from the weighted rows.
-        def split(s):
-            return (s, 1.0) if np.ndim(s) else (1.0, s)   # (row scale, model factor)
-        (r_f, self.c_f), (r_g, self.c_g) = split(s_f), split(s_g)
-
-        def weights(given, op, row):
-            """Column weights, and trace(X^T X) (None when unknown)."""
-            explicit = isinstance(op, np.ndarray) or sp.issparse(op)
-            norms = column_norms(op, row if np.ndim(row) else None) if explicit else None
-            if given is not None:
-                w = np.asarray(given, dtype=float)
+        # Jacobians at the reference, the column weights and mu
+        m0 = [ref.copy() for ref in self.references]
+        self._K = [d.jacobian(m0[d.model]) for d in self.datasets]
+        given = list(model_weights) if model_weights is not None else [None] * self.n_models
+        self.weights, traces = [], []
+        for p, ds in enumerate(self.model_datasets):
+            explicit = all(isinstance(self._K[i], np.ndarray) or sp.issparse(self._K[i])
+                           for i in ds)
+            norms2 = None
+            if explicit:
+                norms2 = sum(column_norms(self._K[i], self.row_scales[i]
+                                          if np.ndim(self.row_scales[i]) else None) ** 2
+                             * (1.0 if np.ndim(self.row_scales[i]) else self.row_scales[i] ** 2)
+                             for i in ds)
+            elif not self.model_linear[p] and given[p] is None:
+                norms2 = sum(self._jtj_diag(i, m0[p]) for i in ds)
+            if given[p] is not None:
+                w = np.asarray(given[p], dtype=float)
             elif sensitivity_weighting:
-                if norms is None:
+                if norms2 is None:
                     raise ValueError("Give the weights of a matrix-free operator "
-                                     "(magnetic_weights / gravity_weights)")
-                w = sensitivity_weights(gamma=gamma, norms=norms)
+                                     "(magnetic_weights / gravity_weights / model_weights)")
+                w = sensitivity_weights(gamma=gamma, norms=np.sqrt(norms2))
             else:
-                w = np.ones(op.shape[1])
-            return w, None if norms is None else float(np.sum((w * norms) ** 2))
-        self.w_beta, trace_x = weights(magnetic_weights, K, r_f)
-        self.w_rho, trace_y = weights(gravity_weights, G, r_g)
-        self.X = WeightedOperator(K, self.w_beta, r_f)
-        self.Y = WeightedOperator(G, self.w_rho, r_g)
+                w = np.ones(self.m)
+            self.weights.append(w)
+            traces.append(None if norms2 is None else float(np.sum(w**2 * norms2)))
+        self._build_operators()
         if mu is None:
             # the mean non-zero eigenvalue of X^T X (M / min(N, M) for unit columns):
             # ADMM converges fastest for mu near the scale of the curvature
-            if trace_x is None or trace_y is None:
+            if any(t is None for t in traces):
                 raise ValueError("mu has no default for a matrix-free operator; give it")
-            mu = 0.5 * (trace_x / min(self.X.shape) + trace_y / min(self.Y.shape))
+            mu = float(np.mean([t / min(op.shape) for t, op in zip(traces, self.ops)]))
         if not mu > 0:
             raise ValueError(f"mu must be > 0, got {mu}")
         self.mu = float(mu)
         t0 = time.time()
-        self.solver_X = make_solver(self.X, self.mu, solver, factor_max_bytes, cg_rtol, cg_maxiter)
-        self.solver_Y = make_solver(self.Y, self.mu, solver, factor_max_bytes, cg_rtol, cg_maxiter)
+        self._build_solvers(range(self.n_models))
         self.setup_seconds = time.time() - t0
-        self.Xt_f = self.X.rmatvec(self.bf)   # Z^T b, reused by every zeta update
-        self.Yt_g = self.Y.rmatvec(self.bg)
+        self._linearize_at(None, first=True)
+        self._lambda1_max = float(np.max(group_norms(*self.Zt_b)))
+        self._zt_b_ref = [z.copy() for z in self.Zt_b]
+        self._ref_ops = list(self.ops)
+        # cross-gradient normalization (fixed, from the reference model)
+        self.cross_gradient_term = None if mesh is None else CrossGradientTerm(mesh, active_cells)
+        if self.cross_gradient_term is not None and self.cross_gradient_term.n_cells != self.m:
+            raise ValueError(f"The cross-gradient mesh has {self.cross_gradient_term.n_cells} "
+                             f"(active) cells, the models {self.m}")
+        self.w_median = [float(np.median(w)) for w in self.weights]
+        self._cg_factors = None
+
+    # -- setup helpers -------------------------------------------------------
+
+    def _jtj_diag(self, i, m):
+        sim = self.datasets[i].simulation
+        r = self.row_scales[i]
+        W = sp.diags(np.broadcast_to(r, (self.datasets[i].data.size,)))
+        return np.asarray(sim.getJtJdiag(m, W=W), dtype=float)
+
+    def _build_operators(self):
+        ops = []
+        self.dataset_ops = []
+        for p, ds in enumerate(self.model_datasets):
+            blocks = [WeightedOperator(self._K[i], self.weights[p], self.row_scales[i])
+                      for i in ds]
+            self.dataset_ops += list(zip(ds, blocks))
+            ops.append(blocks[0] if len(blocks) == 1 else StackedOperator(blocks))
+        self.dataset_ops = [op for _, op in sorted(self.dataset_ops, key=lambda t: t[0])]
+        self.ops = ops
+
+    def _build_solvers(self, models, damping: float = 0.0):
+        """zeta-update solvers of ``models`` for mu (+ ``damping``, Levenberg–Marquardt)."""
+        solver, factor_max_bytes, cg_rtol, cg_maxiter = self._solver_args
+        if not hasattr(self, "solvers"):
+            self.solvers = [None] * self.n_models
+        for p in models:
+            self.solvers[p] = make_solver(self.ops[p], self.mu + damping, solver,
+                                          factor_max_bytes, cg_rtol, cg_maxiter)
+
+    def _physical_all(self, s_list):
+        return [self.references[p] + self.weights[p] * s / self.model_factors[p]
+                for p, s in enumerate(s_list)]
+
+    def _linearize_at(self, s_list, first: bool = False, damping: float = 0.0):
+        """Data b of the linearization at ``s_list`` (None: the reference model).
+
+        b_d = s_d (d_d - F_d(m)) + X_d zeta_p; for linear datasets
+        b_d = s_d (d_d - K_d ref_p).  Nonlinear models get new Jacobians,
+        operators and solvers (not at the first call: set up already).
+        """
+        if s_list is None:
+            s_list = [np.zeros(self.m) for _ in range(self.n_models)]
+        m = self._physical_all(s_list)
+        if not first and not self.linear:
+            for i, d in enumerate(self.datasets):
+                if not d.linear:
+                    self._K[i] = d.jacobian(m[d.model])
+            self._build_operators()
+            self._build_solvers([p for p in range(self.n_models) if not self.model_linear[p]],
+                                damping)
+        self.forward_at = []
+        self.b = []
+        for i, d in enumerate(self.datasets):
+            p = d.model
+            if d.linear:
+                ref_pred = self._ref_prediction(i)
+                self.b.append(self.scales[i] * (d.data - ref_pred))
+                self.forward_at.append(None)
+            else:
+                pred = d.forward(m[p])
+                self.forward_at.append(pred)
+                self.b.append(self.scales[i] * (d.data - pred)
+                              + self.dataset_ops[i].matvec(s_list[p]))
+        self.Zt_b = []
+        for p, ds in enumerate(self.model_datasets):
+            z = self.dataset_ops[ds[0]].rmatvec(self.b[ds[0]])
+            for i in ds[1:]:
+                z = z + self.dataset_ops[i].rmatvec(self.b[i])
+            self.Zt_b.append(z)
+        self._lin_s = [s.copy() for s in s_list]
+
+    def _ref_prediction(self, i):
+        if not hasattr(self, "_ref_pred"):
+            self._ref_pred = {}
+        if i not in self._ref_pred:
+            d = self.datasets[i]
+            ref = self.references[d.model]
+            self._ref_pred[i] = d.forward(ref) if np.any(ref) else np.zeros(d.data.size)
+        return self._ref_pred[i]
 
     # -- quantities --------------------------------------------------------
 
     @property
     def solver_name(self) -> str:
-        a, b = self.solver_X.name, self.solver_Y.name
-        return a if a == b else f"{a} / {b}"
+        names = [s.name for s in self.solvers]
+        return names[0] if len(set(names)) == 1 else " / ".join(names)
 
     def lambda1_max(self) -> float:
-        """Smallest lambda1 whose solution is zero: max_k ||(Z^T b)_k||."""
-        return float(np.max(np.hypot(self.Xt_f, self.Yt_g)))
+        """Smallest lambda1 whose solution is zero (the reference model): max_k ||(Z^T b)_k||."""
+        return self._lambda1_max
 
-    def terms(self, s_beta, s_rho, pred_f=None, pred_g=None) -> dict:
-        """Misfit 1/2 ||b - Z s||^2, group penalty and L2 penalty (unweighted by lambda)."""
-        if pred_f is None:
-            pred_f = self.X.matvec(s_beta)
-        if pred_g is None:
-            pred_g = self.Y.matvec(s_rho)
-        rf, rg = self.bf - pred_f, self.bg - pred_g
-        return {"misfit": 0.5 * float(rf @ rf + rg @ rg),
-                "misfit_magnetic": 0.5 * float(rf @ rf), "misfit_gravity": 0.5 * float(rg @ rg),
-                "group": float(np.sum(np.hypot(s_beta, s_rho))),
-                "l2": 0.5 * float(s_beta @ s_beta + s_rho @ s_rho)}
+    def to_physical(self, *s_list):
+        """Models in the operators' units: reference + w * scaled / (scalar data scale).
 
-    def chi2(self, result: "GroupLassoResult") -> dict | None:
-        """chi^2 of each dataset (needs std_f and std_g)."""
-        if self.std_f is None or self.std_g is None:
+        One array per model, or a list of them; returns a tuple.
+        """
+        if len(s_list) == 1 and isinstance(s_list[0], (list, tuple)):
+            s_list = s_list[0]
+        return tuple(self._physical_all(list(s_list)))
+
+    def _cg_u(self, p, s):
+        return (self.weights[p] / self.w_median[p]) * s
+
+    def _cg_pair_factor(self, p, q):
+        if self._cg_factors is None:
+            self._cg_factors = self._cross_gradient_factors()
+        return self._cg_factors[(min(p, q), max(p, q))]
+
+    def _cross_gradient_factors(self, n_iter: int = 30) -> dict:
+        """f_ij of every pair of models (see the class docstring), at the reference."""
+        t = self.cross_gradient_term
+        ls = [self.solvers[p].solve(z) for p, z in enumerate(self._zt_b_ref)]
+        u = [self._cg_u(p, x) for p, x in enumerate(ls)]
+        lam_d = [largest_eigenvalue(lambda v, op=op: op.rmatvec(op.matvec(v)), self.m, n_iter)
+                 for op in self._ref_ops]
+
+        def lam_q(p, q):
+            D = self.weights[p] / self.w_median[p]
+            Q = t.quadratic(u[q])
+            return largest_eigenvalue(lambda v: 2.0 * D * Q(D * v), self.m, n_iter)
+        factors = {}
+        for p, q in combinations(range(self.n_models), 2):
+            a, b = lam_q(p, q), lam_q(q, p)
+            if not (a > 0 and b > 0):
+                raise ValueError(f"The reference models of '{self.model_names[p]}' and "
+                                 f"'{self.model_names[q]}' have no gradient: the cross-gradient "
+                                 "cannot be normalized")
+            factors[(p, q)] = float(np.sqrt(lam_d[p] * lam_d[q] / (a * b)))
+        return factors
+
+    def cross_gradient_value(self, s_list) -> float:
+        """C(s): the normalized cross-gradient of all pairs of models (without lambda3)."""
+        t = self.cross_gradient_term
+        if t is None or self.n_models < 2:
+            return 0.0
+        u = [self._cg_u(p, s) for p, s in enumerate(s_list)]
+        return float(sum(self._cg_pair_factor(p, q) * t.value(u[p], u[q])
+                         for p, q in combinations(range(self.n_models), 2)))
+
+    def cross_gradient_gradient(self, p, s_list) -> np.ndarray:
+        """d C / d zeta_p."""
+        t = self.cross_gradient_term
+        if t is None or self.n_models < 2:
+            return np.zeros(self.m)
+        D = self.weights[p] / self.w_median[p]
+        u_p = D * s_list[p]
+        g = np.zeros(self.m)
+        for q in range(self.n_models):
+            if q != p:
+                g += self._cg_pair_factor(p, q) * t.gradient(u_p, self._cg_u(q, s_list[q]))
+        return D * g
+
+    def _cg_hessian(self, p, s_list):
+        """v -> d^2 C / d zeta_p^2 v, the others fixed (exact: C is quadratic in zeta_p)."""
+        t = self.cross_gradient_term
+        D = self.weights[p] / self.w_median[p]
+        parts = [(self._cg_pair_factor(p, q), t.quadratic(self._cg_u(q, s_list[q])))
+                 for q in range(self.n_models) if q != p]
+
+        def apply(v):
+            x = D * v
+            out = np.zeros(self.m)
+            for factor, Q in parts:
+                out += factor * Q(x)
+            return 2.0 * D * out
+        return apply
+
+    def predictions(self, s_list, exact: bool = True):
+        """Predicted data of every dataset (data units).
+
+        Linear datasets: K m.  Nonlinear ones: the forward modelling at the
+        model (``exact``), or the current linearization.
+        """
+        m = self._physical_all(s_list)
+        preds = []
+        for i, d in enumerate(self.datasets):
+            p = d.model
+            op = self.dataset_ops[i]
+            if d.linear:
+                preds.append(op.matvec(s_list[p]) / self.scales[i] + self._ref_prediction(i))
+            elif exact:
+                same = all(np.array_equal(a, b) for a, b in zip(s_list, self._lin_s))
+                preds.append(self.forward_at[i] if same else d.forward(m[p]))
+            else:
+                preds.append(self.forward_at[i]
+                             + op.matvec(s_list[p] - self._lin_s[p]) / self.scales[i])
+        return preds
+
+    def terms_of(self, s_list, preds=None) -> dict:
+        """Misfit 1/2 sum_d ||s_d (d_d - pred_d)||^2 (and per dataset), group, L2 and
+        cross-gradient penalties (unweighted by the lambdas)."""
+        if preds is None:
+            preds = self.predictions(s_list)
+        out = {"misfit": 0.0}
+        for i, (d, pred) in enumerate(zip(self.datasets, preds)):
+            r = self.scales[i] * (d.data - pred)
+            out[f"misfit_{d.name}"] = 0.5 * float(r @ r)
+            out["misfit"] += out[f"misfit_{d.name}"]
+        out["group"] = float(np.sum(group_norms(*s_list)))
+        out["l2"] = 0.5 * float(sum(s @ s for s in s_list))
+        out["cross_gradient"] = self.cross_gradient_value(s_list)
+        return out
+
+    def _linearized_terms(self, s_list) -> dict:
+        """terms_of for the current linearization (the ADMM histories): cheap."""
+        out = {"misfit": 0.0}
+        for i, d in enumerate(self.datasets):
+            r = self.b[i] - self.dataset_ops[i].matvec(s_list[d.model])
+            out[f"misfit_{d.name}"] = 0.5 * float(r @ r)
+            out["misfit"] += out[f"misfit_{d.name}"]
+        out["group"] = float(np.sum(group_norms(*s_list)))
+        out["l2"] = 0.5 * float(sum(s @ s for s in s_list))
+        out["cross_gradient"] = self.cross_gradient_value(s_list)
+        return out
+
+    @staticmethod
+    def _objective(t, lambda1, lambda2, lambda3):
+        return t["misfit"] + lambda1 * t["group"] + lambda2 * t["l2"] \
+            + lambda3 * t["cross_gradient"]
+
+    def chi2_of(self, result: "GroupLassoResult") -> dict | None:
+        """chi^2 of each dataset (needs every std) and their total."""
+        if any(d.std is None for d in self.datasets):
             return None
-        cf = float(np.sum((result.residual_magnetic / self.std_f) ** 2))
-        cg = float(np.sum((result.residual_gravity / self.std_g) ** 2))
-        return {"magnetic": cf, "gravity": cg, "total": cf + cg}
+        out = {d.name: float(np.sum((r / d.std) ** 2))
+               for d, r in zip(self.datasets, result.residuals)}
+        out["total"] = float(sum(out.values()))
+        return out
 
-    def kkt_residual(self, s_beta, s_rho, lambda1: float, lambda2: float) -> float:
+    def kkt_residuals(self, s_list, lambda1: float, lambda2: float,
+                      cross_gradient: float = 0.0) -> float:
         """Largest violation of the optimality conditions, relative to lambda1.
 
-        With c = Z^T (b - Z s): a cell with s_k != 0 needs
-        c_k = lambda1 s_k / ||s_k|| + lambda2 s_k; an empty cell ||c_k|| <= lambda1.
+        With c_p = Z_p^T (b - Z s) - lambda3 dC/dzeta_p (at the current
+        linearization, which for a nonlinear problem is the model it was last
+        solved at): a cell with s_k != 0 needs c_k = lambda1 s_k / ||s_k|| +
+        lambda2 s_k; an empty cell ||c_k|| <= lambda1.
         """
-        cb = self.X.rmatvec(self.bf - self.X.matvec(s_beta))
-        cr = self.Y.rmatvec(self.bg - self.Y.matvec(s_rho))
-        r = np.hypot(s_beta, s_rho)
+        c = []
+        for p, ds in enumerate(self.model_datasets):
+            g = np.zeros(self.m)
+            for i in ds:
+                op = self.dataset_ops[i]
+                g += op.rmatvec(self.b[i] - op.matvec(s_list[p]))
+            if cross_gradient:
+                g -= cross_gradient * self.cross_gradient_gradient(p, s_list)
+            c.append(g)
+        r = group_norms(*s_list)
         on = r > 0
         scale = max(lambda1, 1e-300)
         viol = np.zeros(self.m)
-        unit_b = np.divide(s_beta, r, out=np.zeros_like(r), where=on)
-        unit_r = np.divide(s_rho, r, out=np.zeros_like(r), where=on)
-        db = cb - lambda1 * unit_b - lambda2 * s_beta
-        dr = cr - lambda1 * unit_r - lambda2 * s_rho
-        viol[on] = np.hypot(db[on], dr[on]) / scale
-        viol[~on] = np.maximum(np.hypot(cb[~on], cr[~on]) - lambda1, 0.0) / scale
+        d = [cp - lambda1 * np.divide(sp_, r, out=np.zeros_like(r), where=on) - lambda2 * sp_
+             for cp, sp_ in zip(c, s_list)]
+        viol[on] = group_norms(*[x[on] for x in d]) / scale
+        viol[~on] = np.maximum(group_norms(*[x[~on] for x in c]) - lambda1, 0.0) / scale
         return float(viol.max()) if viol.size else 0.0
 
     # -- ADMM --------------------------------------------------------------
 
-    def solve(self, lambda1: float, lambda2: float, *, max_iter: int = 2000,
-              tol_primal: float = 1e-4, tol_dual: float = 1e-4, tol_abs: float | None = None,
-              state: ADMMState | None = None, history_every: int = 1, callback=None,
-              should_stop=None, coupling: str = "group") -> GroupLassoResult:
-        """ADMM for one (lambda1, lambda2).
+    def _admm(self, lambda1, lambda2, lambda3, st, max_iter, tol_primal, tol_dual, tol_abs,
+              history_every, callback, should_stop, coupling, hist, it0=0, prox=None):
+        """ADMM on the current linearization from ``st`` (changed in place).
 
-        Stops when r_primal = ||s - zeta|| <= sqrt(2M) tol_abs + tol_primal max(||zeta||, ||s||)
-        and r_dual = mu ||s - s_old|| <= sqrt(2M) tol_abs + tol_dual ||mu u||
-        (Boyd et al. 2011, section 3.3.1), or after ``max_iter`` iterations
-        (``converged`` False).  Never on the objective alone.
-
-        Args:
-            tol_abs: absolute tolerance in scaled model units; default
-                1e-9 max|Z^T b|.
-            state: warm start (e.g. the previous lambda1 of a sweep).
-            history_every: record objective terms every so many iterations
-                (each record costs one product with X and one with Y).
-            callback: ``callback(iteration, record)`` after each record.
-            should_stop: ``() -> bool`` asked every iteration; True ends the
-                solve with the current iterate (``stopped``).
+        ``prox``: {model: (nu, center)} adds nu/2 ||zeta_p - center||^2 (the
+        Levenberg–Marquardt damping; the model's solver must be built for
+        mu + nu).  Returns (iterations, converged, stopped); appends to ``hist``.
         """
-        if lambda1 < 0 or lambda2 < 0:
-            raise ValueError("lambda1 and lambda2 must be >= 0")
-        t0 = time.time()
-        mu, m = self.mu, self.m
-        lam_max = self.lambda1_max()
-        if tol_abs is None:
-            tol_abs = 1e-9 * max(float(np.max(np.abs(np.concatenate([self.Xt_f, self.Yt_g])))), 1e-300)
-        st = ADMMState.zeros(m) if state is None else state.copy()
-        hist = {k: [] for k in ("objective", "misfit", "group", "l2", "primal", "dual")}
-        sqrt_n = np.sqrt(2 * m)
+        mu, m, P = self.mu, self.m, self.n_models
+        sqrt_n = np.sqrt(P * m)
         rhs = np.empty(m)
-        s_old_b, s_old_r = np.empty(m), np.empty(m)
-        q_b, q_r = np.empty(m), np.empty(m)
+        s_old = [np.empty(m) for _ in range(P)]
+        q = [np.empty(m) for _ in range(P)]
+        coupled = lambda3 > 0 and self.cross_gradient_term is not None and P >= 2
         converged = stopped = False
         it = 0
-
-        if coupling == "group" and lambda1 >= lam_max:
-            # the exact solution is zero (see lambda1_max); nothing to iterate
-            st = ADMMState.zeros(m)
-            converged = True
+        # inexact ADMM: the coupled zeta systems are solved to a tolerance that
+        # follows the primal residual (errors that shrink as ADMM converges)
+        cg_rtol = 1e-3
+        lam_max = float(np.max(group_norms(*self.Zt_b)))
+        if coupling == "group" and lambda1 >= lam_max and prox is None:
+            # the exact solution is zero (see lambda1_max; the cross-gradient has a zero
+            # gradient there too); nothing to iterate
+            for a in st.zeta + st.s + st.u:
+                a[:] = 0.0
+            return 0, True, False
         while not converged and it < max_iter:
             if should_stop is not None and should_stop():
                 stopped = True
                 break
             it += 1
-            # 1. zeta update: two independent systems
-            np.add(st.s_beta, st.u_beta, out=rhs)
-            rhs *= mu
-            rhs += self.Xt_f
-            st.zeta_beta = self.solver_X.solve(rhs, st.zeta_beta)
-            np.add(st.s_rho, st.u_rho, out=rhs)
-            rhs *= mu
-            rhs += self.Yt_g
-            st.zeta_rho = self.solver_Y.solve(rhs, st.zeta_rho)
+            # 1. zeta update: one system per model (Gauss–Seidel with the cross-gradient)
+            for p in range(P):
+                np.add(st.s[p], st.u[p], out=rhs)
+                rhs *= mu
+                rhs += self.Zt_b[p]
+                if prox is not None and p in prox:
+                    rhs += prox[p][0] * prox[p][1]
+                if coupled:   # the other models at their latest zeta
+                    H = self._cg_hessian(p, st.zeta)
+                    st.zeta[p] = self.solvers[p].solve_coupled(
+                        rhs.copy(), st.zeta[p], lambda v, H=H: lambda3 * H(v), rtol=cg_rtol)
+                else:
+                    st.zeta[p] = self.solvers[p].solve(rhs, st.zeta[p])
             # 2. s update: group soft threshold of q = zeta - u
-            s_old_b[:], s_old_r[:] = st.s_beta, st.s_rho
-            np.subtract(st.zeta_beta, st.u_beta, out=q_b)
-            np.subtract(st.zeta_rho, st.u_rho, out=q_r)
-            group_shrink(q_b, q_r, lambda1, lambda2, mu, st.s_beta, st.s_rho, coupling)
+            for p in range(P):
+                s_old[p][:] = st.s[p]
+                np.subtract(st.zeta[p], st.u[p], out=q[p])
+            group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling)
             # 3. dual update
-            st.u_beta += st.s_beta - st.zeta_beta
-            st.u_rho += st.s_rho - st.zeta_rho
+            for p in range(P):
+                st.u[p] += st.s[p] - st.zeta[p]
             # residuals
-            r_pri = float(np.sqrt(np.sum((st.s_beta - st.zeta_beta) ** 2)
-                                  + np.sum((st.s_rho - st.zeta_rho) ** 2)))
-            r_dual = mu * float(np.sqrt(np.sum((st.s_beta - s_old_b) ** 2)
-                                        + np.sum((st.s_rho - s_old_r) ** 2)))
-            norm_x = max(np.sqrt(st.zeta_beta @ st.zeta_beta + st.zeta_rho @ st.zeta_rho),
-                         np.sqrt(st.s_beta @ st.s_beta + st.s_rho @ st.s_rho))
-            norm_y = mu * np.sqrt(st.u_beta @ st.u_beta + st.u_rho @ st.u_rho)
+            r_pri = float(np.sqrt(sum(np.sum((s - z) ** 2) for s, z in zip(st.s, st.zeta))))
+            r_dual = mu * float(np.sqrt(sum(np.sum((s - o) ** 2) for s, o in zip(st.s, s_old))))
+            norm_x = max(np.sqrt(sum(z @ z for z in st.zeta)), np.sqrt(sum(s @ s for s in st.s)))
+            norm_y = mu * np.sqrt(sum(u @ u for u in st.u))
             eps_pri = sqrt_n * tol_abs + tol_primal * norm_x
             eps_dual = sqrt_n * tol_abs + tol_dual * norm_y
             hist["primal"].append(r_pri)
             hist["dual"].append(r_dual)
             converged = r_pri <= eps_pri and r_dual <= eps_dual
+            cg_rtol = min(1e-3, 0.01 * max(r_pri, r_dual / mu) / max(norm_x, 1e-300))
             if history_every and (it % history_every == 0 or converged or it == max_iter):
-                t = self.terms(st.s_beta, st.s_rho)
-                obj = t["misfit"] + lambda1 * t["group"] + lambda2 * t["l2"]
+                t = self._linearized_terms(st.s)
+                obj = self._objective(t, lambda1, lambda2, lambda3)
                 for k, v in (("objective", obj), ("misfit", t["misfit"]), ("group", t["group"]),
-                             ("l2", t["l2"])):
+                             ("l2", t["l2"]), ("cross_gradient", t["cross_gradient"])):
                     hist[k].append(v)
                 if callback is not None:
-                    callback(it, {"objective": obj, **t, "primal": r_pri, "dual": r_dual,
-                                  "eps_primal": eps_pri, "eps_dual": eps_dual})
+                    callback(it0 + it, {"objective": obj, **t, "primal": r_pri, "dual": r_dual,
+                                        "eps_primal": eps_pri, "eps_dual": eps_dual})
+        return it, converged, stopped
 
-        return self._result(st, lambda1, lambda2, lam_max, hist, it, converged, stopped,
-                            time.time() - t0)
+    def solve(self, lambda1: float, lambda2: float, *, cross_gradient: float = 0.0,
+              max_iter: int = 2000, tol_primal: float = 1e-4, tol_dual: float = 1e-4,
+              tol_abs: float | None = None, state: ADMMState | None = None,
+              history_every: int = 1, callback=None, should_stop=None,
+              coupling: str = "group", gn_max_iter: int = 20, gn_tol: float = 1e-5,
+              gn_kkt_tol: float = 1e-2, gn_callback=None) -> GroupLassoResult:
+        """Solve for one (lambda1, lambda2, lambda3 = ``cross_gradient``).
 
-    def to_physical(self, s_beta, s_rho):
-        """Models in the operators' units: w * scaled / (scalar data scale)."""
-        return self.w_beta * s_beta / self.c_f, self.w_rho * s_rho / self.c_g
+        ADMM stops when r_primal = ||s - zeta|| <= sqrt(P M) tol_abs +
+        tol_primal max(||zeta||, ||s||) and r_dual = mu ||s - s_old|| <=
+        sqrt(P M) tol_abs + tol_dual ||mu u|| (Boyd et al. 2011, section
+        3.3.1), or after ``max_iter`` iterations (``converged`` False).  Never
+        on the objective alone.
 
-    def _result(self, st, lambda1, lambda2, lam_max, hist, it, converged, stopped, seconds):
-        beta_phys, rho_phys = self.to_physical(st.s_beta, st.s_rho)
-        pred_f = self.X.matvec(st.s_beta) / self.s_f     # = K beta_phys
-        pred_g = self.Y.matvec(st.s_rho) / self.s_g
-        t = self.terms(st.s_beta, st.s_rho, self.s_f * pred_f, self.s_g * pred_g)
-        if not hist["objective"] or it == 0:
-            hist["objective"].append(t["misfit"] + lambda1 * t["group"] + lambda2 * t["l2"])
-            hist["misfit"].append(t["misfit"])
-            hist["group"].append(t["group"])
-            hist["l2"].append(t["l2"])
+        Nonlinear problems repeat it in a Levenberg–Marquardt-damped
+        Gauss–Newton loop (see :meth:`_gauss_newton`): linearize at the
+        current model, ADMM to the damped linearized problem's minimizer
+        (warm start), accept it if the true objective decreases, until the
+        true problem's KKT residual is below ``gn_kkt_tol`` (relative to
+        lambda1), a step changes the objective by less than ``gn_tol``
+        (relative), or after ``gn_max_iter`` linearizations.  ``max_iter``
+        applies to each ADMM solve.
+
+        Args:
+            tol_abs: absolute tolerance in scaled model units; default
+                1e-9 max|Z^T b| (at the reference).
+            state: warm start (e.g. the previous lambda1 of a sweep).
+            history_every: record objective terms every so many iterations
+                (each record costs one product with every operator).
+            callback: ``callback(iteration, record)`` after each record.
+            should_stop: ``() -> bool`` asked every iteration; True ends the
+                solve with the current iterate (``stopped``).
+            gn_callback: ``gn_callback(k, record)`` after each Gauss–Newton step.
+        """
+        if lambda1 < 0 or lambda2 < 0 or cross_gradient < 0:
+            raise ValueError("lambda1, lambda2 and cross_gradient must be >= 0")
+        if cross_gradient > 0 and self.cross_gradient_term is None:
+            raise ValueError("The cross-gradient needs the models' mesh (give mesh= to the "
+                             "problem)")
+        t0 = time.time()
+        if tol_abs is None:
+            tol_abs = 1e-9 * max(float(np.max(np.abs(np.concatenate(self._zt_b_ref)))),
+                                 1e-300)
+        st = ADMMState.zeros(self.m, self.n_models) if state is None else state.copy()
+        hist = {k: [] for k in ("objective", "misfit", "group", "l2", "cross_gradient",
+                                "primal", "dual")}
+        args = (max_iter, tol_primal, tol_dual, tol_abs, history_every, callback, should_stop,
+                coupling, hist)
+        gn = []
+        if self.linear:
+            it, converged, stopped = self._admm(lambda1, lambda2, cross_gradient, st, *args)
+        else:
+            it, converged, stopped = self._gauss_newton(
+                lambda1, lambda2, cross_gradient, st, args, gn_max_iter, gn_tol, gn_kkt_tol, gn,
+                gn_callback)
+        return self._result(st, lambda1, lambda2, cross_gradient, hist, it, converged, stopped,
+                            time.time() - t0, gn)
+
+    def _gauss_newton(self, lambda1, lambda2, lambda3, st, args, gn_max_iter, gn_tol,
+                      gn_kkt_tol, gn, gn_callback):
+        """Levenberg–Marquardt-damped Gauss–Newton on the nonlinear models.
+
+        Each iteration solves the problem linearized at s_k plus nu/2 ||zeta - s_k||^2
+        on the nonlinear models (their zeta systems get mu + nu; the linear
+        models, whose misfit is exact, are not damped).  The step is accepted
+        when the true objective decreases; nu is lowered after a step whose
+        decrease matches the linearization's prediction (rho > 0.75), raised
+        after a poor one (rho < 0.25) and after a rejected one (retried).
+        The damping vanishes at a fixed point, which is a stationary point of
+        the true problem.  Converged when the KKT residual of the true problem
+        (:meth:`kkt_residuals` at the current linearization, which is exact
+        at the current model) is below ``gn_kkt_tol``, or when a step with at
+        most moderate damping (nu <= mu) changes the objective by less than
+        ``gn_tol`` (relative): in the poorly resolved directions of an
+        ill-posed problem the models then still move slowly, but the
+        objective no longer does.  Stopped without convergence when no damped
+        step decreases the objective, or after ``gn_max_iter`` steps.
+        ``self.gn_stop`` says which.
+        """
+        total, converged, stopped = 0, False, False
+        hist = args[-1]
+        nonlinear = [p for p in range(self.n_models) if not self.model_linear[p]]
+        nu = 0.0
+        self.kkt_history = []
+        for k in range(gn_max_iter + 1):
+            if not all(np.array_equal(a, b) for a, b in zip(st.s, self._lin_s)):
+                self._linearize_at(st.s, damping=nu)
+            kkt = self.kkt_residuals(st.s, lambda1, lambda2, lambda3)
+            self.kkt_history.append(kkt)
+            if gn:
+                gn[-1]["kkt"] = kkt
+            if k > 0 and kkt <= gn_kkt_tol:
+                converged, self.gn_stop = True, "kkt"
+                break
+            if k == gn_max_iter:
+                self.gn_stop = "max_iter"
+                break
+            s0 = [s.copy() for s in st.s]
+            t_old = self.terms_of(s0)
+            obj0 = self._objective(t_old, lambda1, lambda2, lambda3)
+            accepted = False
+            for _ in range(8):
+                prox = {p: (nu, s0[p]) for p in nonlinear} if nu > 0 else None
+                trial = st.copy()
+                it, admm_ok, stopped = self._admm(lambda1, lambda2, lambda3, trial, *args[:-1],
+                                                  hist, it0=total, prox=prox)
+                total += it
+                if stopped:
+                    break
+                t_lin = self._linearized_terms(trial.s)
+                t_new = self.terms_of(trial.s)
+                obj = self._objective(t_new, lambda1, lambda2, lambda3)
+                predicted = obj0 - self._objective(t_lin, lambda1, lambda2, lambda3)
+                actual = obj0 - obj
+                rho = actual / predicted if predicted > 0 else (1.0 if actual >= 0 else -1.0)
+                if actual >= 0:
+                    accepted = True
+                    break
+                nu = max(2.0 * nu, self.mu)   # rejected: damp more and retry
+                self._build_solvers(nonlinear, damping=nu)
+            if stopped:
+                st.zeta, st.s, st.u = trial.zeta, trial.s, trial.u
+                break
+            if accepted:
+                st.zeta, st.s, st.u = trial.zeta, trial.s, trial.u
+            else:
+                obj, t_new, rho = obj0, t_old, 0.0
+            nu_used = nu
+            record = {"iteration": k + 1, "objective": obj, "misfit": t_new["misfit"],
+                      "damping": nu, "rho": float(rho), "accepted": accepted,
+                      "admm_iterations": it, "admm_converged": bool(admm_ok)}
+            gn.append(record)
+            if gn_callback is not None:
+                gn_callback(k + 1, record)
+            if rho > 0.75:
+                nu = nu / 3.0 if nu > 1e-3 * self.mu else 0.0
+            elif rho < 0.25:
+                nu = max(2.0 * nu, self.mu)
+            change = abs(obj0 - obj) / max(abs(obj0), 1e-300)
+            if not accepted:
+                self.gn_stop = "no_decrease"
+                break
+            if change <= gn_tol and nu_used <= self.mu:
+                converged, self.gn_stop = True, "objective"
+                break
+        if not all(np.array_equal(a, b) for a, b in zip(st.s, self._lin_s)):
+            self._linearize_at(st.s)   # predictions, residuals and KKT at the final model
+        return total, converged, stopped
+
+    def _result(self, st, lambda1, lambda2, lambda3, hist, it, converged, stopped, seconds, gn):
+        phys = self._physical_all(st.s)
+        preds = self.predictions(st.s)
+        t = self.terms_of(st.s, preds)
+        if not hist["objective"] or it == 0 or not self.linear:
+            # the true objective of the final model (nonlinear: not the linearization's)
+            for k, v in (("objective", self._objective(t, lambda1, lambda2, lambda3)),
+                         ("misfit", t["misfit"]), ("group", t["group"]), ("l2", t["l2"]),
+                         ("cross_gradient", t["cross_gradient"])):
+                if self.linear and hist[k] and it > 0:
+                    continue
+                hist[k].append(v)
         return GroupLassoResult(
-            beta_scaled=st.s_beta.copy(), rho_scaled=st.s_rho.copy(),
-            beta_physical=beta_phys, rho_physical=rho_phys,
-            predicted_magnetic=pred_f, predicted_gravity=pred_g,
-            residual_magnetic=self.f - pred_f, residual_gravity=self.g - pred_g,
+            models_scaled=[s.copy() for s in st.s], models_physical=phys, predicted=preds,
+            residuals=[d.data - p for d, p in zip(self.datasets, preds)],
             objective_history=hist["objective"], misfit_history=hist["misfit"],
             group_penalty_history=hist["group"], l2_penalty_history=hist["l2"],
             primal_residual_history=hist["primal"], dual_residual_history=hist["dual"],
             n_iterations=it, converged=bool(converged), lambda1=float(lambda1),
-            lambda2=float(lambda2), mu=self.mu, lambda1_max=lam_max,
-            data_scale=(self.s_f, self.s_g), solver=self.solver_name, stopped=stopped,
-            n_active=int(np.count_nonzero(np.hypot(st.s_beta, st.s_rho))),
-            seconds=seconds, notes=list(self.notes), state=st)
+            lambda2=float(lambda2), mu=self.mu, lambda1_max=self._lambda1_max,
+            data_scale=tuple(self.scales), solver=self.solver_name, stopped=stopped,
+            n_active=int(np.count_nonzero(group_norms(*st.s))),
+            seconds=seconds, notes=list(self.notes), state=st,
+            model_names=list(self.model_names), dataset_names=[d.name for d in self.datasets],
+            cross_gradient=float(lambda3), cross_gradient_history=hist["cross_gradient"],
+            gauss_newton=gn, final_terms=t)
 
     # -- L-curve over lambda1 ----------------------------------------------
 
     def lcurve(self, lambda2: float, lambda1s=None, n_lambda1: int = 13,
                decades: float = 3.0, keep_states: bool = True, point_callback=None,
                should_stop=None, **solve_kwargs) -> "LCurve":
-        """Solve along decreasing lambda1 (lambda2 fixed) with warm starts.
+        """Solve along decreasing lambda1 (lambda2 and the cross-gradient fixed) with
+        warm starts.
 
         Default lambda1s: ``n_lambda1`` values from lambda1_max down
         ``decades`` decades (the first, lambda1_max itself, has the zero
@@ -725,17 +1462,22 @@ class JointGroupLassoProblem:
                 stopped = True
                 break
             state = res.state
-            points.append({"lambda1": float(lam), "misfit": res.misfit,
-                           "group_penalty": res.group_penalty,
-                           "l2_penalty": res.l2_penalty_history[-1],
-                           "objective": res.objective, "n_iterations": res.n_iterations,
-                           "converged": res.converged, "n_active": res.n_active,
-                           "misfit_magnetic": 0.5 * float(np.sum((self.s_f * res.residual_magnetic) ** 2)),
-                           "misfit_gravity": 0.5 * float(np.sum((self.s_g * res.residual_gravity) ** 2))})
-            chi2 = self.chi2(res)
+            t = res.final_terms
+            point = {"lambda1": float(lam), "misfit": t["misfit"],
+                     "group_penalty": t["group"], "l2_penalty": t["l2"],
+                     "cross_gradient": t["cross_gradient"],
+                     "objective": self._objective(t, lam, lambda2, res.cross_gradient),
+                     "n_iterations": res.n_iterations, "converged": res.converged,
+                     "n_active": res.n_active}
+            for d in self.datasets:
+                point[f"misfit_{d.name}"] = t[f"misfit_{d.name}"]
+            if res.gauss_newton:
+                point["gn_iterations"] = len(res.gauss_newton)
+            chi2 = self.chi2_of(res)
             if chi2 is not None:
-                points[-1].update(chi2_magnetic=chi2["magnetic"], chi2_gravity=chi2["gravity"],
-                                  chi2=chi2["total"])
+                point.update({f"chi2_{k}": v for k, v in chi2.items() if k != "total"})
+                point["chi2"] = chi2["total"]
+            points.append(point)
             states.append(res.state if keep_states else None)
             if point_callback is not None:
                 point_callback(i, len(lambda1s), points[-1])
@@ -760,9 +1502,93 @@ class JointGroupLassoProblem:
         return self.solve(lambda1, lambda2, state=state, **solve_kwargs)
 
 
+class JointGroupLassoProblem(GroupLassoProblem):
+    """The magnetic–gravity problem of the paper (two linear datasets, two models).
+
+    Args:
+        magnetic_operator, gravity_operator: sensitivities K (N_f x M) and
+            G (N_g x M) on the same M cells: dense arrays (float32 is kept),
+            sparse matrices, or LinearOperators (then give the weights).
+        magnetic_data, gravity_data: observed f and g (in the operators' units).
+        sensitivity_weighting: True for w = ||column||^(-gamma/2), False for
+            none (the operators are already scaled), or supply
+            ``magnetic_weights`` / ``gravity_weights``.
+        data_scaling: see :func:`data_scaling`; std_f / std_g for "std".
+        mu: ADMM penalty; the zeta-update factorizations are made for it once
+            and reused by every solve.  Default: the mean non-zero eigenvalue of
+            X^T X and Y^T Y (M / min(N, M) with unit columns).
+        solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
+        mesh, active_cells: for the cross-gradient (see :class:`GroupLassoProblem`).
+
+    Memory: the operators are used as given (no weighted copies); the
+    Cholesky solver adds one min(N, M)^2 float64 matrix per method, CG none.
+    """
+
+    def __init__(self, magnetic_operator, gravity_operator, magnetic_data, gravity_data,
+                 mu: float | None = None, *, sensitivity_weighting: bool = True,
+                 gamma: float = 2.0, magnetic_weights=None, gravity_weights=None,
+                 data_scaling="max_ratio", std_f=None, std_g=None, solver: str = "auto",
+                 factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
+                 cg_maxiter: int = 500, mesh=None, active_cells=None):
+        K, G = magnetic_operator, gravity_operator
+        if K.shape[1] != G.shape[1]:
+            raise ValueError(f"The operators have {K.shape[1]} and {G.shape[1]} cells; "
+                             "both models live on the same cells")
+        f = np.asarray(magnetic_data, dtype=float).ravel()
+        g = np.asarray(gravity_data, dtype=float).ravel()
+        if f.size != K.shape[0] or g.size != G.shape[0]:
+            raise ValueError("Data and operator rows do not match")
+        super().__init__(
+            [GroupLassoData("magnetic", f, 0, std_f, operator=K),
+             GroupLassoData("gravity", g, 1, std_g, operator=G)],
+            mu, model_names=["magnetic", "gravity"], sensitivity_weighting=sensitivity_weighting,
+            gamma=gamma,
+            model_weights=None if magnetic_weights is None and gravity_weights is None
+            else [magnetic_weights, gravity_weights],
+            data_scaling=data_scaling, solver=solver, factor_max_bytes=factor_max_bytes,
+            cg_rtol=cg_rtol, cg_maxiter=cg_maxiter, mesh=mesh, active_cells=active_cells)
+
+    # the paper's names
+    f = property(lambda self: self.datasets[0].data)
+    g = property(lambda self: self.datasets[1].data)
+    std_f = property(lambda self: self.datasets[0].std)
+    std_g = property(lambda self: self.datasets[1].std)
+    s_f = property(lambda self: self.scales[0])
+    s_g = property(lambda self: self.scales[1])
+    c_f = property(lambda self: self.model_factors[0])
+    c_g = property(lambda self: self.model_factors[1])
+    bf = property(lambda self: self.b[0])
+    bg = property(lambda self: self.b[1])
+    X = property(lambda self: self.ops[0])
+    Y = property(lambda self: self.ops[1])
+    w_beta = property(lambda self: self.weights[0])
+    w_rho = property(lambda self: self.weights[1])
+    solver_X = property(lambda self: self.solvers[0])
+    solver_Y = property(lambda self: self.solvers[1])
+    Xt_f = property(lambda self: self.Zt_b[0])
+    Yt_g = property(lambda self: self.Zt_b[1])
+
+    def terms(self, s_beta, s_rho, pred_f=None, pred_g=None) -> dict:
+        """Misfit 1/2 ||b - Z s||^2, group penalty and L2 penalty (unweighted by lambda)."""
+        preds = None
+        if pred_f is not None and pred_g is not None:   # scaled predictions, as before
+            preds = [pred_f / self.s_f, pred_g / self.s_g]
+        return self.terms_of([s_beta, s_rho], preds)
+
+    def chi2(self, result: GroupLassoResult) -> dict | None:
+        """chi^2 of each dataset (needs std_f and std_g)."""
+        return self.chi2_of(result)
+
+    def kkt_residual(self, s_beta, s_rho, lambda1: float, lambda2: float,
+                     cross_gradient: float = 0.0) -> float:
+        """Largest violation of the optimality conditions, relative to lambda1 (see
+        :meth:`GroupLassoProblem.kkt_residuals`)."""
+        return self.kkt_residuals([s_beta, s_rho], lambda1, lambda2, cross_gradient)
+
+
 @dataclass
 class LCurve:
-    """Solutions along lambda1 at fixed lambda2 (see JointGroupLassoProblem.lcurve)."""
+    """Solutions along lambda1 at fixed lambda2 (see GroupLassoProblem.lcurve)."""
 
     lambda2: float
     lambda1_max: float
@@ -815,10 +1641,12 @@ def joint_group_lasso_admm(magnetic_operator, gravity_operator, magnetic_data, g
 
     Keyword arguments go to the problem (sensitivity_weighting, gamma,
     magnetic_weights, gravity_weights, data_scaling, std_f, std_g, solver,
-    factor_max_bytes, cg_rtol, cg_maxiter) or to :meth:`~JointGroupLassoProblem.solve`
-    (tol_abs, state, history_every, callback, should_stop, coupling).
+    factor_max_bytes, cg_rtol, cg_maxiter, mesh, active_cells) or to
+    :meth:`~GroupLassoProblem.solve` (tol_abs, state, history_every, callback,
+    should_stop, coupling, cross_gradient).
     """
-    solve_keys = {"tol_abs", "state", "history_every", "callback", "should_stop", "coupling"}
+    solve_keys = {"tol_abs", "state", "history_every", "callback", "should_stop", "coupling",
+                  "cross_gradient"}
     solve_kw = {k: kwargs.pop(k) for k in list(kwargs) if k in solve_keys}
     problem = JointGroupLassoProblem(magnetic_operator, gravity_operator, magnetic_data,
                                      gravity_data, mu, **kwargs)

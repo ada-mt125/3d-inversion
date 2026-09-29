@@ -24,6 +24,11 @@ class MethodBase(ABC):
     """
 
     method_name: str = ""
+    # The inversion model's background / reference value (e.g. 0 for density
+    # anomalies, log(sigma_background) for log-conductivity)
+    default_model_value: float = 0.0
+    # Whether the data are linear in the model (an explicit sensitivity matrix)
+    linear: bool = True
 
     @abstractmethod
     def make_simulation(self, mesh: Mesh3D, survey: SurveyData, **kwargs) -> Any:

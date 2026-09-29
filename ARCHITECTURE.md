@@ -101,8 +101,13 @@ class GravityMethod(MethodBase):
 |----------------------|--------------------------------------|----------------|
 | `GravityMethod`      | `potential_fields.gravity`           | density        |
 | `MagneticsMethod`    | `potential_fields.magnetics`         | susceptibility |
-| `DCResistivityMethod`| `electromagnetics.static.resistivity`| conductivity   |
-| `JointInversion`     | combines multiple DataMisfits        | multi-property |
+| `DCResistivityMethod`| `electromagnetics.static.resistivity`| log-conductivity |
+| `MTMethod`           | `electromagnetics.natural_source`    | log-conductivity |
+| `JointInversion`     | combines multiple DataMisfits; one regularization per model (`ModelRegularization`) | multi-property |
+| `GroupLassoProblem`  | L2 + group lasso by ADMM (Utsugi 2025), P models, Gauss–Newton for MT/DC, cross-gradient | multi-property |
+
+Methods declare `linear` (an explicit sensitivity) and `default_model_value`
+(the reference: 0, or log σ_background).
 
 ## Nodes (`nodes/`)
 
@@ -114,7 +119,7 @@ Each node type follows the `Node` contract. Categories:
 | `transform_nodes.py`      | `LogTransformNode`, `ScaleNode`, `OffsetNode`, `ConductivityToResistivityNode` |
 | `forward_nodes.py`        | `ForwardNode`                                             |
 | `regularization_nodes.py` | `RegularizationNode`, `CrossGradientNode`                 |
-| `inversion_nodes.py`      | `SingleInversionNode`, `JointInversionNode`               |
+| `inversion_nodes.py`      | `SingleInversionNode`, `SparseInversionNode`, `RegularizedInversionNode`, `JointInversionNode` (original L2 path), `JointRegularizedInversionNode` (both joint methods, any regularization) |
 | `output_nodes.py`         | `ModelExportNode`, `ResultExportNode`                     |
 
 ### Adding a node type — checklist
@@ -158,3 +163,8 @@ MeshCreateNode ──→ ModelCreateNode (suscept.) ──→ ForwardNode (magne
 
                                          both ──→ JointInversionNode ──→ ResultExportNode
 ```
+
+`JointRegularizedInversionNode` takes the same inputs (model, survey,
+regularization per dataset) and runs the worker's joint paths: JointInversion
+with l2 / sparse / l1l2 / mgs / tv per model, or the group lasso.  Datasets
+with one `models` label share a model (e.g. gz and gzz of one density model).
