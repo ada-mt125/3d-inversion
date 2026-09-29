@@ -718,7 +718,7 @@ pipeline end to end).  The paper's full text could not be fetched (publisher sig
 the specification we were given.
 
 **Hand-off (session moved to another account).**  Committed on branch claude/cool-hawking-9zd59t.
-The full test suite was started after these changes but had not finished when this was committed; the
-group-lasso tests (43) and the pipeline tests passed.  Next: run `py -m pytest -q`; restart the API
+Full test suite after these changes: 318 passed (8 warnings, all from SimPEG / discretize /
+pymatsolver).  Next: restart the API
 (GeoInv3D.bat) to use the new page option; nothing has been run on AWS with the group lasso yet
 (the user approves every instance launch).
