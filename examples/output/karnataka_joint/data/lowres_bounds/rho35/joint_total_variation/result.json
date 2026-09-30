@@ -1,0 +1,696 @@
+{
+  "task_id": "karnataka-joint-2km-rho35-joint_total_variation",
+  "methods": [
+    "gravity",
+    "magnetics"
+  ],
+  "regularization": "joint_sparse_IRLS",
+  "coupling": {
+    "kind": "joint_total_variation",
+    "label": "joint total variation",
+    "family": "structural",
+    "reference": "Haber & Holtzman Gazit (2013)",
+    "models": [
+      "gravity",
+      "magnetics"
+    ],
+    "weight": 1.0,
+    "scaling": "curvature",
+    "multipliers": [
+      7.100241474581231e-05
+    ]
+  },
+  "cross_gradient_weight": 0.0,
+  "converged": true,
+  "n_iterations": 29,
+  "iterations": [
+    {
+      "iteration": 1,
+      "phi_d": 27438.37390103997,
+      "phi_m": 13154172049.762985,
+      "phi_total": 37156.72057122925,
+      "beta": 7.388033723007591e-07,
+      "model_min": -0.15,
+      "model_max": 0.23823858371157322,
+      "model_mean": 0.0021530582400271295
+    },
+    {
+      "iteration": 2,
+      "phi_d": 14623.390723451294,
+      "phi_m": 32367709638.194466,
+      "phi_total": 26580.077240626222,
+      "beta": 3.6940168615037957e-07,
+      "model_min": -0.15,
+      "model_max": 0.27876823414359037,
+      "model_mean": 0.002785281260472532
+    },
+    {
+      "iteration": 3,
+      "phi_d": 8472.704537241363,
+      "phi_m": 40010582561.94066,
+      "phi_total": 15862.69286836129,
+      "beta": 1.8470084307518978e-07,
+      "model_min": -0.15,
+      "model_max": 0.30069648252014736,
+      "model_mean": 0.003463584398685847
+    },
+    {
+      "iteration": 4,
+      "phi_d": 4984.237602731437,
+      "phi_m": 46387037819.38379,
+      "phi_total": 13551.962595732335,
+      "beta": 1.8470084307518978e-07,
+      "model_min": -0.15,
+      "model_max": 0.3736721481459084,
+      "model_mean": 0.004197897559951373
+    },
+    {
+      "iteration": 5,
+      "phi_d": 4741.598087656099,
+      "phi_m": 71390109456.6456,
+      "phi_total": 13290.298078581127,
+      "beta": 1.1974627936544286e-07,
+      "model_min": -0.15,
+      "model_max": 0.5255916295253895,
+      "model_mean": 0.004452974950218358
+    },
+    {
+      "iteration": 6,
+      "phi_d": 3708.240998534584,
+      "phi_m": 107925016073.4271,
+      "phi_total": 13071.297703499935,
+      "beta": 8.675520324773607e-08,
+      "model_min": -0.15,
+      "model_max": 0.7852152039666563,
+      "model_mean": 0.005181640816339506
+    },
+    {
+      "iteration": 7,
+      "phi_d": 3360.573802616951,
+      "phi_m": 141757716817.66727,
+      "phi_total": 12715.195143483003,
+      "beta": 6.599020886389012e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005480571332340243
+    },
+    {
+      "iteration": 8,
+      "phi_d": 3165.3936430106783,
+      "phi_m": 169616840344.52466,
+      "phi_total": 11945.533246028817,
+      "beta": 5.176455112112674e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00560972084778125
+    },
+    {
+      "iteration": 9,
+      "phi_d": 2937.3360982787362,
+      "phi_m": 193456643606.38666,
+      "phi_total": 11111.08443745664,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005819001374017135
+    },
+    {
+      "iteration": 10,
+      "phi_d": 2517.5412275303215,
+      "phi_m": 221417804779.26468,
+      "phi_total": 11872.678277055686,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006336591583494324
+    },
+    {
+      "iteration": 11,
+      "phi_d": 2438.522809168613,
+      "phi_m": 225507757189.94305,
+      "phi_total": 11966.464685144483,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 0.9997069039641898,
+      "model_mean": 0.00635264792455691
+    },
+    {
+      "iteration": 12,
+      "phi_d": 2457.08524344637,
+      "phi_m": 228564185497.2626,
+      "phi_total": 12114.164456528117,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006327089408293208
+    },
+    {
+      "iteration": 13,
+      "phi_d": 2463.5199119763906,
+      "phi_m": 232358549559.8399,
+      "phi_total": 12280.915030351263,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006307667140547802
+    },
+    {
+      "iteration": 14,
+      "phi_d": 2499.778904697945,
+      "phi_m": 232834141691.5453,
+      "phi_total": 12337.2682949685,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006250538764687874
+    },
+    {
+      "iteration": 15,
+      "phi_d": 2670.3480752562245,
+      "phi_m": 227962503161.8923,
+      "phi_total": 12302.005571627886,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.0061115656466386595
+    },
+    {
+      "iteration": 16,
+      "phi_d": 2694.9128218760925,
+      "phi_m": 223352663683.78217,
+      "phi_total": 12131.799711895543,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006005729182669885
+    },
+    {
+      "iteration": 17,
+      "phi_d": 2702.525404701113,
+      "phi_m": 222118549960.36102,
+      "phi_total": 12087.269681217487,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005984063060352714
+    },
+    {
+      "iteration": 18,
+      "phi_d": 2742.057783588354,
+      "phi_m": 223372107835.66144,
+      "phi_total": 12179.766209643823,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00587508699015276
+    },
+    {
+      "iteration": 19,
+      "phi_d": 2822.1729824502795,
+      "phi_m": 223291071038.83395,
+      "phi_total": 12256.457517906114,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005746613978489435
+    },
+    {
+      "iteration": 20,
+      "phi_d": 2774.2061218866065,
+      "phi_m": 218542612101.80225,
+      "phi_total": 12007.863231854863,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005637512372759713
+    },
+    {
+      "iteration": 21,
+      "phi_d": 2786.7956299199495,
+      "phi_m": 214264952699.7346,
+      "phi_total": 11839.717094001786,
+      "beta": 4.225106042782632e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00558192292479877
+    },
+    {
+      "iteration": 22,
+      "phi_d": 2872.5717514828407,
+      "phi_m": 212493806575.08044,
+      "phi_total": 10289.942387248559,
+      "beta": 3.490629094239007e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005436800926071791
+    },
+    {
+      "iteration": 23,
+      "phi_d": 2864.0794681801217,
+      "phi_m": 215468520511.62793,
+      "phi_total": 9087.88876064895,
+      "beta": 2.888500500068619e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005427500019665035
+    },
+    {
+      "iteration": 24,
+      "phi_d": 2412.592371476284,
+      "phi_m": 229632045971.7647,
+      "phi_total": 9045.515167688509,
+      "beta": 2.888500500068619e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005634296136883341
+    },
+    {
+      "iteration": 25,
+      "phi_d": 2269.5559293326423,
+      "phi_m": 222998408460.8559,
+      "phi_total": 10343.158968642467,
+      "beta": 3.620475632554583e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005602492949823053
+    },
+    {
+      "iteration": 26,
+      "phi_d": 2394.0774972125255,
+      "phi_m": 212644606088.95306,
+      "phi_total": 10092.82364460475,
+      "beta": 3.620475632554583e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.0054727642261384254
+    },
+    {
+      "iteration": 27,
+      "phi_d": 2624.3288516839775,
+      "phi_m": 207494327130.53394,
+      "phi_total": 10136.610404378052,
+      "beta": 3.620475632554583e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005259258161824419
+    },
+    {
+      "iteration": 28,
+      "phi_d": 2842.097952861166,
+      "phi_m": 202018511800.36652,
+      "phi_total": 10156.12894584284,
+      "beta": 3.620475632554583e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00509371055647942
+    },
+    {
+      "iteration": 29,
+      "phi_d": 2840.2031751567783,
+      "phi_m": 195729573853.65555,
+      "phi_total": 9926.544702231304,
+      "beta": 3.620475632554583e-08,
+      "model_min": -0.15,
+      "model_max": 0.9999333981304674,
+      "model_mean": 0.005043395227019635
+    }
+  ],
+  "models": {
+    "gravity": {
+      "datasets": [
+        "gravity"
+      ],
+      "methods": [
+        "gravity"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        -0.15,
+        0.35
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 4.671612597846032
+    },
+    "magnetics": {
+      "datasets": [
+        "magnetics"
+      ],
+      "methods": [
+        "magnetics"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        0.0,
+        1.0
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 0.2140588456459502
+    }
+  },
+  "dataset_models": [
+    "gravity",
+    "magnetics"
+  ],
+  "dataset_labels": [
+    "gravity",
+    "magnetics"
+  ],
+  "chi2": {
+    "gravity": 1454.1621506266165,
+    "magnetics": 1386.0410245301618
+  },
+  "inversion_mode": "joint",
+  "param_mode": "manual",
+  "regularization_type": "sparse",
+  "mesh_type": "tensor",
+  "mesh_design": {
+    "source": "user",
+    "data_spacing": [
+      {
+        "method": "gravity",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      },
+      {
+        "method": "magnetics",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      }
+    ],
+    "recommended": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 1000.0,
+      "depth_core_m": 35000.0,
+      "pad_distance_m": 25000.0,
+      "shape": [
+        47,
+        47,
+        41
+      ],
+      "n_cells": 90569,
+      "sensitivity_bytes": 939019392.0,
+      "data_spacing_m": 1985.664325036346,
+      "survey_width_m": 70000.0,
+      "coarsened_from": null
+    },
+    "used": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 500.0,
+      "depth_core_m": 10000.0,
+      "pad_distance_m": 20000.0
+    },
+    "client": null
+  },
+  "mesh_shape": [
+    45,
+    45,
+    27
+  ],
+  "mesh": {
+    "__module__": "discretize.tensor_mesh",
+    "__class__": "TensorMesh",
+    "reference_system": "cartesian",
+    "origin": [
+      617487.94,
+      1611487.94,
+      -15493.254147233374
+    ],
+    "orientation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "shape_cells": [
+      45,
+      45,
+      27
+    ],
+    "h": [
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        1856.4650000000001,
+        1428.0500000000002,
+        1098.5,
+        845.0000000000001,
+        650.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0
+      ]
+    ]
+  },
+  "n_cells": 54675,
+  "n_active_cells": 50959,
+  "n_data": 2592,
+  "cell_centers_x": [
+    641000.0,
+    711000.0
+  ],
+  "cell_centers_y": [
+    1635000.0,
+    1704000.0
+  ],
+  "topography": {
+    "source": "dem",
+    "file": "dem_utm43n_450m.tif",
+    "stations_lifted": {
+      "gravity": {
+        "n": 264,
+        "max_m": 347.5,
+        "mean_m": 199.1
+      }
+    },
+    "elevation_min": 385.3,
+    "elevation_max": 1057.3
+  },
+  "crs": "EPSG:32643",
+  "datasets": [
+    {
+      "method": "gravity",
+      "component": "gz",
+      "files": [
+        "gravity_complete_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.0,
+      "noise_floor": 0.5,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -94.97324566451468,
+        "trend_max": -75.30437758544093,
+        "data_std_before": 10.32423144569337,
+        "data_std_after": 9.610398656556216,
+        "residual_min": -16.393925713552036,
+        "residual_max": 32.18102346674858
+      },
+      "gz_convention": "positive_down",
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "gravity_complete_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5040
+          }
+        }
+      }
+    },
+    {
+      "method": "magnetics",
+      "component": "tmi",
+      "files": [
+        "magnetic_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.05,
+      "noise_floor": 10.0,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -97.52266614679809,
+        "trend_max": 77.83299903974091,
+        "data_std_before": 274.1033445272048,
+        "data_std_after": 271.75223351109815,
+        "residual_min": -1513.2444968495738,
+        "residual_max": 2398.0416863822848
+      },
+      "gz_convention": null,
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "magnetic_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5041
+          }
+        }
+      }
+    }
+  ],
+  "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1.0,
+    "alpha_y": 1.0,
+    "alpha_z": 1.0,
+    "bounds_lower": null,
+    "bounds_upper": null,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+      0,
+      2,
+      2,
+      2
+    ],
+    "coupling": "joint_total_variation",
+    "coupling_weight": 1.0
+  },
+  "outside_core_share": {
+    "gravity": 0.22213030919938967,
+    "magnetics": 0.49823531306861024
+  }
+}

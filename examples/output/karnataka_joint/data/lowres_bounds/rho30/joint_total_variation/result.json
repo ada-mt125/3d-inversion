@@ -1,0 +1,619 @@
+{
+  "task_id": "karnataka-joint-2km-rho30-joint_total_variation",
+  "methods": [
+    "gravity",
+    "magnetics"
+  ],
+  "regularization": "joint_sparse_IRLS",
+  "coupling": {
+    "kind": "joint_total_variation",
+    "label": "joint total variation",
+    "family": "structural",
+    "reference": "Haber & Holtzman Gazit (2013)",
+    "models": [
+      "gravity",
+      "magnetics"
+    ],
+    "weight": 1.0,
+    "scaling": "curvature",
+    "multipliers": [
+      7.100241474581231e-05
+    ]
+  },
+  "cross_gradient_weight": 0.0,
+  "converged": true,
+  "n_iterations": 21,
+  "iterations": [
+    {
+      "iteration": 1,
+      "phi_d": 27438.37390103997,
+      "phi_m": 13154172049.762985,
+      "phi_total": 37156.72057122925,
+      "beta": 7.388033723007591e-07,
+      "model_min": -0.15,
+      "model_max": 0.23823858371157322,
+      "model_mean": 0.0021530582400271295
+    },
+    {
+      "iteration": 2,
+      "phi_d": 14623.390723451294,
+      "phi_m": 32367709638.194466,
+      "phi_total": 26580.077240626222,
+      "beta": 3.6940168615037957e-07,
+      "model_min": -0.15,
+      "model_max": 0.27876823414359037,
+      "model_mean": 0.002785281260472532
+    },
+    {
+      "iteration": 3,
+      "phi_d": 8472.75249692776,
+      "phi_m": 40010458418.74657,
+      "phi_total": 15862.717898695075,
+      "beta": 1.8470084307518978e-07,
+      "model_min": -0.15,
+      "model_max": 0.3,
+      "model_mean": 0.0034635775649320432
+    },
+    {
+      "iteration": 4,
+      "phi_d": 4986.185191782011,
+      "phi_m": 46378285878.529755,
+      "phi_total": 13552.293693928626,
+      "beta": 1.8470084307518978e-07,
+      "model_min": -0.15,
+      "model_max": 0.3736712555871845,
+      "model_mean": 0.004197558800265072
+    },
+    {
+      "iteration": 5,
+      "phi_d": 4721.039433927197,
+      "phi_m": 70811451294.28386,
+      "phi_total": 13216.014433289538,
+      "beta": 1.199661190964474e-07,
+      "model_min": -0.15,
+      "model_max": 0.5256544978322724,
+      "model_mean": 0.004457941915612718
+    },
+    {
+      "iteration": 6,
+      "phi_d": 3636.812134684986,
+      "phi_m": 104553052940.9093,
+      "phi_total": 12810.082328080069,
+      "beta": 8.77379467683223e-08,
+      "model_min": -0.15,
+      "model_max": 0.7850020548297363,
+      "model_mean": 0.005209332689228502
+    },
+    {
+      "iteration": 7,
+      "phi_d": 3281.9875269787,
+      "phi_m": 134667316784.07861,
+      "phi_total": 12378.485311911005,
+      "beta": 6.754792478354155e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005506819848991214
+    },
+    {
+      "iteration": 8,
+      "phi_d": 3099.600657014701,
+      "phi_m": 160492885027.30704,
+      "phi_total": 11697.766322888634,
+      "beta": 5.357350055992202e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00563428424670709
+    },
+    {
+      "iteration": 9,
+      "phi_d": 2887.9531874635823,
+      "phi_m": 183632706531.95367,
+      "phi_total": 10991.985202596563,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005846911802991988
+    },
+    {
+      "iteration": 10,
+      "phi_d": 2509.547646338113,
+      "phi_m": 210288160842.99237,
+      "phi_total": 11789.93140835875,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006367626012483985
+    },
+    {
+      "iteration": 11,
+      "phi_d": 2428.9843553305345,
+      "phi_m": 215428462047.31476,
+      "phi_total": 11936.218585952236,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 0.9996560828698633,
+      "model_mean": 0.006384916289842417
+    },
+    {
+      "iteration": 12,
+      "phi_d": 2452.630407384017,
+      "phi_m": 217216332536.76807,
+      "phi_total": 12038.766484844858,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006359168176392131
+    },
+    {
+      "iteration": 13,
+      "phi_d": 2456.874350628622,
+      "phi_m": 219734814456.0901,
+      "phi_total": 12154.155433187821,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00633476988195431
+    },
+    {
+      "iteration": 14,
+      "phi_d": 2630.615669003969,
+      "phi_m": 217394150354.81757,
+      "phi_total": 12224.599157296732,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006211848872871275
+    },
+    {
+      "iteration": 15,
+      "phi_d": 2586.5786816325917,
+      "phi_m": 213693038797.1405,
+      "phi_total": 12017.225653672602,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.00615949950965193
+    },
+    {
+      "iteration": 16,
+      "phi_d": 2566.5835111240863,
+      "phi_m": 208853342171.94647,
+      "phi_total": 11783.646219582606,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006098670262489754
+    },
+    {
+      "iteration": 17,
+      "phi_d": 2581.4356999724932,
+      "phi_m": 207435429116.29065,
+      "phi_total": 11735.92342919816,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.006037572046813854
+    },
+    {
+      "iteration": 18,
+      "phi_d": 2676.191515190594,
+      "phi_m": 205990281414.96252,
+      "phi_total": 11766.902352710309,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005889518626921169
+    },
+    {
+      "iteration": 19,
+      "phi_d": 2721.0934430534817,
+      "phi_m": 206511854498.73093,
+      "phi_total": 11834.822211577526,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.005734881772150071
+    },
+    {
+      "iteration": 20,
+      "phi_d": 2777.82103117858,
+      "phi_m": 203373847438.27188,
+      "phi_total": 11753.064068255606,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 0.9999824304066528,
+      "model_mean": 0.00563999461866097
+    },
+    {
+      "iteration": 21,
+      "phi_d": 2839.638113058659,
+      "phi_m": 204657819815.41022,
+      "phi_total": 11871.545093326355,
+      "beta": 4.413174628955768e-08,
+      "model_min": -0.15,
+      "model_max": 1.0,
+      "model_mean": 0.0055428364323742325
+    }
+  ],
+  "models": {
+    "gravity": {
+      "datasets": [
+        "gravity"
+      ],
+      "methods": [
+        "gravity"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        -0.15,
+        0.3
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 4.529410880397406
+    },
+    "magnetics": {
+      "datasets": [
+        "magnetics"
+      ],
+      "methods": [
+        "magnetics"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        0.0,
+        1.0
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 0.2207792638834879
+    }
+  },
+  "dataset_models": [
+    "gravity",
+    "magnetics"
+  ],
+  "dataset_labels": [
+    "gravity",
+    "magnetics"
+  ],
+  "chi2": {
+    "gravity": 1361.3199147984587,
+    "magnetics": 1478.3181982602005
+  },
+  "inversion_mode": "joint",
+  "param_mode": "manual",
+  "regularization_type": "sparse",
+  "mesh_type": "tensor",
+  "mesh_design": {
+    "source": "user",
+    "data_spacing": [
+      {
+        "method": "gravity",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      },
+      {
+        "method": "magnetics",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      }
+    ],
+    "recommended": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 1000.0,
+      "depth_core_m": 35000.0,
+      "pad_distance_m": 25000.0,
+      "shape": [
+        47,
+        47,
+        41
+      ],
+      "n_cells": 90569,
+      "sensitivity_bytes": 939019392.0,
+      "data_spacing_m": 1985.664325036346,
+      "survey_width_m": 70000.0,
+      "coarsened_from": null
+    },
+    "used": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 500.0,
+      "depth_core_m": 10000.0,
+      "pad_distance_m": 20000.0
+    },
+    "client": null
+  },
+  "mesh_shape": [
+    45,
+    45,
+    27
+  ],
+  "mesh": {
+    "__module__": "discretize.tensor_mesh",
+    "__class__": "TensorMesh",
+    "h": [
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        1856.4650000000001,
+        1428.0500000000002,
+        1098.5,
+        845.0000000000001,
+        650.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0
+      ]
+    ],
+    "shape_cells": [
+      45,
+      45,
+      27
+    ],
+    "reference_system": "cartesian",
+    "origin": [
+      617487.94,
+      1611487.94,
+      -15493.254147233374
+    ],
+    "orientation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  "n_cells": 54675,
+  "n_active_cells": 50959,
+  "n_data": 2592,
+  "cell_centers_x": [
+    641000.0,
+    711000.0
+  ],
+  "cell_centers_y": [
+    1635000.0,
+    1704000.0
+  ],
+  "topography": {
+    "source": "dem",
+    "file": "dem_utm43n_450m.tif",
+    "stations_lifted": {
+      "gravity": {
+        "n": 264,
+        "max_m": 347.5,
+        "mean_m": 199.1
+      }
+    },
+    "elevation_min": 385.3,
+    "elevation_max": 1057.3
+  },
+  "crs": "EPSG:32643",
+  "datasets": [
+    {
+      "method": "gravity",
+      "component": "gz",
+      "files": [
+        "gravity_complete_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.0,
+      "noise_floor": 0.5,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -94.97324566451468,
+        "trend_max": -75.30437758544093,
+        "data_std_before": 10.32423144569337,
+        "data_std_after": 9.610398656556216,
+        "residual_min": -16.393925713552036,
+        "residual_max": 32.18102346674858
+      },
+      "gz_convention": "positive_down",
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "gravity_complete_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5040
+          }
+        }
+      }
+    },
+    {
+      "method": "magnetics",
+      "component": "tmi",
+      "files": [
+        "magnetic_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.05,
+      "noise_floor": 10.0,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -97.52266614679809,
+        "trend_max": 77.83299903974091,
+        "data_std_before": 274.1033445272048,
+        "data_std_after": 271.75223351109815,
+        "residual_min": -1513.2444968495738,
+        "residual_max": 2398.0416863822848
+      },
+      "gz_convention": null,
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "magnetic_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5041
+          }
+        }
+      }
+    }
+  ],
+  "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1.0,
+    "alpha_y": 1.0,
+    "alpha_z": 1.0,
+    "bounds_lower": null,
+    "bounds_upper": null,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+      0,
+      2,
+      2,
+      2
+    ],
+    "coupling": "joint_total_variation",
+    "coupling_weight": 1.0
+  },
+  "outside_core_share": {
+    "gravity": 0.3270892498396212,
+    "magnetics": 0.5271479950858449
+  },
+  "notes": [
+    "53% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1\u2013L2), property bounds, or a larger core (depth_core_m)."
+  ]
+}

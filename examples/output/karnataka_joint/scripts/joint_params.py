@@ -20,14 +20,23 @@ MAGNETIC_REG = {"regularization_type": "sparse", "norms": [0, 2, 2, 2], "alpha_s
                 "bounds_lower": 0.0, "bounds_upper": 1.0}
 
 
-def base(core_cell_m=1000.0, core_cell_z_m=250.0, decimate=None):
+# Density bounds from the measured rock samples (density_report.md, 30 September 2026): the
+# metabasalt and amphibolite (2.94-2.98 g/cc, about +-0.1) are +0.28-0.32 above the 2.66
+# background, the lightest granite (2.52) is -0.14.  With the +0.5 bound above, half the dense
+# cells of the uncoupled model sit at the bound, which then sets the belt's thickness.
+DENSITY_BOUNDS = {"rho30": (-0.15, 0.30), "rho35": (-0.15, 0.35), "rho40": (-0.15, 0.40)}
+
+
+def base(core_cell_m=1000.0, core_cell_z_m=250.0, decimate=None, density_bounds=None):
     thin = {"decimate_spacing_m": decimate} if decimate else {}
+    gravity_reg = GRAVITY_REG if density_bounds is None else {
+        **GRAVITY_REG, "bounds_lower": density_bounds[0], "bounds_upper": density_bounds[1]}
     return {
         "method_type": "joint", "inversion_mode": "joint", "crs": "EPSG:32643",
         "datasets": [
             {"method": "gravity", "files": ["gravity_complete_1km.csv"], "component": "gz",
              "noise_pct": 0.0, "noise_floor": 0.5, "regional": {"method": "polynomial", "order": 2},
-             "regularization": GRAVITY_REG, **thin},
+             "regularization": gravity_reg, **thin},
             {"method": "magnetics", "files": ["magnetic_1km.csv"], "component": "tmi",
              "method_kwargs": {"inducing_field": FIELD}, "noise_pct": 0.05, "noise_floor": 10.0,
              "regional": {"method": "polynomial", "order": 2}, "regularization": MAGNETIC_REG, **thin}],
