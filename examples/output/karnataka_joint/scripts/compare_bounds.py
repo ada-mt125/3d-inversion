@@ -1,6 +1,6 @@
 """The 2 km runs with the density bounds from the rock samples, against the +0.5 / -0.2 bounds.
 
-    py examples/output/karnataka_joint/scripts/compare_bounds.py [--keys rho50,rho35,rho35_gb05]
+    py examples/output/karnataka_joint/scripts/compare_bounds.py [--full] [--keys rho50,rho35,rho35_gb05]
 
 Reads data/lowres_runs_fixed/<coupling> (bounds -0.2 / +0.5, beta 1; "rho50") and
 data/lowres_bounds/<key>/<coupling> (joint_params.VARIANTS), writes data/lowres_bounds/
@@ -145,14 +145,19 @@ def figures(paths, keys):
 
 
 def main():
+    global LOW, BOUNDS
     args = sys.argv[1:]
+    full = "--full" in args
+    if full:
+        LOW, BOUNDS = ROOT / "data" / "ec2_runs_fixed", ROOT / "data" / "ec2_runs_bounds"
+        args.remove("--full")
     keys = ["rho50"] + list(VARIANTS)
     if args[:1] == ["--keys"]:
         keys = args[1].split(",")
     runs, paths = {}, {}
     for c in COUPLINGS:
         for key in ["rho50"] + list(VARIANTS):
-            path = LOW / c if key == "rho50" else BOUNDS / key / c
+            path = LOW / c if key == "rho50" else (BOUNDS / f"{c}_{key}" if full else BOUNDS / key / c)
             if (path / "result.zip").exists():
                 runs[f"{key}/{c}"] = measures(path, key)
                 paths[f"{key}/{c}"] = path

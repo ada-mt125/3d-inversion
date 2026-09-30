@@ -1,0 +1,310 @@
+{
+ "rho50/none": {
+  "bounds": [
+   -0.2,
+   0.5
+  ],
+  "betas": [
+   1.0,
+   1.0
+  ],
+  "gravity_chi2": 0.948819865425611,
+  "magnetics_chi2": 0.9531176183044502,
+  "dense_at_upper": 0.498933468765871,
+  "cells_at_lower": 15254,
+  "n_dense": 9845,
+  "main": {
+   "peak": 0.4998702264628925,
+   "top_km": 3.0,
+   "bottom_km": 7.5,
+   "centroid_km": 5.260900600623463,
+   "mass": 2.1374484621146546,
+   "thickness_at_contrast": 7.124828207048849,
+   "top_km_mean": 0.0005923553478874523
+  },
+  "box_dense_at_ground": 0.03333333333333333,
+  "box_dense_top1km": 0.006151926124915132,
+  "box": {
+   "total": 385.710373446224,
+   "centroid_km": 4.671314340951917,
+   "d10_km": 2.375,
+   "d50_km": 4.625,
+   "d90_km": 6.875,
+   "max": 0.5,
+   "volume_half_km3": 793.0
+  },
+  "magnetic_box": {
+   "total": 150.20908358601326,
+   "centroid_km": 1.9914989202217046,
+   "d10_km": 0.375,
+   "d50_km": 1.875,
+   "d90_km": 3.625,
+   "max": 1.0,
+   "volume_half_km3": 139.5
+  },
+  "box_magnetic_top1km": 0.2395362834897514,
+  "coupling": {
+   "cross_gradient": 0.43843254988941033,
+   "edges_shared": 0.32130209752111144,
+   "edge_cells": [
+    32391,
+    7342
+   ],
+   "corr_cells": 0.056273432363837805,
+   "corr_abs_cells": 0.055865431102934696,
+   "support": {
+    "dense": 26303,
+    "magnetic": 4524,
+    "both": 943,
+    "magnetic_in_dense": 0.20844385499557913,
+    "jaccard": 0.03155534734305983
+   },
+   "corr_integrated": 0.1987744613665003
+  },
+  "shares": {
+   "core": 0.8939990639601426,
+   "below": 0.09024545678273127,
+   "lateral": 0.015755479257126115,
+   "D50": 4.625,
+   "D90": 9.625
+  },
+  "magnetic_shares": {
+   "core": 0.7298533563648262,
+   "below": 0.07085109022601795,
+   "lateral": 0.1992955534091559,
+   "D50": 3.375,
+   "D90": 8.125
+  }
+ },
+ "rho35_gb05/none": {
+  "bounds": [
+   -0.15,
+   0.35
+  ],
+  "betas": [
+   0.5,
+   1.0
+  ],
+  "gravity_chi2": 0.9116706913867906,
+  "magnetics_chi2": 0.935836522601967,
+  "dense_at_upper": 0.4314549180327869,
+  "cells_at_lower": 13739,
+  "n_dense": 9760,
+  "main": {
+   "peak": 0.35,
+   "top_km": 1.0,
+   "bottom_km": 5.25,
+   "centroid_km": 3.167424762474933,
+   "mass": 1.418628616631885,
+   "thickness_at_contrast": 4.728762055439617,
+   "top_km_mean": 0.0017970428040097288
+  },
+  "box_dense_at_ground": 0.24722222222222223,
+  "box_dense_top1km": 0.0657241774073519,
+  "box": {
+   "total": 271.45151953740566,
+   "centroid_km": 2.773087262417541,
+   "d10_km": 1.125,
+   "d50_km": 2.625,
+   "d90_km": 4.625,
+   "max": 0.35,
+   "volume_half_km3": 786.75
+  },
+  "magnetic_box": {
+   "total": 151.4097245370338,
+   "centroid_km": 2.0561608734468946,
+   "d10_km": 0.375,
+   "d50_km": 1.875,
+   "d90_km": 3.875,
+   "max": 1.0,
+   "volume_half_km3": 141.25
+  },
+  "box_magnetic_top1km": 0.23377011528359995,
+  "coupling": {
+   "cross_gradient": 0.2911549931720118,
+   "edges_shared": 0.30844327176781,
+   "edge_cells": [
+    23556,
+    7580
+   ],
+   "corr_cells": 0.16372160477065428,
+   "corr_abs_cells": 0.14253339046676056,
+   "support": {
+    "dense": 25749,
+    "magnetic": 4679,
+    "both": 1476,
+    "magnetic_in_dense": 0.315452019662321,
+    "jaccard": 0.05098093395965737
+   },
+   "corr_integrated": 0.2605960344138811
+  },
+  "shares": {
+   "core": 0.9455359824266016,
+   "below": 0.03887727022241813,
+   "lateral": 0.015586747350980229,
+   "D50": 2.375,
+   "D90": 5.125
+  },
+  "magnetic_shares": {
+   "core": 0.7399113150038312,
+   "below": 0.06671158139229544,
+   "lateral": 0.19337710360387333,
+   "D50": 3.375,
+   "D90": 7.625
+  }
+ },
+ "rho50/joint_total_variation": {
+  "bounds": [
+   -0.2,
+   0.5
+  ],
+  "betas": [
+   1.0,
+   1.0
+  ],
+  "gravity_chi2": 1.0927145458542806,
+  "magnetics_chi2": 1.0282715855697278,
+  "dense_at_upper": 0.5052326183815149,
+  "cells_at_lower": 13382,
+  "n_dense": 9651,
+  "main": {
+   "peak": 0.5,
+   "top_km": 3.0,
+   "bottom_km": 7.25,
+   "centroid_km": 5.164582920706587,
+   "mass": 2.180226028119538,
+   "thickness_at_contrast": 7.267420093731793,
+   "top_km_mean": 0.0008297214519136318
+  },
+  "box_dense_at_ground": 0.03333333333333333,
+  "box_dense_top1km": 0.006510587697601253,
+  "box": {
+   "total": 383.027169620462,
+   "centroid_km": 4.611983451428636,
+   "d10_km": 2.375,
+   "d50_km": 4.625,
+   "d90_km": 6.875,
+   "max": 0.5,
+   "volume_half_km3": 774.25
+  },
+  "magnetic_box": {
+   "total": 147.08112077359064,
+   "centroid_km": 2.0983743750474897,
+   "d10_km": 0.375,
+   "d50_km": 1.875,
+   "d90_km": 3.875,
+   "max": 1.0,
+   "volume_half_km3": 130.75
+  },
+  "box_magnetic_top1km": 0.2561836044658199,
+  "coupling": {
+   "cross_gradient": 0.387518318722245,
+   "edges_shared": 0.46934061318773623,
+   "edge_cells": [
+    27843,
+    4762
+   ],
+   "corr_cells": 0.12301808739520725,
+   "corr_abs_cells": 0.12806037203056733,
+   "support": {
+    "dense": 25720,
+    "magnetic": 4245,
+    "both": 1628,
+    "magnetic_in_dense": 0.38351001177856303,
+    "jaccard": 0.057451388643822564
+   },
+   "corr_integrated": 0.31998244653159813
+  },
+  "shares": {
+   "core": 0.8786798702931492,
+   "below": 0.10142506635798355,
+   "lateral": 0.019895063348867245,
+   "D50": 4.625,
+   "D90": 9.875
+  },
+  "magnetic_shares": {
+   "core": 0.7321975029379845,
+   "below": 0.09921072888511744,
+   "lateral": 0.16859176817689808,
+   "D50": 3.125,
+   "D90": 8.125
+  }
+ },
+ "rho35_gb05/joint_total_variation": {
+  "bounds": [
+   -0.15,
+   0.35
+  ],
+  "betas": [
+   0.5,
+   1.0
+  ],
+  "gravity_chi2": 0.9239449547239513,
+  "magnetics_chi2": 0.914510038229345,
+  "dense_at_upper": 0.44008307372793354,
+  "cells_at_lower": 13260,
+  "n_dense": 9630,
+  "main": {
+   "peak": 0.35,
+   "top_km": 1.0,
+   "bottom_km": 5.25,
+   "centroid_km": 3.1263929556138454,
+   "mass": 1.400708345743083,
+   "thickness_at_contrast": 4.66902781914361,
+   "top_km_mean": 0.005748738218292545
+  },
+  "box_dense_at_ground": 0.23333333333333334,
+  "box_dense_top1km": 0.06528333380703462,
+  "box": {
+   "total": 270.4611374256562,
+   "centroid_km": 2.728172519071481,
+   "d10_km": 1.125,
+   "d50_km": 2.625,
+   "d90_km": 4.375,
+   "max": 0.35,
+   "volume_half_km3": 784.5
+  },
+  "magnetic_box": {
+   "total": 141.3578407525112,
+   "centroid_km": 1.7604923970285749,
+   "d10_km": 0.375,
+   "d50_km": 1.625,
+   "d90_km": 3.375,
+   "max": 1.0,
+   "volume_half_km3": 83.0
+  },
+  "box_magnetic_top1km": 0.3035705290583588,
+  "coupling": {
+   "cross_gradient": 0.2271386563033634,
+   "edges_shared": 0.5633450175262894,
+   "edge_cells": [
+    23189,
+    3994
+   ],
+   "corr_cells": 0.24986074322318527,
+   "corr_abs_cells": 0.24667881658998067,
+   "support": {
+    "dense": 25520,
+    "magnetic": 4140,
+    "both": 2204,
+    "magnetic_in_dense": 0.5323671497584541,
+    "jaccard": 0.08027389277389277
+   },
+   "corr_integrated": 0.3698952177153919
+  },
+  "shares": {
+   "core": 0.9411450908430413,
+   "below": 0.041679711875188444,
+   "lateral": 0.017175197281770235,
+   "D50": 2.375,
+   "D90": 5.125
+  },
+  "magnetic_shares": {
+   "core": 0.6634907576037692,
+   "below": 0.14875871612127492,
+   "lateral": 0.1877505262749559,
+   "D50": 2.625,
+   "D90": 9.875
+  }
+ }
+}
