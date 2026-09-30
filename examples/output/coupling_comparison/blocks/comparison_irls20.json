@@ -1,0 +1,328 @@
+{
+ "none": {
+  "seconds": 38,
+  "chi2": {
+   "gravity": 383.4,
+   "magnetics": 386.0
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.0465,
+    "chi_mean": 0.01415
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.059,
+    "chi_mean": 0.00121
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.0471,
+    "chi_mean": -9e-05
+   }
+  },
+  "rho_outside_mean_abs": 0.00708,
+  "chi_outside_mean_abs": 0.000414,
+  "rho_error_rms": 0.04607,
+  "chi_error_rms": 0.003938,
+  "corr_rho_chi": 0.464,
+  "coupling": {
+   "kind": "none",
+   "label": "none (inverted together, uncoupled)"
+  },
+  "note": "one β for both models, no coupling: the reference"
+ },
+ "cross_gradient": {
+  "seconds": 57,
+  "chi2": {
+   "gravity": 392.3,
+   "magnetics": 398.6
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.0671,
+    "chi_mean": 0.01213
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.0624,
+    "chi_mean": 0.00125
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.0485,
+    "chi_mean": -8e-05
+   }
+  },
+  "rho_outside_mean_abs": 0.00692,
+  "chi_outside_mean_abs": 0.000432,
+  "rho_error_rms": 0.0441,
+  "chi_error_rms": 0.004061,
+  "corr_rho_chi": 0.545,
+  "coupling": {
+   "kind": "cross_gradient",
+   "label": "cross-gradient",
+   "weight": 1.0,
+   "multipliers": [
+    18294362777899.203
+   ]
+  },
+  "note": ""
+ },
+ "joint_total_variation": {
+  "seconds": 49,
+  "chi2": {
+   "gravity": 388.1,
+   "magnetics": 391.1
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.0449,
+    "chi_mean": 0.01278
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.0529,
+    "chi_mean": 0.00122
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.0448,
+    "chi_mean": -9e-05
+   }
+  },
+  "rho_outside_mean_abs": 0.00722,
+  "chi_outside_mean_abs": 0.000439,
+  "rho_error_rms": 0.0455,
+  "chi_error_rms": 0.004018,
+  "corr_rho_chi": 0.507,
+  "coupling": {
+   "kind": "joint_total_variation",
+   "label": "joint total variation",
+   "weight": 1.0,
+   "multipliers": [
+    5.948282230576842e-05
+   ]
+  },
+  "note": ""
+ },
+ "linear_correspondence": {
+  "seconds": 32,
+  "chi2": {
+   "gravity": 399.6,
+   "magnetics": 379.9
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.0876,
+    "chi_mean": 0.01401
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.0355,
+    "chi_mean": 0.0024
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.0287,
+    "chi_mean": 0.00091
+   }
+  },
+  "rho_outside_mean_abs": 0.00788,
+  "chi_outside_mean_abs": 0.000623,
+  "rho_error_rms": 0.04504,
+  "chi_error_rms": 0.003943,
+  "corr_rho_chi": 0.836,
+  "coupling": {
+   "kind": "linear_correspondence",
+   "label": "linear correspondence",
+   "weight": 1.0,
+   "multipliers": [
+    14532603.2871124
+   ]
+  },
+  "note": "ρ = 6 χ (the high-χ body's ratio) imposed everywhere"
+ },
+ "pgi": {
+  "seconds": 40,
+  "chi2": {
+   "gravity": 131.3,
+   "magnetics": 159.7
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.1272,
+    "chi_mean": 0.03643
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.1878,
+    "chi_mean": 0.00668
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2152,
+    "chi_mean": 0.00016
+   }
+  },
+  "rho_outside_mean_abs": 0.00915,
+  "chi_outside_mean_abs": 0.000582,
+  "rho_error_rms": 0.04359,
+  "chi_error_rms": 0.004233,
+  "corr_rho_chi": 0.462,
+  "coupling": {
+   "kind": "pgi",
+   "label": "petrophysically guided (PGI)"
+  },
+  "pgi_cells_right": {
+   "A": "48/96",
+   "B": "40/96",
+   "C": "70/96"
+  },
+  "pgi_false_body_cells": 384,
+  "note": "the true rock units given (full petrophysical information); PGI replaces L1–L2"
+ },
+ "group_lasso": {
+  "seconds": 181,
+  "chi2": {
+   "gravity": 382.1,
+   "magnetics": 435.6
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.2673,
+    "chi_mean": 0.04883
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.2448,
+    "chi_mean": 0.00876
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2519,
+    "chi_mean": 0.0002
+   }
+  },
+  "rho_outside_mean_abs": 0.00152,
+  "chi_outside_mean_abs": 8.1e-05,
+  "rho_error_rms": 0.03418,
+  "chi_error_rms": 0.004381,
+  "corr_rho_chi": 0.679,
+  "coupling": {
+   "kind": "group_lasso",
+   "label": "group lasso (joint sparsity)"
+  },
+  "note": "Utsugi (2025): L2 (λ2 = 0.3) + group lasso, λ1 at the L-curve corner; replaces L1–L2"
+ },
+ "group_lasso_uncoupled": {
+  "seconds": 213,
+  "chi2": {
+   "gravity": 400.8,
+   "magnetics": 484.1
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.2471,
+    "chi_mean": 0.04931
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.2334,
+    "chi_mean": 0.00923
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2507,
+    "chi_mean": 0.0
+   }
+  },
+  "rho_outside_mean_abs": 0.0019,
+  "chi_outside_mean_abs": 4.7e-05,
+  "rho_error_rms": 0.03315,
+  "chi_error_rms": 0.006044,
+  "corr_rho_chi": 0.58,
+  "coupling": {
+   "kind": "group_lasso_uncoupled",
+   "label": "none — L1 + L2 per model, the group lasso's solver (control)"
+  },
+  "note": "control: the group lasso's solver and settings, each model soft-thresholded alone"
+ }
+}

@@ -1,0 +1,22 @@
+[Pipeline] Loading gravity (gz) data from gravity.csv
+[Pipeline] Loading magnetics (tmi) data from magnetics.csv
+[Pipeline] Mesh design (user): 50 m x 50 m cells, core 600 m deep, padding 600 m
+[Pipeline] tensor mesh: 27216 cells (27216 active), 714 observations, topography: flat
+[Pipeline] Note: L1–L2 regularizes the model values only (no smoothness term); norms and alpha_x/y/z are not used
+[Pipeline] Note: PGI regularizes the models by its rock units and their smoothness; regularization_type='l1l2' and the coupling weight are not used
+
+Running inversion with SimPEG v0.25.2
+================================================= Projected GNCG =================================================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS   iter_CG   CG |Ax-b|/|b|  CG |Ax-b|   Comment   
+-----------------------------------------------------------------------------------------------------------------
+   0  2.17e-08  1.20e+05  0.00e+00  1.20e+05                         0           inf          inf                
+   1  2.17e-08  1.29e+00  1.58e+09  3.56e+01    2.38e+05      0     100       2.24e-03     5.34e+02              
+   2  2.17e-08  2.38e+02  5.37e+10  1.40e+03    1.24e+04      0     100       2.98e-02     3.70e+02              
+   3  1.08e-08  1.32e+02  6.06e+10  7.89e+02    2.13e+03      0     100       1.42e-01     3.02e+02              
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 3.3413e+01 <= tolF*(1+|f0|) = 1.2022e+04
+0 : |xc-x_last| = 1.2154e-01 <= tolX*(1+|x0|) = 1.0000e-01
+0 : |proj(x-g)-x|    = 2.1269e+03 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 2.1269e+03 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      30    <= iter          =      3
+------------------------- DONE! -------------------------

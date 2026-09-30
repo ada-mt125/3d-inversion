@@ -1,0 +1,20 @@
+[Pipeline] Loading gravity (gz) data from gravity.csv
+[Pipeline] Loading magnetics (tmi) data from magnetics.csv
+[Pipeline] Mesh design (user): 50 m x 50 m cells, core 600 m deep, padding 600 m
+[Pipeline] tensor mesh: 27216 cells (27216 active), 714 observations, topography: flat
+[Group lasso] gravity: computing the 357 x 27216 sensitivity matrix
+[Group lasso] magnetics: computing the 357 x 27216 sensitivity matrix
+[Group lasso] 2 models ['gravity', 'magnetics'], cholesky (data space), mu = 76.24, lambda1_max = 3.561, data scales max_ratio {'gravity': 1.0, 'magnetics': 0.0015688578285647855} (set up in 2.2 s)
+[Group lasso] lambda1 1/13 = 2.093: chi2 = 7.894e+04 (target 714), group penalty 1.445, 55 active cells, 497 ADMM iterations
+[Group lasso] lambda1 2/13 = 1.23: chi2 = 4.104e+04 (target 714), group penalty 2.927, 131 active cells, 375 ADMM iterations
+[Group lasso] lambda1 3/13 = 0.7231: chi2 = 1.725e+04 (target 714), group penalty 4.255, 136 active cells, 469 ADMM iterations
+[Group lasso] lambda1 4/13 = 0.4251: chi2 = 7890 (target 714), group penalty 5.111, 158 active cells, 528 ADMM iterations
+[Group lasso] lambda1 5/13 = 0.2499: chi2 = 4012 (target 714), group penalty 5.757, 210 active cells, 745 ADMM iterations
+[Group lasso] lambda1 6/13 = 0.1469: chi2 = 2142 (target 714), group penalty 6.296, 254 active cells, 856 ADMM iterations
+[Group lasso] lambda1 7/13 = 0.08633: chi2 = 1329 (target 714), group penalty 6.672, 317 active cells, 961 ADMM iterations
+[Group lasso] lambda1 8/13 = 0.05074: chi2 = 954.5 (target 714), group penalty 6.983, 427 active cells, 1086 ADMM iterations
+[Group lasso] lambda1 9/13 = 0.02983: chi2 = 733 (target 714), group penalty 7.406, 600 active cells, 1200 ADMM iterations
+[Group lasso] lambda1 10/13 = 0.01753: chi2 = 505.6 (target 714), group penalty 8.185, 911 active cells, 1259 ADMM iterations
+[Group lasso] lambda1 11/13 = 0.01031: chi2 = 289.1 (target 714), group penalty 9.361, 1416 active cells, 1313 ADMM iterations
+[Group lasso] lambda1 12/13 = 0.006058: chi2 = 151.5 (target 714), group penalty 10.54, 1921 active cells, 1415 ADMM iterations
+[Group lasso] lambda1 13/13 = 0.003561: chi2 = 79.45 (target 714), group penalty 11.6, 2555 active cells, 1551 ADMM iterations

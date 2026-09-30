@@ -1,0 +1,47 @@
+[Pipeline] Loading gravity (gz) data from gravity.csv
+[Pipeline] Loading magnetics (tmi) data from magnetics.csv
+[Pipeline] Mesh design (user): 50 m x 50 m cells, core 600 m deep, padding 600 m
+[Pipeline] tensor mesh: 27216 cells (27216 active), 714 observations, topography: flat
+[Pipeline] Note: L1–L2 regularizes the model values only (no smoothness term); norms and alpha_x/y/z are not used
+
+Running inversion with SimPEG v0.25.2
+[JointRegularizationBalance] regularization multipliers: gravity 5.37, magnetics 0.186
+============================ Inexact Gauss Newton ============================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS    Comment   
+-----------------------------------------------------------------------------
+   0  1.72e-02  1.28e+05  0.00e+00  1.28e+05                                 
+   1  1.72e-02  2.33e+03  3.61e+05  8.55e+03    4.99e+05      0              
+[CouplingScale] after iteration 1: coupling multiplier(s) 3.01e+12 (weight 1 x regularization / coupling curvature)
+   2  8.62e-03  1.06e+03  4.75e+05  5.16e+03    7.15e+04      0              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+irls_threshold 0.09502341330525547
+irls_threshold 0.01315717878712162
+   3  8.62e-03  1.60e+04  2.58e+06  3.82e+04    1.19e+05      0              
+[CouplingScale] after iteration 3: coupling multiplier(s) 1.02e+13 (weight 1 x regularization / coupling curvature)
+   4  3.43e-03  7.41e+03  4.63e+06  2.33e+04    6.41e+04      0              
+   5  1.45e-03  2.87e+03  6.98e+06  1.30e+04    2.63e+04      0              
+   6  7.24e-04  1.14e+03  8.95e+06  7.61e+03    1.08e+04      0              
+   7  4.99e-04  2.62e+02  6.45e+06  3.48e+03    8.46e+03      0              
+   8  7.67e-04  4.07e+02  4.77e+06  4.06e+03    2.71e+04      0              
+   9  1.05e-03  6.98e+02  4.96e+06  5.91e+03    9.26e+03      0              
+  10  1.05e-03  7.63e+02  5.20e+06  6.23e+03    3.12e+03      0              
+  11  1.05e-03  8.21e+02  5.43e+06  6.53e+03    2.58e+03      0              
+  12  9.97e-04  8.10e+02  5.70e+06  6.50e+03    1.65e+03      0              
+  13  9.48e-04  7.94e+02  5.96e+06  6.45e+03    1.91e+03      0              
+  14  9.03e-04  7.78e+02  6.21e+06  6.39e+03    2.13e+03      0              
+  15  9.03e-04  8.18e+02  6.39e+06  6.59e+03    3.13e+03      0              
+  16  8.57e-04  7.93e+02  6.65e+06  6.49e+03    2.68e+03      0              
+  17  8.17e-04  7.70e+02  6.87e+06  6.39e+03    2.93e+03      0              
+  18  8.17e-04  8.00e+02  7.02e+06  6.53e+03    3.87e+03      0              
+  19  7.78e-04  7.74e+02  7.25e+06  6.41e+03    3.52e+03      0              
+  20  7.78e-04  8.02e+02  7.37e+06  6.53e+03    4.43e+03      0              
+  21  7.40e-04  7.71e+02  7.58e+06  6.38e+03    4.06e+03      0              
+  22  7.40e-04  7.95e+02  7.69e+06  6.49e+03    4.92e+03      0              
+Reach maximum number of IRLS cycles: 20
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 1.4957e+01 <= tolF*(1+|f0|) = 1.2805e+04
+1 : |xc-x_last| = 7.6315e-02 <= tolX*(1+|x0|) = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.9228e+03 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.9228e+03 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      30    <= iter          =     22
+------------------------- DONE! -------------------------

@@ -1,0 +1,67 @@
+[Pipeline] Loading gravity (gz) data from gravity.csv
+[Pipeline] Loading magnetics (tmi) data from magnetics.csv
+[Pipeline] Mesh design (user): 50 m x 50 m cells, core 600 m deep, padding 600 m
+[Pipeline] tensor mesh: 27216 cells (27216 active), 714 observations, topography: flat
+[Pipeline] Note: L1–L2 regularizes the model values only (no smoothness term); norms and alpha_x/y/z are not used
+
+Running inversion with SimPEG v0.25.2
+[JointRegularizationBalance] regularization multipliers: gravity 5.37, magnetics 0.186
+============================ Inexact Gauss Newton ============================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS    Comment   
+-----------------------------------------------------------------------------
+   0  1.72e-02  1.28e+05  0.00e+00  1.28e+05                                 
+   1  1.72e-02  2.33e+03  3.61e+05  8.55e+03    4.99e+05      0              
+[CouplingScale] after iteration 1: coupling multiplier(s) 3.01e+12 (weight 1 x regularization / coupling, by curvature or value)
+   2  8.62e-03  1.06e+03  4.75e+05  5.16e+03    7.15e+04      0              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+irls_threshold 0.09502341330525547
+irls_threshold 0.01315717878712162
+   3  8.62e-03  1.60e+04  2.58e+06  3.82e+04    1.19e+05      0              
+[CouplingScale] after iteration 3: coupling multiplier(s) 1.02e+13 (weight 1 x regularization / coupling, by curvature or value)
+   4  3.43e-03  7.41e+03  4.63e+06  2.33e+04    6.41e+04      0              
+   5  1.45e-03  2.87e+03  6.98e+06  1.30e+04    2.63e+04      0              
+   6  7.24e-04  1.14e+03  8.95e+06  7.61e+03    1.08e+04      0              
+   7  4.99e-04  2.62e+02  6.45e+06  3.48e+03    8.46e+03      0              
+   8  7.67e-04  4.07e+02  4.77e+06  4.06e+03    2.71e+04      0              
+   9  1.05e-03  6.98e+02  4.96e+06  5.91e+03    9.26e+03      0              
+  10  1.05e-03  7.63e+02  5.20e+06  6.23e+03    3.12e+03      0              
+  11  1.05e-03  8.21e+02  5.43e+06  6.53e+03    2.58e+03      0              
+  12  9.97e-04  8.10e+02  5.70e+06  6.50e+03    1.65e+03      0              
+  13  9.48e-04  7.94e+02  5.96e+06  6.45e+03    1.91e+03      0              
+  14  9.03e-04  7.78e+02  6.21e+06  6.39e+03    2.13e+03      0              
+  15  9.03e-04  8.18e+02  6.39e+06  6.59e+03    3.13e+03      0              
+  16  8.57e-04  7.93e+02  6.65e+06  6.49e+03    2.68e+03      0              
+  17  8.17e-04  7.70e+02  6.87e+06  6.39e+03    2.93e+03      0              
+  18  8.17e-04  8.00e+02  7.02e+06  6.53e+03    3.87e+03      0              
+  19  7.78e-04  7.74e+02  7.25e+06  6.41e+03    3.52e+03      0              
+  20  7.78e-04  8.02e+02  7.37e+06  6.53e+03    4.43e+03      0              
+  21  7.40e-04  7.71e+02  7.58e+06  6.38e+03    4.06e+03      0              
+  22  7.40e-04  7.95e+02  7.69e+06  6.49e+03    4.92e+03      0              
+  23  7.05e-04  7.63e+02  7.88e+06  6.32e+03    4.51e+03      0              
+  24  7.05e-04  7.83e+02  7.97e+06  6.40e+03    5.31e+03      0              
+  25  7.05e-04  8.02e+02  8.07e+06  6.49e+03    5.56e+03      0              
+  26  6.71e-04  7.69e+02  8.25e+06  6.31e+03    4.86e+03      0              
+  27  6.71e-04  7.83e+02  8.32e+06  6.37e+03    5.51e+03      0              
+  28  6.71e-04  7.99e+02  8.40e+06  6.43e+03    5.62e+03      0              
+  29  6.39e-04  7.67e+02  8.56e+06  6.23e+03    4.78e+03      0              
+  30  6.39e-04  7.77e+02  8.61e+06  6.28e+03    5.26e+03      0              
+  31  6.39e-04  7.92e+02  8.68e+06  6.33e+03    5.35e+03      0              
+  32  6.09e-04  7.57e+02  8.81e+06  6.12e+03    4.42e+03      0              
+  33  6.09e-04  7.66e+02  8.86e+06  6.17e+03    4.83e+03      0              
+  34  6.09e-04  7.77e+02  8.91e+06  6.20e+03    5.02e+03      0              
+  35  6.09e-04  7.89e+02  8.96e+06  6.25e+03    4.95e+03      0              
+  36  5.81e-04  7.60e+02  9.09e+06  6.04e+03    4.05e+03      0              
+  37  5.81e-04  7.66e+02  9.12e+06  6.07e+03    4.50e+03      0              
+  38  5.81e-04  7.75e+02  9.16e+06  6.10e+03    4.65e+03      0              
+  39  5.81e-04  7.85e+02  9.20e+06  6.13e+03    4.65e+03      0              
+  40  5.81e-04  7.95e+02  9.25e+06  6.17e+03    4.65e+03      0              
+  41  5.54e-04  7.64e+02  9.36e+06  5.94e+03    3.80e+03      0              
+  42  5.54e-04  7.68e+02  9.36e+06  5.95e+03    4.42e+03      0              
+Reach maximum number of IRLS cycles: 40
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 1.1243e+01 <= tolF*(1+|f0|) = 1.2805e+04
+0 : |xc-x_last| = 1.0697e-01 <= tolX*(1+|x0|) = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.4187e+03 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.4187e+03 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      60    <= iter          =     42
+------------------------- DONE! -------------------------

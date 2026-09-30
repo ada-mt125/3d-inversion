@@ -1,0 +1,72 @@
+{
+ "unconstrained": {
+  "seconds": 30,
+  "chi2_per_datum": 1.133783820321853,
+  "rms_mgal": 0.5323964266225528,
+  "top_1km_mean": 0.0037920606188566026,
+  "top_1km_max": 0.5023363274818126
+ },
+ "geology": {
+  "seconds": 23,
+  "chi2_per_datum": 1.1307577836248648,
+  "rms_mgal": 0.5316854764860671,
+  "top_1km_mean": 0.007647933829152735,
+  "top_1km_max": 0.5978905544556357,
+  "constrained_cells": 68,
+  "units": [
+   {
+    "name": "BIF",
+    "value": 0.6,
+    "lower": 0.31,
+    "upper": 0.78,
+    "weight": 10.0,
+    "rock_types": [
+     "banded iron formation"
+    ],
+    "n_samples": 3,
+    "source": "samples",
+    "n_cells": 5
+   },
+   {
+    "name": "mafic",
+    "value": 0.3212,
+    "lower": 0.07,
+    "upper": 0.71,
+    "weight": 3.0,
+    "rock_types": [
+     "amphibolite",
+     "dolerite*",
+     "dolertie",
+     "gabbro",
+     "meta gabbro",
+     "metabasalt",
+     "meta dolarite",
+     "mafic granite"
+    ],
+    "n_samples": 34,
+    "source": "samples",
+    "n_cells": 18
+   },
+   {
+    "name": "granitoid",
+    "value": -0.0246,
+    "lower": -0.18,
+    "upper": 0.25,
+    "weight": 2.0,
+    "rock_types": [
+     "*granite*",
+     "granodiorite*",
+     "*gneiss*",
+     "tonalite",
+     "migmatite"
+    ],
+    "n_samples": 114,
+    "source": "samples",
+    "n_cells": 45
+   }
+  ],
+  "constrained_reference_mean": 0.112823028592242,
+  "constrained_model_mean": 0.10331382321692949,
+  "same_cells_unconstrained_mean": -0.002838481068983919
+ }
+}

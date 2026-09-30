@@ -1,0 +1,19 @@
+{
+  "name": "samples + iron holes",
+  "property": "density",
+  "background": 2.67,
+  "samples": {"file": "Physical_properties_rock_samples.csv", "window_pad_m": 20000},
+  "units": {
+    "BIF": {"rock_types": ["banded iron formation"], "weight": 10},
+    "mafic": {"rock_types": ["amphibolite", "dolerite*", "dolertie", "gabbro", "meta gabbro",
+                             "metabasalt", "meta dolarite", "mafic granite"], "weight": 3},
+    "granitoid": {"rock_types": ["*granite*", "granodiorite*", "*gneiss*", "tonalite", "migmatite"],
+                  "weight": 2}
+  },
+  "sources": [
+    {"type": "samples", "depth_m": 500},
+    {"type": "boreholes", "file": "DRILLING_BOREHOLE_DETAILS_STATE_KARNATAKA.shp",
+     "unit_by": {"field": "commodity_", "values": {"IRON*": "BIF"}}, "extend_m": 400}
+  ],
+  "unconstrained": {"lower": -0.3, "upper": 0.8}
+}

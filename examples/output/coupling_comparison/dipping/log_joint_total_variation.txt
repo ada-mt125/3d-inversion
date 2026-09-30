@@ -1,0 +1,59 @@
+[Pipeline] Loading gravity (gz) data from gravity.csv
+[Pipeline] Loading magnetics (tmi) data from magnetics.csv
+[Pipeline] Mesh design (user): 50 m x 50 m cells, core 600 m deep, padding 600 m
+[Pipeline] tensor mesh: 27216 cells (27216 active), 714 observations, topography: flat
+[Pipeline] Note: L1–L2 regularizes the model values only (no smoothness term); norms and alpha_x/y/z are not used
+
+Running inversion with SimPEG v0.25.2
+[JointRegularizationBalance] regularization multipliers: gravity 5.37, magnetics 0.186
+============================ Inexact Gauss Newton ============================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS    Comment   
+-----------------------------------------------------------------------------
+   0  1.72e-02  1.28e+05  0.00e+00  1.28e+05                                 
+   1  1.72e-02  2.33e+03  3.61e+05  8.55e+03    4.99e+05      0              
+[CouplingScale] after iteration 1: coupling multiplier(s) 4.6e-05 (weight 1 x regularization / coupling, by curvature or value)
+   2  8.62e-03  1.23e+03  8.13e+05  8.24e+03    7.54e+04      0              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+irls_threshold 0.0922091423449629
+irls_threshold 0.01495490713997141
+   3  8.62e-03  1.54e+04  2.83e+06  3.98e+04    1.16e+05      0              
+[CouplingScale] after iteration 3: coupling multiplier(s) 4.6e-05 (weight 1 x regularization / coupling, by curvature or value)
+   4  3.43e-03  7.35e+03  4.97e+06  2.44e+04    5.45e+04      0              
+   5  1.45e-03  2.75e+03  7.47e+06  1.36e+04    2.69e+04      0              
+   6  7.34e-04  1.06e+03  9.57e+06  8.08e+03    1.21e+04      0              
+   7  5.23e-04  2.47e+02  7.02e+06  3.92e+03    9.25e+03      0              
+   8  8.17e-04  4.14e+02  5.24e+06  4.70e+03    2.87e+04      0              
+   9  1.12e-03  5.49e+02  5.40e+06  6.58e+03    1.29e+04      1              
+  10  1.43e-03  1.16e+03  5.39e+06  8.87e+03    1.61e+04      0              
+  11  1.30e-03  1.13e+03  5.40e+06  8.16e+03    1.21e+04      1              
+  12  1.19e-03  1.08e+03  5.61e+06  7.74e+03    8.59e+03      1              
+  13  1.09e-03  1.02e+03  5.97e+06  7.52e+03    7.85e+03      1              
+  14  1.00e-03  9.52e+02  6.39e+06  7.37e+03    9.15e+03      1              
+  15  9.35e-04  8.92e+02  6.74e+06  7.19e+03    8.44e+03      1              
+  16  8.77e-04  8.41e+02  6.97e+06  6.96e+03    6.66e+03      1              
+  17  8.30e-04  8.00e+02  7.15e+06  6.73e+03    5.45e+03      1              
+  18  7.90e-04  7.66e+02  7.33e+06  6.56e+03    4.92e+03      1              
+  19  7.90e-04  7.64e+02  7.52e+06  6.70e+03    4.92e+03      1              
+  20  7.90e-04  7.77e+02  7.71e+06  6.86e+03    4.99e+03      1              
+  21  7.90e-04  7.97e+02  7.88e+06  7.02e+03    5.07e+03      1              
+  22  7.52e-04  7.93e+02  8.07e+06  6.86e+03    4.17e+03      1              
+  23  7.17e-04  7.76e+02  8.24e+06  6.68e+03    3.81e+03      1              
+  24  7.17e-04  7.81e+02  8.39e+06  6.80e+03    4.25e+03      0              
+  25  7.17e-04  7.94e+02  8.49e+06  6.88e+03    3.99e+03      0              
+  26  6.83e-04  7.59e+02  8.67e+06  6.68e+03    3.57e+03      0              
+  27  6.83e-04  7.73e+02  8.74e+06  6.75e+03    4.27e+03      0              
+  28  6.83e-04  7.90e+02  8.84e+06  6.83e+03    4.41e+03      0              
+  29  6.52e-04  7.58e+02  9.01e+06  6.63e+03    3.85e+03      0              
+  30  6.52e-04  7.70e+02  9.07e+06  6.68e+03    4.49e+03      0              
+  31  6.52e-04  7.85e+02  9.15e+06  6.74e+03    4.67e+03      0              
+  32  6.52e-04  8.01e+02  9.23e+06  6.81e+03    4.80e+03      0              
+  33  6.20e-04  7.67e+02  9.38e+06  6.59e+03    4.24e+03      0              
+  34  6.20e-04  7.76e+02  9.42e+06  6.62e+03    4.87e+03      0              
+Minimum decrease in regularization. End of IRLS
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 1.5816e+01 <= tolF*(1+|f0|) = 1.2805e+04
+0 : |xc-x_last| = 1.0336e-01 <= tolX*(1+|x0|) = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.8708e+03 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 4.8708e+03 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      60    <= iter          =     34
+------------------------- DONE! -------------------------
