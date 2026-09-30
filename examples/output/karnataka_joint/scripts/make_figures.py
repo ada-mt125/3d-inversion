@@ -1,6 +1,10 @@
 """Figures and numbers of the Karnataka joint gravity-magnetic report.
 
-    py examples/output/karnataka_joint/scripts/make_figures.py
+    py examples/output/karnataka_joint/scripts/make_figures.py [--set v2]
+
+--set v2: the second series of runs (data/ec2_runs_fixed, data/lowres_runs_fixed; the group
+lasso as group_lasso_depth) and the magnetization-vector inversion of the magnetic data, into
+figures_v2/ (build_report_v2.py); without it, the first series into figures/.
 """
 
 from __future__ import annotations
@@ -32,6 +36,15 @@ COUPLINGS = [
     ("pgi", "PGI (rock units)", "PGI"),
     ("group_lasso", "Group lasso", "group lasso"),
     ("group_lasso_uncoupled", "L1 + L2 by ADMM, no coupling", "L1+L2 ADMM"),
+]
+# the second series (build_report_v2.py)
+COUPLINGS_V2 = [
+    ("none", "No coupling", "none"),
+    ("cross_gradient", "Cross-gradient", "cross-gradient"),
+    ("joint_total_variation", "Joint total variation", "JTV"),
+    ("linear_correspondence", "Linear correspondence", "linear"),
+    ("group_lasso_depth", "Group lasso", "group lasso"),
+    ("group_lasso_depth_uncoupled", "L1 + L2 by ADMM, no coupling", "L1+L2 ADMM"),
 ]
 SANDUR_N = 1667500.0
 BOX = (658000.0, 678000.0, 1657000.0, 1675000.0)
@@ -92,6 +105,11 @@ def load_joint(path):
 
 
 def main():
+    global DATA, LOW, FIGS, COUPLINGS
+    v2 = "--set" in sys.argv and sys.argv[sys.argv.index("--set") + 1] == "v2"
+    if v2:
+        DATA, LOW = ROOT / "data" / "ec2_runs_fixed", ROOT / "data" / "lowres_runs_fixed"
+        FIGS, COUPLINGS = ROOT / "figures_v2", COUPLINGS_V2
     FIGS.mkdir(exist_ok=True)
     runs = {}
     for k, *_ in COUPLINGS:
@@ -264,7 +282,7 @@ def main():
             d = g.depth / 1e3
             half = (g.dz / 2e3)[None, None, :]
             cum = np.array([(w * np.clip((e - (d - half)) / (2 * half), 0, 1)).sum() for e in edges])
-            ax.plot(np.diff(cum) / 1e9 / np.diff(edges), mid, "--" if k == "group_lasso_uncoupled" else "-",
+            ax.plot(np.diff(cum) / 1e9 / np.diff(edges), mid, "--" if k.endswith("_uncoupled") else "-",
                     color=palette[i % len(palette)], lw=1.8, label=short[k])
     axs[0].set_xlabel("excess mass per km of depth (g/cc·km³ per km)"); axs[1].set_xlabel("susceptibility × volume per km of depth (SI·km³ per km)")
     axs[0].set_ylabel("Depth below the ground (km)"); axs[0].set_ylim(12, 0)
@@ -274,6 +292,27 @@ def main():
     axs[1].legend(frameon=False, fontsize=8)
     fig.savefig(FIGS / "profiles.png"); plt.close(fig)
 
+    if v2:   # the magnetic data with a magnetization vector per cell (remanence)
+        from fixes_figures import mvi
+        from fixes_summary import magnetic_pair
+        numbers["magnetic"] = magnetic_pair()
+        # the stations the magnetic single inversion underfits by more than 150 nT, in each joint run
+        from fixes_summary import MAGNETIC, UNDERFIT_NT
+        single = load(MAGNETIC / "beta1")["_data"]
+        bad = (single["observed"] - single["predicted"]) > UNDERFIT_NT
+        under = {}
+        for k in keys:
+            dd = runs[k][0]["_datas"]["magnetics"]
+            if np.allclose(dd["locations"][:, :2], single["locations"][:, :2]):
+                rr = dd["observed"] - dd["predicted"]
+                under[k] = {"n_over": int((rr > UNDERFIT_NT).sum()), "mean_at_single": float(rr[bad].mean()),
+                            "rms_at_single": float(np.sqrt(np.mean(rr[bad] ** 2)))}
+        numbers["magnetic"]["joint_underfit"] = under
+        numbers["gl_info"] = {k: runs[k][0].get("group_lasso") and {
+            key: runs[k][0]["group_lasso"].get(key) for key in (
+                "criterion", "lambda1", "lambda1_max", "lambda2", "data_weights", "weighting",
+                "balance", "admm_iterations")} for k in keys if k.startswith("group_lasso")}
+        mvi(FIGS, name="mvi")
     (FIGS / "numbers.json").write_text(json.dumps(numbers, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
     print("figures and numbers written to", FIGS, "for", keys)
 

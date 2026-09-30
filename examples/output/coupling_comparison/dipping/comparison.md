@@ -11,5 +11,8 @@
 | petrophysically guided (PGI) | 0.123 / 0.0209 | 0.105 / 0.0035 | 0.109 / 0.0001 | 0.0493 | 0.00501 | 186 / 339 (N = 357) | 30 | the true rock units given (full petrophysical information); PGI replaces L1–L2 |
 | group lasso (joint sparsity) | 0.164 / 0.0301 | 0.135 / 0.0046 | 0.163 / 0.0001 | 0.0451 | 0.00484 | 387 / 438 (N = 357) | 222 | Utsugi (2025): L2 (λ2 = 0.3) + group lasso, λ1 at the L-curve corner; replaces L1–L2 |
 | none — L1 + L2 by ADMM (control) | 0.153 / 0.0289 | 0.132 / 0.0021 | 0.162 / 0.0000 | 0.0438 | 0.00611 | 400 / 479 (N = 357) | 171 | control: the group lasso's solver and settings, each model soft-thresholded alone |
+| group_lasso_balanced | 0.160 / 0.0297 | 0.131 / 0.0048 | 0.159 / 0.0002 | 0.0423 | 0.00458 | 335 / 385 (N = 357) | 24 | group lasso, paper's cell weights; errors as data scaling, chi^2 = N, datasets balanced |
+| group_lasso_sv | 0.160 / 0.0297 | 0.131 / 0.0048 | 0.159 / 0.0002 | 0.0422 | 0.00455 | 333 / 387 (N = 357) | 14 | group lasso, paper's weights x cell volume; errors, chi^2 = N, balanced |
+| group_lasso_depth | 0.147 / 0.0189 | 0.139 / 0.0037 | 0.159 / 0.0001 | 0.0480 | 0.00370 | 344 / 369 (N = 357) | 28 | group lasso, volume x depth weight (beta = 1); errors, chi^2 = N, balanced |
 
 PGI cells in the right unit: {'A': '18/84', 'B': '19/84', 'C': '33/84'}; cells called a body outside the bodies: 367.

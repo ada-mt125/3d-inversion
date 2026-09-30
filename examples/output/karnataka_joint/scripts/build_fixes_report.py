@@ -19,7 +19,18 @@ from style import Figures, page, table, to_pdf  # noqa: E402
 
 FIGS = ROOT / "figures"
 N = json.loads((FIGS / "fixes_numbers.json").read_text(encoding="utf-8"))
-FULL, LOW, MAG = N["full"], N["low"], N["magnetic"]
+FULL, LOW, MAG, SYN = N["full"], N["low"], N["magnetic"], N.get("synthetic", {})
+# runs we stopped (from the launcher logs): not collected, but paid for
+STOPPED_RUNS = [("PGI with the tutorials' first β", "c5.9xlarge", 15.5, 0.40),
+                ("PGI with the first β of 0.1 (overfitted)", "c5.9xlarge", 28.1, 0.72),
+                ("group lasso, sensitivity × cell volume", "c5.18xlarge", 27.4, 1.40)]
+SYN_LABEL = {"none": "No coupling (L1–L2)", "cross_gradient": "Cross-gradient",
+             "joint_total_variation": "Joint total variation", "pgi": "PGI (true units)",
+             "group_lasso": "Group lasso, paper settings",
+             "group_lasso_uncoupled": "its control (no pairing)",
+             "group_lasso_balanced": "Group lasso, paper weights + balance",
+             "group_lasso_sv": "Group lasso, weights × cell volume + balance",
+             "group_lasso_depth": "Group lasso, depth weights (β = 1) + balance"}
 OUT = ROOT / "karnataka_joint_fixes_en.html"
 LABEL = {"none": "No coupling", "cross_gradient": "Cross-gradient",
          "joint_total_variation": "Joint total variation",
@@ -94,7 +105,7 @@ def main():
     mi = MAG.get("induced") or {}
     mz = mv.get("magnetization") or {}
     total_cost = sum(((v.get("after") or {}).get("run") or {}).get("cost_usd", 0.0) for v in FULL.values()) \
-        + ((mv.get("run") or {}).get("cost_usd", 0.0))
+        + ((mv.get("run") or {}).get("cost_usd", 0.0)) + sum(r[3] for r in STOPPED_RUNS)
 
     def fit(m):
         return f"{m['gravity']['chi2']:.2f} and {m['magnetics']['chi2']:.2f}"
@@ -138,7 +149,8 @@ def main():
          "An induced magnetization cannot make the anomaly of the south of the Sandur belt: remanence.",
          "Magnetization-vector inversion (MVI; SimPEG Cartesian, <code>magnetization=\"vector\"</code>).",
          (f"RMS {mi['rms']:.0f} → {mv['rms']:.0f} nT; at the {u['n']} stations underfitted by more than "
-          f"{u['threshold_nT']:.0f} nT: {u['induced_mean_nT']:.0f} → {u['mvi_mean_nT']:.0f} nT on average"
+          f"{u['threshold_nT']:.0f} nT: RMS {u['induced_rms_nT']:.0f} → {u['mvi_rms_nT']:.0f} nT, "
+          f"{u['mvi_over']} of them still off by more than {u['threshold_nT']:.0f} nT"
           if mv else "full run pending")],
     ]
 
@@ -154,7 +166,8 @@ def main():
               [[c if i == 0 else (c, "wrap") for i, c in enumerate(r)] for r in problems], numeric_from=9),
         "<h2>2 The full-resolution runs</h2>",
         f"<p>335,518 cells below the ground, 10,081 data, as in the report; the fixed runs on c5.9xlarge "
-        f"(c5.18xlarge for the group lasso), ${total_cost:.2f} in all including the MVI run. "
+        f"(c5.18xlarge for the group lasso), ${total_cost:.2f} in all, including the MVI run and three runs we "
+        "stopped (" + "; ".join(f"{n}, {m:.0f} min, ${c:.2f}" for n, _, m, c in STOPPED_RUNS) + "). "
         "Red: χ²/N outside 0.7–1.3, or less than half of a model in the core. † stopped by us before the end.</p>",
         table(HEAD + ["Cost"], rows_for(FULL), compact=True),
     ]
@@ -176,18 +189,43 @@ def main():
                   "of the mesh: the group lasso as reported (stopped at the 9th of 13 values of λ₁), the group lasso "
                   "fixed, and the uncoupled run. The dashed line is the base of the core; the titles give the shares "
                   "of |model| × volume in and below the core."))
-    body += ["<h2>3 The 2 km study</h2>",
+    if SYN:
+        rows = []
+        for k, label in SYN_LABEL.items():
+            b, d = SYN.get("blocks", {}).get(k), SYN.get("dipping", {}).get(k)
+            if not b:
+                continue
+            A = b["bodies"]["A"]
+            rows.append([label, f"{A['rho_mean']:.3f} / {A['chi_mean']:.4f}",
+                         f"{b['rho_error_rms']:.4f}", f"{b['chi_error_rms']:.5f}",
+                         f"{b['chi2']['gravity'] / b['n_data']:.2f} / {b['chi2']['magnetics'] / b['n_data']:.2f}",
+                         f"{d['rho_error_rms']:.4f}" if d else "—", f"{d['chi_error_rms']:.5f}" if d else "—"])
+        body += ["<h2>3 Is the group lasso still the best coupling on the synthetic test?</h2>",
+                 "<p>The coupling comparison of 30 September (three dense bodies of 0.3 g/cc with χ = 0.05, 0.01 "
+                 "and 0 SI, 357 stations, a mesh with padding; examples/output/coupling_comparison) is where the "
+                 "group lasso did best of all couplings. With the fixes:</p>",
+                 table(["Run", "blocks: body A ρ / χ (true 0.3 / 0.05)", "blocks ρ rms", "blocks χ rms",
+                        "blocks χ²/N", "dipping ρ rms", "dipping χ rms"], rows, compact=True),
+                 "<p>The balance improves the group lasso on both shapes, with the paper's weights or with them "
+                 "times the cell volume (the two are nearly identical here: the model hardly reaches the padding). "
+                 "The depth weighting that keeps the Karnataka models in the core underestimates the compact "
+                 "magnetic body (0.030 SI of 0.05) and has larger density errors: the right cell weighting depends "
+                 "on the mesh. The group norm counts anomalous <i>cells</i>, so on a mesh with wide padding one large "
+                 "cell explains a long wavelength for the price of one core cell; where the model stays in the core "
+                 "the paper's weighting is best.</p>"]
+    body += ["<h2>4 The 2 km study</h2>",
              "<p>The same couplings on the 2 km × 2 km × 500 m mesh (1,296 + 1,296 data), locally.</p>",
              table(HEAD, rows_for(LOW), compact=True)]
     if mv:
-        body += ["<h2>4 Remanence: the magnetization-vector inversion</h2>",
+        body += ["<h2>5 Remanence: the magnetization-vector inversion</h2>",
                  f"<p>The single magnetic inversion of the magnetic report (β = 1) and the same with a magnetization "
                  f"vector per cell (|m<sub>i</sub>| ≤ 1 SI): χ²/N {mi['chi2']:.2f} → {mv['chi2']:.2f}, RMS "
                  f"{mi['rms']:.0f} → {mv['rms']:.0f} nT, largest residual {mi['max_abs']:.0f} → {mv['max_abs']:.0f} nT. "
                  f"The {u['n']} stations that the induced model underfits by more than {u['threshold_nT']:.0f} nT lie at "
                  f"easting {u['extent_km'][0]:.0f}–{u['extent_km'][1]:.0f} km, northing {u['extent_km'][2]:.0f}–"
-                 f"{u['extent_km'][3]:.0f} km; their mean residual falls from {u['induced_mean_nT']:.0f} to "
-                 f"{u['mvi_mean_nT']:.0f} nT. The strongly magnetized cells point at inclination "
+                 f"{u['extent_km'][3]:.0f} km; their RMS residual falls from {u['induced_rms_nT']:.0f} to "
+                 f"{u['mvi_rms_nT']:.0f} nT ({u['mvi_over']} still off by more than {u['threshold_nT']:.0f} nT). "
+                 f"The strongly magnetized cells point at inclination "
                  f"{mz.get('resultant_inclination', 0):.0f}°, declination {mz.get('resultant_declination', 0):.0f}° "
                  f"(coherence {mz.get('resultant_coherence', 0):.2f}), far from the present field (I "
                  f"{mz.get('inducing_inclination', 0):.0f}°, D {mz.get('inducing_declination', 0):.0f}°): the data ask "
@@ -199,7 +237,7 @@ def main():
                  "<p>The MVI model is a single-method result: the joint inversions still couple the induced "
                  "susceptibility. A joint inversion with a vector model (coupling its amplitude) is not in this "
                  "version.</p>"]
-    body += ["<h2>5 What is still open</h2><ul>",
+    body += ["<h2>6 What is still open</h2><ul>",
              "<li>The choice of coupling is unchanged by the fixes: on this belt the structural couplings remain "
              "the consistent assumption (Section 3 of the report).</li>",
              "<li>Remanence in the joint inversion: the couplings act on the induced susceptibility; the MVI "

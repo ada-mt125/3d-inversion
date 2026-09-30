@@ -57,11 +57,20 @@ It writes `dem_utm43n_450m.tif` (the ground for the mesh), `gravity_simple_1km.c
 `geoinv3d/methods/terrain.py`), `magnetic_1km*.csv` (the TMI grid continued upwards with
 `geoinv3d/methods/continuation.py`), `stations_tc.csv`, and `prep.json` / `prep.npz` for the reports.
 
-## What is unfinished (30 September)
+## The second joint series (30 September, evening)
 
-See Section 5 of the joint report.  In short: the group lasso now has bounds but still fits the two
-datasets unevenly and leaves the core of the mesh, and its full-resolution run was stopped at the 9th
-of 13 values of lambda1; PGI was stopped after 43 of 60 iterations; the joint total variation did
-not reach its target fit; every magnetic model underfits the high south of the Sandur belt
-(remanence).  `shared/` holds the code the three reports share (`kmodel.py`: models on the mesh
+`karnataka_joint/karnataka_joint_report_v2_en.html` (and `.pdf`): the couplings again, with the group
+lasso weighed like the other runs (cell volume x depth weight, beta = 1), each datum by its error and
+the two datasets balanced to chi^2 = N each, plus the magnetic data with a magnetization vector per
+cell (MVI).  Every run fits both datasets (chi^2 / N 0.88-1.10); the group lasso keeps 89 % / 75 % of
+its models in the core and pairs the supports (81 % of its magnetic cells anomalous in density); MVI
+lowers the RMS of the stations south of the Sandur belt from 321 to 129 nT, the strong cells pointing
+at I 74, D -79 (remanence).  Runs in `karnataka_joint/data/ec2_runs_fixed`, `data/lowres_runs_fixed`
+and `karnataka_magnetic/data/ec2_runs/beta1_mvi`; built by `make_figures.py --set v2` and
+`build_report_v2.py`.  `karnataka_joint_fixes_en.html` lists what changed against the first series.
+
+Still open: PGI was not run again at full resolution (its first beta needs tuning per dataset); the
+joint inversions couple the induced susceptibility, not the magnetization vector; the group lasso is
+the slowest coupling (124 min on c5.18xlarge).
+`shared/` holds the code the three reports share (`kmodel.py`: models on the mesh
 with terrain and their measures; `style.py`: the report page).

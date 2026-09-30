@@ -1252,8 +1252,11 @@ result: amplitude as the model, the (n, 3) vectors, the direction of the strong 
 the magnetic card's Magnetization select; single inversions only (the joint paths refuse it).
 tests/test_mvi.py: a block at I -30, D 120 under I 60, D 0 — induced chi^2/N > 3, MVI < 1.5,
 direction within 30 degrees (-33, 122).  Karnataka 2 km: RMS 47 -> 26 nT; the 29 stations the
-induced model underfits by > 150 nT (south of the Sandur belt) from 260 to 70 nT on average; the
-strong cells point at I 74, D -49 (coherence 0.73) against the field's I 19, D -1.
+induced model underfits by > 150 nT (south of the Sandur belt): RMS 280 -> 123 nT, 5 of them still
+off by > 150 nT (the signed mean, 260 -> 70 nT, first quoted here and in 7c7c7a3, hides residuals of
+both signs); the strong cells point at I 74, D -49 (coherence 0.73) against the field's I 19, D -1.
+Full resolution (EC2, 27 min): RMS 49 -> 28 nT; at the 92 stations off by > 150 nT RMS 321 -> 129
+nT, 22 still off by > 150 nT (16 above, 6 below); I 74, D -79, coherence 0.75.
 
 Page (Inversion step, group lasso, manual): cell weighting, its depth exponent and the balance;
 the paper's settings remain selectable.  The pipeline's auto mode uses GROUP_LASSO_AUTO (depth

@@ -35,10 +35,16 @@ lasso couple the induced susceptibility and refuse a vector model.
   the amplitude in 5.6 % of the cells; about 1.5 cells too deep, as MVI models tend to be).
 - Karnataka, 2 km mesh (1,296 data, β = 1, \|m_i\| ≤ 1 SI): RMS 47 → 26 nT against the induced
   inversion; at the 29 stations the induced model underfits by more than 150 nT (easting
-  655–707 km, northing 1655–1675 km: the south of the Sandur belt) the mean residual falls
-  from 260 to 70 nT.  The strong cells point at I 74°, D −49° (coherence 0.73), far from the
-  field (I 19°, D −1°): the data ask for remanence.  9 % of the amplitude lies outside the core
-  (47 % of the induced model).
+  655–707 km, northing 1655–1675 km: the south of the Sandur belt) the RMS residual falls
+  from 280 to 123 nT, and 5 of them stay off by more than 150 nT (the signed mean, 260 → 70 nT,
+  hides residuals of both signs).  The strong cells point at I 74°, D −49° (coherence 0.73), far
+  from the field (I 19°, D −1°): the data ask for remanence.  9 % of the amplitude lies outside
+  the core (47 % of the induced model).
+- Karnataka, full resolution (5,041 data, 335,518 cells × 3, c5.9xlarge, 27 min): RMS 49 → 28 nT,
+  largest residual 680 → 309 nT; at the 92 stations the induced model underfits by more than
+  150 nT the RMS falls from 321 to 129 nT and 22 stay off by more than 150 nT (16 above, 6 below).
+  The strong cells point at I 74°, D −79° (coherence 0.75); 79 % of the amplitude lies in the core
+  (71 % of the induced model; the joint report's measure).
 
 ## Not in this version
 

@@ -32,6 +32,26 @@ PAIRS = [("none", "none"), ("cross_gradient", "cross_gradient"),
          ("group_lasso", "group_lasso_depth"),
          ("group_lasso_uncoupled", "group_lasso_depth_uncoupled")]
 UNDERFIT_NT = 150.0     # the stations an induced model underfits by more than this
+SYNTHETIC = ROOT.parent / "coupling_comparison"
+SYNTHETIC_KEYS = ("none", "cross_gradient", "joint_total_variation", "pgi", "group_lasso",
+                  "group_lasso_uncoupled", "group_lasso_balanced", "group_lasso_sv",
+                  "group_lasso_depth")
+
+
+def synthetic() -> dict:
+    """The coupling comparison on the three dense bodies (run_coupling_comparison.py)."""
+    out = {}
+    for shape in ("blocks", "dipping"):
+        path = SYNTHETIC / shape / "comparison.json"
+        if not path.exists():
+            continue
+        c = json.loads(path.read_text(encoding="utf-8"))
+        c = c.get("couplings", c)
+        out[shape] = {k: {"bodies": c[k]["bodies"], "rho_error_rms": c[k]["rho_error_rms"],
+                          "chi_error_rms": c[k]["chi_error_rms"], "chi2": c[k]["chi2"],
+                          "n_data": c[k].get("n_data")}
+                      for k in SYNTHETIC_KEYS if k in c}
+    return out
 
 
 def measures(path: Path) -> dict | None:
@@ -72,9 +92,18 @@ def magnetic_pair() -> dict:
            "mvi": {**data_fit(db), **Grid(b).shares(), "box_sandur": box_stats(Grid(b), BOX),
                    "magnetization": b.get("magnetization")},
            "underfit": {"threshold_nT": UNDERFIT_NT, "n": int(bad.sum()),
+                        # at those stations: the signed mean hides residuals of both signs, so the
+                        # mean |residual|, the RMS and the count still off by more than the threshold
                         "induced_mean_nT": float(ra[bad].mean()) if bad.any() else None,
                         "mvi_mean_nT": float(rb[bad].mean()) if bad.any() else None,
-                        "mvi_max_nT": float(rb[bad].max()) if bad.any() else None,
+                        "induced_mean_abs_nT": float(np.abs(ra[bad]).mean()) if bad.any() else None,
+                        "mvi_mean_abs_nT": float(np.abs(rb[bad]).mean()) if bad.any() else None,
+                        "induced_rms_nT": float(np.sqrt(np.mean(ra[bad] ** 2))) if bad.any() else None,
+                        "mvi_rms_nT": float(np.sqrt(np.mean(rb[bad] ** 2))) if bad.any() else None,
+                        "mvi_over": int((np.abs(rb[bad]) > UNDERFIT_NT).sum()),
+                        "mvi_over_pos": int((rb[bad] > UNDERFIT_NT).sum()),
+                        "mvi_over_neg": int((rb[bad] < -UNDERFIT_NT).sum()),
+                        "mvi_max_nT": float(np.abs(rb[bad]).max()) if bad.any() else None,
                         "extent_km": [float(locs[bad, 0].min() / 1e3), float(locs[bad, 0].max() / 1e3),
                                       float(locs[bad, 1].min() / 1e3), float(locs[bad, 1].max() / 1e3)]
                         if bad.any() else None}}
@@ -86,7 +115,7 @@ def magnetic_pair() -> dict:
 
 def main():
     FIGS.mkdir(exist_ok=True)
-    numbers = {"full": {}, "low": {}, "magnetic": magnetic_pair()}
+    numbers = {"full": {}, "low": {}, "magnetic": magnetic_pair(), "synthetic": synthetic()}
     for old, new in PAIRS:
         numbers["full"][new] = {"before": measures(DATA / "ec2_runs" / old),
                                 "after": measures(DATA / "ec2_runs_fixed" / new)}

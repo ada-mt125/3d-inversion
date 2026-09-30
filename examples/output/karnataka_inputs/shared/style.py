@@ -155,7 +155,9 @@ def esc(s):
 def find_chrome():
     import shutil
     from pathlib import Path
-    for p in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+              r"C:\Program Files\Google\Chrome\Application\chrome.exe",
               r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
               r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
               shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chrome")):
@@ -165,16 +167,42 @@ def find_chrome():
 
 
 def to_pdf(html_path):
-    """Print a report to PDF next to it with headless Chrome; returns a line for the log."""
+    """Print a report to PDF next to it with headless Chrome; returns a line for the log.
+
+    Chrome on macOS can stay open after writing the PDF, so it is stopped once the file
+    exists and its size has not changed for two seconds (at most 240 s in all)."""
     import subprocess
     import sys
     import tempfile
+    import time
     chrome = find_chrome()
     if not chrome:
         sys.exit("Chrome not found; the PDF needs headless Chrome")
     pdf = html_path.with_suffix(".pdf")
+    if pdf.exists():
+        pdf.unlink()
     with tempfile.TemporaryDirectory() as profile:
-        subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                        "--virtual-time-budget=15000", f"--user-data-dir={profile}", f"--print-to-pdf={pdf}",
-                        html_path.resolve().as_uri()], check=True, capture_output=True, timeout=240)
+        proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-first-run",
+                                 "--no-default-browser-check", "--no-pdf-header-footer",
+                                 "--virtual-time-budget=15000", f"--user-data-dir={profile}",
+                                 f"--print-to-pdf={pdf}", html_path.resolve().as_uri()],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        t0, last, stable = time.time(), -1, 0
+        while time.time() - t0 < 240:
+            if proc.poll() is not None:
+                break
+            size = pdf.stat().st_size if pdf.exists() else -1
+            stable = stable + 1 if size > 0 and size == last else 0
+            if stable >= 4:          # 2 s unchanged: written
+                break
+            last = size
+            time.sleep(0.5)
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    if not pdf.exists():
+        sys.exit("Chrome did not write the PDF")
     return f"{pdf} {pdf.stat().st_size / 1e6:.2f} MB"

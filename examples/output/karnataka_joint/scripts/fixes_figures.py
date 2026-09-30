@@ -65,7 +65,7 @@ def sections():
     plt.close(fig)
 
 
-def mvi():
+def mvi(out=None, name="fixes_mvi"):
     if LOW or not (MAGNETIC / "beta1_mvi" / "result.zip").exists():
         return
     a, b = load(MAGNETIC / "beta1"), load(MAGNETIC / "beta1_mvi")
@@ -97,7 +97,7 @@ def mvi():
     axs[2].set_aspect("equal")
     axs[2].set_xlabel("Easting (km)")
     fig.colorbar(im2, ax=axs[2], shrink=0.8, label="|m| × thickness (SI·km)", extend="max")
-    fig.savefig(FIGS / "fixes_mvi.png")
+    fig.savefig((out or FIGS) / f"{name}.png")
     plt.close(fig)
 
 

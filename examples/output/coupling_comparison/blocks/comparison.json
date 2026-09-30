@@ -324,5 +324,137 @@
    "label": "none — L1 + L2 per model, the group lasso's solver (control)"
   },
   "note": "control: the group lasso's solver and settings, each model soft-thresholded alone"
+ },
+ "group_lasso_balanced": {
+  "seconds": 23,
+  "chi2": {
+   "gravity": 327.6,
+   "magnetics": 390.3
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.2596,
+    "chi_mean": 0.04805
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.2313,
+    "chi_mean": 0.00872
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2383,
+    "chi_mean": 0.00021
+   }
+  },
+  "rho_outside_mean_abs": 0.00187,
+  "chi_outside_mean_abs": 9.9e-05,
+  "rho_error_rms": 0.03039,
+  "chi_error_rms": 0.003926,
+  "corr_rho_chi": 0.685,
+  "coupling": {
+   "kind": "group_lasso",
+   "label": "group lasso (joint sparsity)"
+  },
+  "note": "group lasso, paper's cell weights; errors as data scaling, chi^2 = N, datasets balanced"
+ },
+ "group_lasso_sv": {
+  "seconds": 15,
+  "chi2": {
+   "gravity": 325.9,
+   "magnetics": 391.1
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.2595,
+    "chi_mean": 0.04805
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.231,
+    "chi_mean": 0.00873
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2375,
+    "chi_mean": 0.00021
+   }
+  },
+  "rho_outside_mean_abs": 0.00189,
+  "chi_outside_mean_abs": 0.000115,
+  "rho_error_rms": 0.03018,
+  "chi_error_rms": 0.003959,
+  "corr_rho_chi": 0.681,
+  "coupling": {
+   "kind": "group_lasso",
+   "label": "group lasso (joint sparsity)"
+  },
+  "note": "group lasso, paper's weights x cell volume; errors, chi^2 = N, balanced"
+ },
+ "group_lasso_depth": {
+  "seconds": 29,
+  "chi2": {
+   "gravity": 344.2,
+   "magnetics": 369.3
+  },
+  "n_data": 357,
+  "bodies": {
+   "A": {
+    "true": [
+     0.3,
+     0.05
+    ],
+    "rho_mean": 0.2289,
+    "chi_mean": 0.02982
+   },
+   "B": {
+    "true": [
+     0.3,
+     0.01
+    ],
+    "rho_mean": 0.2485,
+    "chi_mean": 0.00662
+   },
+   "C": {
+    "true": [
+     0.3,
+     0.0
+    ],
+    "rho_mean": 0.2615,
+    "chi_mean": 8e-05
+   }
+  },
+  "rho_outside_mean_abs": 0.00161,
+  "chi_outside_mean_abs": 9.9e-05,
+  "rho_error_rms": 0.03898,
+  "chi_error_rms": 0.002943,
+  "corr_rho_chi": 0.622,
+  "coupling": {
+   "kind": "group_lasso",
+   "label": "group lasso (joint sparsity)"
+  },
+  "note": "group lasso, volume x depth weight (beta = 1); errors, chi^2 = N, balanced"
  }
 }
