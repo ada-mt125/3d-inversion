@@ -701,6 +701,8 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     (see :func:`run_beta_selection`); "auto"/"discrepancy" cools beta to the
     target misfit.
     """
+    if getattr(_get_method(task), "vector", False):
+        return run_mvi_inversion(task, mesh)
     if task.regularization_type == "l1l2":
         if task.l1l2_solver == "cda":
             return run_l1l2_cda(task, mesh)
@@ -712,6 +714,117 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     if task.regularization_type in ("sparse", "l1l2", "mgs", "tv"):
         return run_sparse_inversion(task, mesh)
     return run_smooth_inversion(task, mesh)
+
+
+def magnetization_directions(M: np.ndarray, share: float = 0.1) -> dict:
+    """Directions of the magnetization vectors (n, 3: east, north, up) of the cells whose
+    amplitude exceeds ``share`` of the largest: inclination (degrees, positive down) and
+    declination (degrees east of north) of their amplitude-weighted resultant, and the
+    median of the cells' own."""
+    M = np.asarray(M, dtype=float)
+    amp = np.linalg.norm(M, axis=1)
+    if not amp.size or not amp.max() > 0:
+        return {"n_cells": 0}
+    strong = amp > share * amp.max()
+    S = M[strong]
+    inc = np.degrees(np.arctan2(-S[:, 2], np.hypot(S[:, 0], S[:, 1])))
+    dec = np.degrees(np.arctan2(S[:, 0], S[:, 1]))
+    r = S.sum(axis=0)       # the amplitude-weighted resultant of the strong cells
+    return {"n_cells": int(strong.sum()), "share_of_max": share,
+            "amplitude_max": float(amp.max()),
+            "resultant_inclination": float(np.degrees(np.arctan2(-r[2], np.hypot(r[0], r[1])))),
+            "resultant_declination": float(np.degrees(np.arctan2(r[0], r[1]))),
+            "resultant_coherence": float(np.linalg.norm(r) / np.sum(amp[strong])),
+            "median_inclination": float(np.median(inc)),
+            "median_declination": float(np.degrees(np.angle(np.median(np.cos(np.radians(dec)))
+                                                             + 1j * np.median(np.sin(np.radians(dec))))))}
+
+
+def run_mvi_inversion(task: InversionTask, mesh=None) -> dict:
+    """Magnetization-vector inversion (MVI; SimPEG's Cartesian formulation).
+
+    Three components per cell (effective susceptibility along east, north and up), so a
+    remanent magnetization in any direction can be fitted, which a susceptibility along
+    the present field cannot (the systematic residual of the Karnataka magnetic data).
+    The regularization is SimPEG's VectorAmplitude: the task's norms (sparse) or 2 (l2) on
+    the amplitude |m| and its gradients, with the task's alphas, depth weighting and
+    reference 0; bounds_upper bounds every component (|m_i| <= upper).  beta is cooled to
+    chi^2 = N and steered there during IRLS, as for the scalar sparse inversion.
+
+    The result's ``recovered_model`` is the amplitude (SI) of each cell,
+    ``magnetization_vector`` the (n, 3) components, ``magnetization`` the directions of the
+    strong cells (:func:`magnetization_directions`) next to the inducing field's.
+    """
+    from ..datamodel.survey import SurveyData
+    from ..methods.directives import DampedUpdateIRLS, IterationCollector
+    from simpeg import directives, inverse_problem, inversion, maps, optimization, regularization
+
+    if task.regularization_type not in ("sparse", "l2"):
+        raise ValueError("The magnetization-vector inversion takes regularization_type "
+                         f"'sparse' or 'l2', not '{task.regularization_type}'")
+    if task.beta_selection not in ("auto", "discrepancy"):
+        raise ValueError("The magnetization-vector inversion chooses beta by chi^2 = N")
+    if mesh is None:
+        mesh = _build_mesh(task)
+    method = _get_method(task)
+    survey = SurveyData(locations=task.station_locations, observed=task.observed_data,
+                        std=task.data_std, method="magnetics")
+    active = task.active_cells
+    sim = (method.make_simulation_active(mesh, survey, active) if active is not None
+           else method.make_simulation_full(mesh, survey))
+    dmis = method.make_dmis(survey, sim)
+    dmesh = mesh.to_discretize()
+    n = int(active.sum()) if active is not None else dmesh.n_cells
+    norms = list(task.norms) if task.regularization_type == "sparse" else [2.0, 2.0, 2.0, 2.0]
+    reg_kwargs = dict(alpha_s=effective_alpha_s(task), length_scale_x=task.alpha_x,
+                      length_scale_y=task.alpha_y, length_scale_z=task.alpha_z,
+                      reference_model=np.zeros(3 * n), norms=norms)
+    if active is not None:
+        reg_kwargs["active_cells"] = active
+    reg = regularization.VectorAmplitude(dmesh, mapping=maps.IdentityMap(nP=3 * n), **reg_kwargs)
+    depth = getattr(task, "depth_weighting", "sensitivity") == "depth"
+    if depth:
+        reg.set_weights(depth=_depth_weights(task, dmesh))
+    if task.bounds_lower is not None and task.bounds_lower > 0:
+        print("[MVI] Note: bounds_lower does not apply (the components have either sign)")
+    upper = float(task.bounds_upper) if task.bounds_upper is not None else np.inf
+    m0 = np.full(3 * n, 1e-4 if not np.isfinite(upper) else min(1e-4, 1e-4 * upper))
+    opt = optimization.ProjectedGNCG(maxIter=task.max_iter, lower=-upper, upper=upper,
+                                     maxIterLS=20, cg_maxiter=30, cg_atol=1e-4, cg_rtol=0.0)
+    inv_prob = inverse_problem.BaseInvProblem(dmis, reg, opt)
+    collector = IterationCollector()
+    directive_list = ([] if depth else [_sensitivity_directive(task)]) + [
+        directives.BetaEstimate_ByEig(beta0_ratio=task.beta0_ratio, random_seed=42),
+        directives.TargetMisfit(chifact=1.0),
+        DampedUpdateIRLS(f_min_change=1e-4, max_irls_iterations=task.max_irls_iterations,
+                         chifact_start=3.0, irls_cooling_factor=task.irls_cooling_factor,
+                         cooling_factor=task.cooling_factor),
+        directives.UpdatePreconditioner(),
+        collector,
+    ]
+    print(f"[MVI] {n} cells x 3 components, norms {norms}, "
+          f"{'depth' if depth else 'sensitivity'} weighting, |m_i| <= {upper:g}")
+    m_rec = inversion.BaseInversion(inv_prob, directiveList=directive_list).run(m0)
+    M = np.asarray(m_rec, dtype=float).reshape(3, n).T
+    amplitude = np.linalg.norm(M, axis=1)
+    label = "mvi_sparse_IRLS" if task.regularization_type == "sparse" else "mvi_L2"
+    result = _collect_result(task, collector, amplitude, inv_prob, label)
+    if task.regularization_type == "l2":
+        result.pop("norms")
+    result["magnetization_vector"] = M
+    field = method.inducing_field
+    result["magnetization"] = {**magnetization_directions(M),
+                               "inducing_inclination": float(field[1]),
+                               "inducing_declination": float(field[2]),
+                               "components": "east, north, up (effective susceptibility, SI)"}
+    result["depth_weighting"] = "depth" if depth else "sensitivity"
+    if depth:
+        result["depth_weighting_exponent"] = float(task.depth_weighting_exponent)
+    try:
+        result["predicted"] = np.asarray(sim.dpred(m_rec), dtype=float)
+    except Exception as e:   # the result is still useful without it
+        print(f"[MVI] Could not compute the predicted data: {e}")
+    return result
 
 
 JOINT_REGULARIZATION_TYPES = ("l2", "sparse", "l1l2", "mgs", "tv")
@@ -903,6 +1016,10 @@ def _group_lasso_problem(task: InversionTask, mesh):
             raise ValueError(f"The datasets of model '{model}' measure different properties "
                              "(a linear and a nonlinear method, or different backgrounds)")
         kinds[p] = kind
+        if getattr(method, "vector", False):
+            raise ValueError("The magnetization-vector inversion (MVI) is for single magnetic "
+                             "inversions in this version; the group lasso couples the induced "
+                             "susceptibility")
         sim = (method.make_simulation_active(mesh, survey, active) if active is not None
                else method.make_simulation_full(mesh, survey))
         n = len(survey.observed)
@@ -925,8 +1042,115 @@ def _group_lasso_problem(task: InversionTask, mesh):
     problem = GroupLassoProblem(
         datasets, task.gl_mu, model_names=names, references=refs, gamma=task.gl_gamma,
         data_scaling=task.gl_data_scaling, mesh=dmesh,
-        active_cells=active if dmesh is not None else None, bounds=bounds)
+        active_cells=active if dmesh is not None else None, bounds=bounds,
+        cell_weights=group_lasso_cell_weights(task, mesh, setups, model_labels, names),
+        relaxation=float(task.gl_relaxation))
     return problem, setups, model_labels, dataset_labels
+
+
+GROUP_LASSO_WEIGHTINGS = ("sensitivity", "depth")
+BALANCE_TOLERANCE = 1.2     # each model's chi^2 / N within 1/1.2 .. 1.2
+DISCREPANCY_TOLERANCE = 0.05
+
+
+def _discrepancy_solve(problem, lam1, lam2, state, n_data, solve_kw, should_stop=None,
+                       max_solves: int = 6, log=print):
+    """Solve for the lambda1 whose total chi^2 = N, from ``lam1`` and the warm start
+    ``state``: a secant in log(lambda1) against log(chi^2) (chi^2 grows with lambda1), at
+    most ``max_solves`` solves, each step at most a decade.  Returns the solve closest
+    to chi^2 = N and its lambda1."""
+    points, best = [], None
+    for _ in range(max_solves):
+        res = problem.solve(lam1, lam2, state=state, should_stop=should_stop, **solve_kw)
+        chi2 = problem.chi2_of(res)["total"]
+        log(f"[Group lasso]   lambda1 = {lam1:.4g}: chi2 = {chi2:.4g} (target {n_data}), "
+            f"{res.n_iterations} ADMM iterations")
+        miss = abs(np.log(chi2 / n_data))
+        if best is None or miss < best[2]:
+            best = (res, lam1, miss)
+        if miss <= DISCREPANCY_TOLERANCE or res.stopped:
+            break
+        state = res.state
+        points.append((np.log(lam1), np.log(chi2)))
+        slope = 0.5       # d log chi^2 / d log lambda1 near chi^2 = N on the Karnataka sweeps
+        if len(points) >= 2 and points[-1][0] != points[-2][0]:
+            slope = max((points[-1][1] - points[-2][1]) / (points[-1][0] - points[-2][0]), 0.05)
+        step = float(np.clip((np.log(n_data) - points[-1][1]) / slope, -np.log(10), np.log(10)))
+        lam1 = float(np.exp(points[-1][0] + step))
+    return best[0], best[1]
+
+
+def _balance_group_lasso(problem, result, lam1, lam2, solve_kw, rounds, should_stop=None,
+                         log=print):
+    """Reweigh the models' data until each model fits its data to chi^2 = N (gl_balance).
+
+    Each round multiplies model p's data weight by sqrt(chi2_p / N_p), normalized to a
+    geometric mean of 1 over the data, at most 4x per round (GroupLassoProblem.scale_models:
+    only the data terms change; the operators and their factors stay), and solves for the
+    total chi^2 = N again, warm-started from the same physical models.  Stops when each
+    chi2_p / N_p is within BALANCE_TOLERANCE, after ``rounds`` rounds, or when a round does
+    not narrow the spread.  Returns (result, lambda1, history)."""
+    n_p = np.array([sum(problem.datasets[i].data.size for i in ds)
+                    for ds in problem.model_datasets], dtype=float)
+    n_data = float(n_p.sum())
+    history = []
+    for k in range(rounds + 1):
+        chi = problem.chi2_of(result)
+        r = np.array([sum(chi[problem.datasets[i].name] for i in ds)
+                      for ds in problem.model_datasets]) / n_p
+        history.append({"round": k, "lambda1": float(lam1),
+                        "data_weights": [float(w) for w in problem.data_weights],
+                        "chi2_per_datum": {n: float(x) for n, x in zip(problem.model_names, r)},
+                        "admm_iterations": int(result.n_iterations)})
+        log(f"[Group lasso] balance round {k}: chi2 / N " + ", ".join(
+            f"{n} {x:.3g}" for n, x in zip(problem.model_names, r)) + ", data weights " +
+            ", ".join(f"{w:.3g}" for w in problem.data_weights))
+        spread = float(np.max(np.abs(np.log(r))))
+        history[-1]["spread"] = spread
+        if spread <= np.log(BALANCE_TOLERANCE) or k == rounds or result.stopped \
+                or (should_stop is not None and should_stop()):
+            break
+        if k and spread >= 0.9 * history[-2]["spread"]:
+            log("[Group lasso] balance: the last round did not narrow the spread; stopping")
+            break
+        f = np.clip(np.sqrt(r), 0.25, 4.0)
+        f = f / np.exp(np.sum(n_p * np.log(f)) / n_data)
+        state = problem.scale_models(f, result.state)
+        result, lam1 = _discrepancy_solve(problem, lam1, lam2, state, n_data, solve_kw,
+                                          should_stop, log=log)
+    return result, lam1, history
+
+
+def group_lasso_cell_weights(task: InversionTask, mesh, setups, model_labels, names):
+    """The group lasso's cell weights (GroupLassoProblem cell_weights), or None.
+
+    gl_weighting "depth": per model, cell volume x the Li & Oldenburg depth weight below
+    its datasets' stations, with the depth_weighting_exponent of its regularization (its
+    first dataset's joint_regularizations, else the task's) — the weights a SimPEG
+    regularization with depth weighting gives its cells.
+    """
+    from ..methods.joint import depth_weights
+
+    if task.gl_weighting not in GROUP_LASSO_WEIGHTINGS:
+        raise ValueError(f"Unknown gl_weighting '{task.gl_weighting}' "
+                         f"(expected one of {GROUP_LASSO_WEIGHTINGS})")
+    if task.gl_weighting == "sensitivity":
+        return None
+    dmesh = mesh.to_discretize()
+    active = task.active_cells if task.active_cells is not None \
+        else np.ones(dmesh.n_cells, dtype=bool)
+    volume = np.asarray(dmesh.cell_volumes)[active]
+    overrides = task.joint_regularizations or []
+    out = []
+    for name in names:
+        idx = [i for i, m in enumerate(model_labels) if m == name]
+        over = dict(overrides[idx[0]] or {}) if idx[0] < len(overrides) else {}
+        beta = float(over.get("depth_weighting_exponent", task.depth_weighting_exponent))
+        locs = np.vstack([np.asarray(setups[i].survey.locations)[:, :3] for i in idx])
+        wz = depth_weights(dmesh, locs, active, beta)
+        out.append(volume * wz)
+        print(f"[Group lasso] {name}: cells weighed by volume x depth weight (beta = {beta:g})")
+    return out
 
 
 def group_lasso_bounds(task: InversionTask, model_labels, names):
@@ -1052,6 +1276,32 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
         else:
             result = problem.solve_at(lc, lam1, lam2, should_stop=stop_requested, **solve_kw)
 
+    balance = None
+    if task.gl_balance:
+        why = ("a fixed lambda1" if selection == "fixed" else
+               "a stopped sweep" if lc is not None and lc.stopped else
+               "nonlinear datasets" if not problem.linear else
+               "one model" if problem.n_models < 2 else
+               "datasets without errors" if any(d.std is None for d in problem.datasets)
+               else None)
+        if why:
+            warnings_.append(f"gl_balance is not applied ({why}): it reweighs the datasets "
+                             "of two or more linear models until each fits chi^2 = N")
+        else:
+            result, lam1, balance = _balance_group_lasso(
+                problem, result, lam1, lam2, solve_kw, int(task.gl_balance_rounds),
+                should_stop=stop_requested)
+            criterion = "chi^2 = N for each model (balanced)"
+            last = balance[-1]["chi2_per_datum"]
+            total = sum(problem.chi2_of(result)[d.name] for d in problem.datasets)
+            if abs(np.log(total / n_data)) <= 2 * DISCREPANCY_TOLERANCE:
+                # the sweep alone did not reach chi^2 = N; the reweighted data did
+                warnings_ = [w for w in warnings_ if not w.startswith(
+                    ("chi^2 = N is not reached on the lambda1 sweep", "chi^2 stays above N"))]
+            if any(abs(np.log(x)) > np.log(BALANCE_TOLERANCE) for x in last.values()):
+                warnings_.append("The datasets are not balanced after "
+                                 f"{task.gl_balance_rounds} rounds (chi^2 / N " + ", ".join(
+                                     f"{n} {x:.3g}" for n, x in last.items()) + ")")
     chi2_final = problem.chi2_of(result)
     if result.stopped and stopped_at is None:
         stopped_at = result.n_iterations
@@ -1088,7 +1338,9 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
                     for name, b in zip(problem.model_names, problem.bounds)
                     if b is not None and (b[0] is not None or b[1] is not None)}
                    if problem.bounds is not None else {}),
-        "gamma": task.gl_gamma, "solver": problem.solver_name,
+        "balance": balance, "data_weights": [float(w) for w in problem.data_weights],
+        "gamma": task.gl_gamma, "weighting": task.gl_weighting,
+        "relaxation": problem.relaxation, "solver": problem.solver_name,
         "admm_iterations": result.n_iterations, "admm_converged": result.converged,
         "n_active_cells": result.n_active, "chi2": chi2_final,
         "primal_residual": (result.primal_residual_history or [None])[-1],
@@ -1186,6 +1438,14 @@ _MANUAL_KEYS = (
 )
 # Warn when more than this share of the recovered anomaly lies in padding cells
 PADDING_WARNING_SHARE = 0.5
+# The group lasso in auto mode: the paper's settings (sensitivity weighting, amplitude
+# balance, L-curve) put most of the Karnataka models into the padding and fitted gravity to
+# 0.4 N and magnetics to 2.6 N; weighing the cells like the other inversions (volume x depth
+# weight, beta = 1), each datum by its error and balancing the datasets to chi^2 = N each
+# kept them in the core (12 % and 33 % outside) and fitted both (0.96 and 1.02 N; 2 km mesh)
+GROUP_LASSO_AUTO = {"gl_weighting": "depth", "depth_weighting_exponent": 1.0,
+                    "gl_data_scaling": "std", "gl_lambda1_selection": "discrepancy",
+                    "gl_balance": True}
 
 # params key -> InversionTask field for the regularization/optimizer settings
 _REG_PARAM_KEYS = (
@@ -2087,6 +2347,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         if ignored:
             print(f"[Pipeline] Auto mode: ignoring manual settings {ignored}")
         params = {k: v for k, v in params.items() if k not in _MANUAL_KEYS}
+        if "group_lasso" in (params.get("regularization_type"), params.get("coupling")):
+            params.update(GROUP_LASSO_AUTO)
 
     topo_file = (params.get("topography") or {}).get("file")
     specs = _dataset_specs(params, data_dir, exclude={topo_file} if topo_file else set())
@@ -2242,11 +2504,15 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             if task.bounds_lower is not None or task.bounds_upper is not None:
                 notes.append("The bounds apply to every model of the group lasso "
                              "(per dataset: its regularization's bounds_lower / bounds_upper)")
+            used = {"bounds_lower", "bounds_upper"} | (
+                {"depth_weighting_exponent"} if task.gl_weighting == "depth" else set())
             unused = sorted({k for r in (task.joint_regularizations or []) if r for k in r}
-                            - {"bounds_lower", "bounds_upper"})
+                            - used)
             if unused:
-                notes.append("The group lasso uses only the bounds of a dataset's regularization; "
-                             f"{unused} are not applied")
+                notes.append("The group lasso uses only the bounds of a dataset's regularization"
+                             + (" and its depth_weighting_exponent (gl_weighting 'depth')"
+                                if task.gl_weighting == "depth" else "")
+                             + f"; {unused} are not applied")
             if task.beta_selection not in ("auto", "discrepancy"):
                 notes.append("The group lasso chooses lambda1 by gl_lambda1_selection="
                              f"'{task.gl_lambda1_selection}'; beta_selection is not applied")
@@ -2419,7 +2685,8 @@ def result_metadata_json(result: dict) -> str:
     """result.json: everything in a result except the model arrays."""
     meta = {k: v for k, v in result.items()
             if k not in ("recovered_model", "recovered_models", "active_cells", "data",
-                         "joint_data", "predicted", "topography_grid", "reference_model")}
+                         "joint_data", "predicted", "topography_grid", "reference_model",
+                         "magnetization_vector")}
     return json.dumps(_jsonable(meta), indent=2, default=str)
 
 
@@ -2546,6 +2813,11 @@ def pack_result(result: dict, output_path: str) -> str:
             buf = io.BytesIO()
             np.save(buf, np.asarray(result["reference_model"], dtype=float))
             zf.writestr("reference_model.npy", buf.getvalue())
+
+        if result.get("magnetization_vector") is not None:   # MVI: (n, 3) east, north, up
+            buf = io.BytesIO()
+            np.save(buf, np.asarray(result["magnetization_vector"], dtype=float))
+            zf.writestr("magnetization_vector.npy", buf.getvalue())
 
         if result.get("topography_grid"):
             # the ground over the survey (x, y axes and z on their grid), for the 3D view

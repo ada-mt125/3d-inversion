@@ -13,10 +13,16 @@ from ..datamodel.survey import SurveyData
 from .base import MethodBase
 
 
+MAGNETIZATIONS = ("induced", "vector")
+
+
 class MagneticsMethod(MethodBase):
     """Total magnetic intensity (TMI) forward and inverse using SimPEG.
 
-    Wraps SimPEG.potential_fields.magnetics for susceptibility -> TMI.
+    Wraps SimPEG.potential_fields.magnetics for susceptibility -> TMI, or, with
+    ``magnetization="vector"``, for a magnetization vector per cell (SimPEG's
+    Cartesian MVI: the model is [m_x | m_y | m_z], effective susceptibility along
+    east, north and up), which also holds remanent magnetization.
     """
 
     method_name = "magnetics"
@@ -25,14 +31,32 @@ class MagneticsMethod(MethodBase):
         self,
         inducing_field: tuple[float, float, float] = (50000.0, 90.0, 0.0),
         component: str = "tmi",
+        magnetization: str = "induced",
     ) -> None:
         """
         Args:
             inducing_field: (amplitude_nT, inclination_deg, declination_deg)
             component: Receiver component, e.g. "tmi" or "bz".
+            magnetization: "induced" (a susceptibility along the present field) or
+                "vector" (three components per cell; single inversions only).
         """
+        if magnetization not in MAGNETIZATIONS:
+            raise ValueError(f"Unknown magnetization '{magnetization}' "
+                             f"(expected one of {MAGNETIZATIONS})")
         self.inducing_field = inducing_field
         self.component = component
+        self.magnetization = magnetization
+
+    @property
+    def vector(self) -> bool:
+        return self.magnetization == "vector"
+
+    @property
+    def n_components(self) -> int:
+        return 3 if self.vector else 1
+
+    def _model_type(self) -> dict:
+        return {"model_type": "vector"} if self.vector else {}
 
     def make_simulation(self, mesh: Mesh3D, survey: SurveyData, **kwargs) -> Any:
         from simpeg.potential_fields import magnetics
@@ -49,12 +73,13 @@ class MagneticsMethod(MethodBase):
         )
         simpeg_survey = magnetics.survey.Survey(source_field=src_field)
 
-        idenmap = maps.IdentityMap(nP=dmesh.nC)
+        idenmap = maps.IdentityMap(nP=self.n_components * dmesh.nC)
         return magnetics.simulation.Simulation3DIntegral(
             survey=simpeg_survey,
             mesh=dmesh,
             chiMap=idenmap,
             store_sensitivities="forward_only",
+            **self._model_type(),
             **kwargs,
         )
 
@@ -85,13 +110,14 @@ class MagneticsMethod(MethodBase):
             declination=self.inducing_field[2],
         )
         simpeg_survey = magnetics.survey.Survey(source_field=src_field)
-        idenmap = maps.IdentityMap(nP=dmesh.nC)
+        idenmap = maps.IdentityMap(nP=self.n_components * dmesh.nC)
 
         return magnetics.simulation.Simulation3DIntegral(
             survey=simpeg_survey,
             mesh=dmesh,
             chiMap=idenmap,
             store_sensitivities="ram",
+            **self._model_type(),
             **kwargs,
         )
 
@@ -100,6 +126,11 @@ class MagneticsMethod(MethodBase):
     ) -> Any:
         """Simulation with a custom mapping (for joint inversion)."""
         from simpeg.potential_fields import magnetics
+
+        if self.vector:
+            raise ValueError("The magnetization-vector inversion (MVI) is for single magnetic "
+                             "inversions in this version; joint inversions use the induced "
+                             "susceptibility")
 
         dmesh = mesh.to_discretize()
         rx = magnetics.receivers.Point(survey.locations, components=[self.component])
@@ -133,7 +164,7 @@ class MagneticsMethod(MethodBase):
         dmesh = mesh.to_discretize()
         # The integral simulation works on active cells only, so the model
         # (and therefore the mapping) has one value per active cell.
-        act_map = maps.IdentityMap(nP=int(active_cells.sum()))
+        act_map = maps.IdentityMap(nP=self.n_components * int(active_cells.sum()))
 
         rx = magnetics.receivers.Point(survey.locations, components=[self.component])
         src_field = magnetics.sources.UniformBackgroundField(
@@ -150,5 +181,6 @@ class MagneticsMethod(MethodBase):
             chiMap=act_map,
             active_cells=active_cells,
             store_sensitivities="ram",
+            **self._model_type(),
             **kwargs,
         )

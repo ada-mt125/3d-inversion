@@ -1196,3 +1196,104 @@ class TestExactBounds:
         assert rho.min() >= 0.0 and rho.max() <= 0.25 and chi.min() >= 0.0
         assert any("bounds apply to every model" in n for n in result["notes"])
         assert any("['regularization_type'] are not applied" in n for n in result["notes"])
+
+
+# ── Cell weights, over-relaxation and the balance of the datasets ─────────────
+
+
+class TestWeightingAndBalance:
+    """The Karnataka fixes: depth weighting (the model stays in the core), over-relaxation
+    (fewer ADMM iterations) and the balance of the two datasets' fits."""
+
+    @staticmethod
+    def _datasets(small, scale=(1.0, 1.0)):
+        K, G, f, g, _ = small
+        sf, sg = 0.02 * abs(f).max(), 0.02 * abs(g).max()
+        return [gl.GroupLassoData("magnetic", f, 0, np.full(f.size, sf), operator=K),
+                gl.GroupLassoData("gravity", g, 1, np.full(g.size, sg), operator=G)], \
+            [np.full(f.size, scale[0] / sf), np.full(g.size, scale[1] / sg)]
+
+    def test_scale_models_weighs_the_data_only(self, small):
+        """After scale_models(f) the problem is sum_p f_p^2 misfit_p + the same group norm and
+        L2 term of the same physical models: checked against FISTA on that objective, and,
+        for equal factors, against the unweighted problem with lambda1, lambda2 / f^2."""
+        data, _ = self._datasets(small)
+        bounds = [(0.0, None), (0.0, 0.2)]
+        P0 = gl.GroupLassoProblem(data, data_scaling="std", bounds=bounds)
+        P = gl.GroupLassoProblem(data, data_scaling="std", bounds=bounds)
+        lam1, lam2, f = 0.05 * P.lambda1_max(), 0.3, np.array([2.0, 0.5])
+        first = P.solve(lam1, lam2, max_iter=4000)
+        state = P.scale_models(f, first.state)
+        mu = P.mu
+        assert P.mu == mu and P.data_weights == [2.0, 0.5]    # the operators did not change
+        a = P.solve(lam1, lam2, state=state, max_iter=20000, tol_primal=1e-9, tol_dual=1e-9)
+        assert a.converged and P.kkt_residuals(a.models_scaled, lam1, lam2) < 1e-5
+        # FISTA on the weighted objective in P0's scaled variables (zeta / f)
+        X, Y = _dense(P0.ops[0]), _dense(P0.ops[1])
+        L = max(f[0] ** 2 * np.linalg.norm(X, 2) ** 2, f[1] ** 2 * np.linalg.norm(Y, 2) ** 2) + lam2
+        z, y, t = [np.zeros(P0.m)] * 2, [np.zeros(P0.m)] * 2, 1.0
+        for _ in range(20000):
+            grad = [f[0] ** 2 * X.T @ (X @ y[0] - P0.b[0]) + lam2 * y[0],
+                    f[1] ** 2 * Y.T @ (Y @ y[1] - P0.b[1]) + lam2 * y[1]]
+            nz = gl.group_shrink_many([y[0] - grad[0] / L, y[1] - grad[1] / L], lam1 / L, 0.0,
+                                      1.0, None, "group", P0.box_lower, P0.box_upper)
+            tn = 0.5 * (1 + np.sqrt(1 + 4 * t * t))
+            y = [n + (t - 1) / tn * (n - o) for n, o in zip(nz, z)]
+            z, t = nz, tn
+        for x, zp in zip(P0.to_physical(z), a.models_physical):
+            np.testing.assert_allclose(zp, x, atol=2e-4 * abs(x).max())
+        # equal factors: the same as lambda1 / f^2, lambda2 / f^2 without weights
+        Q = gl.GroupLassoProblem(data, data_scaling="std", bounds=bounds)
+        Q.scale_models([3.0, 3.0])
+        b = Q.solve(lam1, lam2, max_iter=20000, tol_primal=1e-9, tol_dual=1e-9)
+        c = P0.solve(lam1 / 9, lam2 / 9, max_iter=20000, tol_primal=1e-9, tol_dual=1e-9)
+        for x, y in zip(b.models_physical, c.models_physical):
+            np.testing.assert_allclose(x, y, atol=1e-5 * abs(y).max())
+
+    def test_cell_weights(self, small):
+        """w = 1 / R, scaled to unit columns on average; equal R = a constant w."""
+        data, _ = self._datasets(small)
+        m = small[0].shape[1]
+        P = gl.GroupLassoProblem(data, data_scaling="std", cell_weights=[np.ones(m)] * 2)
+        for op in P.ops:
+            assert np.mean(op.diag_normal()) == pytest.approx(1.0, rel=1e-10)
+        const = [np.full(m, w[0]) for w in P.weights]
+        Q = gl.GroupLassoProblem(data, data_scaling="std", model_weights=const)
+        lam1 = 0.05 * P.lambda1_max()
+        for x, y in zip(P.solve(lam1, 0.3).models_physical, Q.solve(lam1, 0.3).models_physical):
+            np.testing.assert_allclose(x, y, rtol=0, atol=1e-12 * abs(y).max())
+        with pytest.raises(ValueError, match="positive"):
+            gl.GroupLassoProblem(data, cell_weights=[np.zeros(m), None])
+
+    def test_relaxation_same_minimizer_fewer_iterations(self, small):
+        data, _ = self._datasets(small)
+        runs = {}
+        for alpha in (1.0, 1.6):
+            P = gl.GroupLassoProblem(data, data_scaling="std", bounds=[(0.0, None), None],
+                                     relaxation=alpha)
+            runs[alpha] = P.solve(0.03 * P.lambda1_max(), 0.3, max_iter=6000,
+                                  tol_primal=1e-7, tol_dual=1e-7)
+        a, b = runs[1.0], runs[1.6]
+        assert a.converged and b.converged and b.n_iterations < a.n_iterations
+        assert b.objective == pytest.approx(a.objective, rel=1e-6)
+        with pytest.raises(ValueError, match="relaxation"):
+            gl.GroupLassoProblem(data, relaxation=2.0)
+
+    def test_balance_and_depth_weighting_through_the_pipeline(self, tmp_path):
+        from tests.test_data_pipeline import _joint_params
+        from geoinv3d.cloud.worker import BALANCE_TOLERANCE, run_data_pipeline
+        _pipeline_files(tmp_path)
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
+                               regularization_type="group_lasso", gl_data_scaling="std",
+                               gl_lambda1_selection="discrepancy", gl_n_lambda1=8,
+                               gl_lambda1_decades=3.0, gl_lambda2=0.03, gl_weighting="depth",
+                               depth_weighting_exponent=1.0, gl_relaxation=1.6,
+                               gl_balance=True, bounds_lower=0.0)
+        result = run_data_pipeline(params, str(tmp_path))
+        info = result["group_lasso"]
+        assert info["weighting"] == "depth" and info["relaxation"] == 1.6
+        rounds = info["balance"]
+        spread = [max(abs(np.log(v)) for v in r["chi2_per_datum"].values()) for r in rounds]
+        assert spread[-1] <= np.log(BALANCE_TOLERANCE) or spread[-1] < spread[0]
+        assert info["data_weights"] == rounds[-1]["data_weights"]
+        assert info["criterion"].startswith("chi^2 = N for each model")

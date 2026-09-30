@@ -635,12 +635,21 @@ class JointInversion:
                 "pgi": {"regularization": reg, "settings": settings}}
 
     def _pgi_weights(self, simulations, dmis_list, m0, dmesh, active, wire_of) -> list:
-        """Each model's rms sensitivity per unit volume from its own datasets, normalized
-        to a maximum of 1 (as JointSensitivityWeights), clipped at 1e-12 (potential
-        fields) or 1e-2 (MT / DC) of it."""
+        """Each model's cell weights: its regularization's Li & Oldenburg depth weights
+        when it asks for depth weighting (as the other couplings weigh it; the
+        sensitivity weighting spread PGI's models below the core of the Karnataka mesh),
+        else its rms sensitivity per unit volume from its own datasets, normalized to a
+        maximum of 1 (as JointSensitivityWeights), clipped at 1e-12 (potential fields)
+        or 1e-2 (MT / DC) of it."""
         vol = dmesh.cell_volumes[active]
         out = []
         for m in self.models:
+            r = m.regularization
+            if r is not None and r.depth_weighting == "depth":
+                locs = np.vstack([np.asarray(self.setups[i].survey.locations)[:, :3]
+                                  for i in m.setups])
+                out.append(depth_weights(dmesh, locs, active, r.depth_weighting_exponent))
+                continue
             jtj = sum(simulations[i].getJtJdiag(m0, W=dmis_list[i].W) for i in m.setups)
             w = np.sqrt(np.asarray(wire_of[m.name] * jtj, dtype=float) / vol)
             linear = all(getattr(self.setups[i].method, "linear", True) for i in m.setups)
@@ -709,6 +718,11 @@ class JointInversion:
                     info["l1_ratio"] = r.l1_ratio
                 elif r.kind in ("mgs", "tv"):
                     info["focusing_threshold"] = reg.focusing_threshold
+            if pgi:
+                r = m.regularization
+                info["weighting"] = (f"depth (beta = {r.depth_weighting_exponent:g})"
+                                     if r is not None and r.depth_weighting == "depth"
+                                     else "sensitivity")
             if balance is not None and balance.multipliers is not None:
                 info["balance"] = float(balance.multipliers[k])
             models_info[m.name] = info

@@ -471,7 +471,8 @@ def make_solver(op, mu: float, solver: str = "auto",
 
 
 def group_shrink_many(qs, lambda1: float, lambda2: float, mu: float, out=None,
-                      coupling: str = "group", lower=None, upper=None):
+                      coupling: str = "group", lower=None, upper=None, l2_factors=None,
+                      group_weights=None):
     """Proximal step of lambda1 ||.||_group + lambda2/2 ||.||^2 at mu, for P models.
 
     s_pk = mu / (mu + lambda2) * max(1 - lambda1 / (mu r_k), 0) * q_pk with
@@ -480,14 +481,20 @@ def group_shrink_many(qs, lambda1: float, lambda2: float, mu: float, out=None,
 
     ``lower`` / ``upper`` (one array or None per model): the step is taken
     within these bounds, exactly (see :func:`_group_shrink_box`).
+    ``l2_factors`` / ``group_weights`` (one number per model): lambda2 f_p for
+    model p, and the group norm ||(g_1 s_1k, ..., g_P s_Pk)|| (the balance of the
+    datasets, GroupLassoProblem.scale_models); also exact.
 
     ``coupling="none"`` soft-thresholds every model separately (ordinary
     elastic net on each model): a reference for comparisons, not the method.
     """
     if out is None:
         out = [np.empty_like(np.asarray(q, dtype=float)) for q in qs]
-    if lower is not None or upper is not None:
-        return _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling)
+    uniform = all(v is None or np.all(np.asarray(v, dtype=float) == 1.0)
+                  for v in (l2_factors, group_weights))
+    if lower is not None or upper is not None or not uniform:
+        return _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
+                                 l2_factors=l2_factors, group_weights=group_weights)
     damp = mu / (mu + lambda2)
     t = lambda1 / mu
     if coupling == "none":
@@ -518,52 +525,61 @@ def _box_arrays(qs, lower, upper):
 
 
 def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
-                      n_bisect: int = 60):
+                      n_bisect: int = 60, l2_factors=None, group_weights=None):
     """The shrink of :func:`group_shrink_many` within per-component bounds, exactly.
 
-    Per cell it minimizes mu/2 ||s - q||^2 + lambda1 ||s|| + lambda2/2 ||s||^2
-    over the box lo <= s <= hi.  With a = mu + lambda2, q' = mu q / a and
-    kappa = lambda1 / a, the minimizer (unique: strictly convex) is either 0 or,
-    for fixed r = ||s||, the separable problem's solution
+    Per cell it minimizes mu/2 ||s - q||^2 + lambda1 ||(g_p s_p)|| + sum_p
+    lambda2 f_p / 2 s_p^2 over the box lo <= s <= hi (g = f = 1 without
+    ``group_weights`` / ``l2_factors``).  With a_p = mu + lambda2 f_p the
+    minimizer (unique: strictly convex) is either 0 or, for fixed
+    r = ||(g_p s_p)||, the separable problem's solution
 
-        s(r) = clip(q' r / (r + kappa), lo, hi),
+        s_p(r) = clip(mu q_p r / (a_p r + lambda1 g_p^2), lo, hi),
 
-    so r solves r = ||s(r)||: one root, found by bisection on
-    (0, sqrt(sum max(clip(q')^2, clip(0)^2))], vectorized over the cells.
-    0 is the minimizer when the box holds it and ||q''|| <= kappa, where q''
-    drops the components that point out of the box at 0 (e.g. a negative
-    susceptibility against a lower bound of 0).  Unbounded components reduce
-    to the closed form.  ``coupling="none"``: per component, the clipped soft
-    threshold (exact in one dimension).
+    so r solves r = ||(g_p s_p(r))||: one root (||g s(r)|| / r decreases), found
+    by bisection on (0, sqrt(sum g_p^2 max(clip(mu q_p / a_p)^2, clip(0)^2))],
+    vectorized over the cells.  0 is the minimizer when the box holds it and
+    ||(mu q''_p / g_p)|| <= lambda1, where q'' drops the components that point
+    out of the box at 0 (e.g. a negative susceptibility against a lower bound
+    of 0).  Unbounded, unweighted components reduce to the closed form.
+    ``coupling="none"``: per component, the clipped soft threshold of
+    lambda1 g_p |s_p| (exact in one dimension).
     """
+    P = len(qs)
     lo, hi = _box_arrays(qs, lower, upper)
-    a = mu + lambda2
-    kappa = lambda1 / a
-    qp = [mu * np.asarray(q, dtype=float) / a for q in qs]
+    f = [1.0] * P if l2_factors is None else [float(x) for x in l2_factors]
+    g = [1.0] * P if group_weights is None else [float(x) for x in group_weights]
+    a = [mu + lambda2 * fp for fp in f]
+    mq = [mu * np.asarray(q, dtype=float) for q in qs]
     if coupling == "none":
-        for q, l, h, o in zip(qp, lo, hi, out):
-            o[:] = np.clip(np.sign(q) * np.maximum(np.abs(q) - kappa, 0.0), l, h)
+        for q, ap, gp, l, h, o in zip(mq, a, g, lo, hi, out):
+            o[:] = np.clip(np.sign(q) * np.maximum(np.abs(q) - lambda1 * gp, 0.0) / ap, l, h)
         return out
     if coupling != "group":
         raise ValueError(f"Unknown coupling {coupling!r} (expected 'group' or 'none')")
     zero_ok = np.all([(l <= 0) & (h >= 0) for l, h in zip(lo, hi)], axis=0)
-    free = [np.where(((l == 0) & (q < 0)) | ((h == 0) & (q > 0)), 0.0, q)
-            for q, l, h in zip(qp, lo, hi)]
-    empty = zero_ok & (np.sqrt(sum(np.square(f) for f in free)) <= kappa)
-    top = np.sqrt(sum(np.maximum(np.square(np.clip(q, l, h)), np.square(np.clip(0.0, l, h)))
-                      for q, l, h in zip(qp, lo, hi)))
+    free = [np.where(((l == 0) & (q < 0)) | ((h == 0) & (q > 0)), 0.0, q) / gp
+            for q, gp, l, h in zip(mq, g, lo, hi)]
+    empty = zero_ok & (np.sqrt(sum(np.square(x) for x in free)) <= lambda1)
+    top = np.sqrt(sum(gp**2 * np.maximum(np.square(np.clip(q / ap, l, h)),
+                                         np.square(np.clip(0.0, l, h)))
+                      for q, ap, gp, l, h in zip(mq, a, g, lo, hi)))
+
+    def s_of(r, p):
+        return np.clip(mq[p] * r / (a[p] * r + lambda1 * g[p] ** 2), lo[p], hi[p]) \
+            if lambda1 > 0 else np.clip(mq[p] / a[p], lo[p], hi[p])
     r_lo, r_hi = np.zeros_like(top), top.copy()
     for _ in range(n_bisect):
         r = 0.5 * (r_lo + r_hi)
-        tau = r / (r + kappa) if kappa > 0 else np.ones_like(r)
-        norm = np.sqrt(sum(np.square(np.clip(q * tau, l, h)) for q, l, h in zip(qp, lo, hi)))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            norm = np.sqrt(sum(np.square(g[p] * s_of(r, p)) for p in range(P)))
         above = norm > r          # F(r) > 0: the root is further out
         r_lo = np.where(above, r, r_lo)
         r_hi = np.where(above, r_hi, r)
     r = 0.5 * (r_lo + r_hi)
-    tau = r / (r + kappa) if kappa > 0 else np.ones_like(r)
-    for q, l, h, o in zip(qp, lo, hi, out):
-        o[:] = np.where(empty, 0.0, np.clip(q * tau, l, h))
+    for p, o in enumerate(out):
+        with np.errstate(invalid="ignore", divide="ignore"):
+            o[:] = np.where(empty, 0.0, s_of(r, p))
     return out
 
 
@@ -876,6 +892,17 @@ class GroupLassoProblem:
         sensitivity_weighting, gamma, model_weights: w_p = ||column||^(-gamma/2)
             of the model's stacked, row-scaled sensitivities, or none, or the
             given weights.
+        cell_weights: per model, the weight R_p > 0 of each cell in the
+            penalty (e.g. cell volume x depth weight, as a SimPEG
+            regularization weighs its cells), or None: then w_p = 1 / R_p,
+            scaled so that the columns of X_p have a mean square of 1 (as with
+            gamma = 2, so lambda2 and mu keep their scale).  The group norm is
+            then sum_k R_k ||(c_1 m_1k, ..., c_P m_Pk)|| up to that constant.
+            model_weights, when given for a model, take precedence.
+        relaxation: ADMM over-relaxation alpha in (0, 2): the s and u updates
+            use alpha zeta + (1 - alpha) s_old (Boyd et al. 2011, 3.4.3); 1 is
+            plain ADMM, 1.5–1.8 usually needs fewer iterations for the same
+            minimizer.
         data_scaling: see :func:`dataset_scales` ("auto" by default).
         solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
         mesh, active_cells: the models' mesh (discretize) and cells, for the
@@ -899,7 +926,8 @@ class GroupLassoProblem:
                  sensitivity_weighting: bool = True, gamma: float = 2.0, model_weights=None,
                  data_scaling="auto", solver: str = "auto",
                  factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
-                 cg_maxiter: int = 500, mesh=None, active_cells=None, bounds=None):
+                 cg_maxiter: int = 500, mesh=None, active_cells=None, bounds=None,
+                 cell_weights=None, relaxation: float = 1.0):
         self.datasets = list(datasets)
         if not self.datasets:
             raise ValueError("A group-lasso problem needs at least one dataset")
@@ -944,6 +972,7 @@ class GroupLassoProblem:
         self.notes += notes
         for n in notes:
             warnings.warn(n)
+        self.data_weights = [1.0] * self.n_models   # further factors of scale_models
         self.model_factors = []
         for ds in self.model_datasets:
             s0 = self.scales[ds[0]]
@@ -956,6 +985,16 @@ class GroupLassoProblem:
         m0 = [ref.copy() for ref in self.references]
         self._K = [d.jacobian(m0[d.model]) for d in self.datasets]
         given = list(model_weights) if model_weights is not None else [None] * self.n_models
+        cells = list(cell_weights) if cell_weights is not None else [None] * self.n_models
+        if len(given) != self.n_models or len(cells) != self.n_models:
+            raise ValueError(f"model_weights / cell_weights need one entry per model "
+                             f"({self.n_models})")
+        if not 0.0 < relaxation < 2.0:
+            raise ValueError(f"relaxation must be in (0, 2), got {relaxation}")
+        self.relaxation = float(relaxation)
+        self.weighting = ["given" if g is not None else "cells" if c is not None
+                          else f"sensitivity (gamma = {gamma:g})" if sensitivity_weighting
+                          else "none" for g, c in zip(given, cells)]
         self.weights, traces = [], []
         for p, ds in enumerate(self.model_datasets):
             explicit = all(isinstance(self._K[i], np.ndarray) or sp.issparse(self._K[i])
@@ -970,6 +1009,16 @@ class GroupLassoProblem:
                 norms2 = sum(self._jtj_diag(i, m0[p]) for i in ds)
             if given[p] is not None:
                 w = np.asarray(given[p], dtype=float)
+            elif cells[p] is not None:
+                R = np.broadcast_to(np.asarray(cells[p], dtype=float), (self.m,))
+                if not np.all(R > 0) or not np.all(np.isfinite(R)):
+                    raise ValueError(f"The cell weights of '{self.model_names[p]}' must be "
+                                     "positive and finite")
+                if norms2 is None:
+                    raise ValueError("Cell weights need the column norms of the operator; "
+                                     "give model_weights for a matrix-free one")
+                w = 1.0 / R
+                w = w / np.sqrt(np.mean(w**2 * norms2))   # unit columns on average
             elif sensitivity_weighting:
                 if norms2 is None:
                     raise ValueError("Give the weights of a matrix-free operator "
@@ -1035,6 +1084,21 @@ class GroupLassoProblem:
     def _box(self):
         return (self.box_lower, self.box_upper) if self.bounds is not None else (None, None)
 
+    def _balance_weights(self) -> dict:
+        """The shrink's per-model weights after scale_models: the group norm and L2 term
+        stay those of the physical model (g_p = 1 / w_p, f_p = 1 / w_p^2); {} without."""
+        if all(w == 1.0 for w in self.data_weights):
+            return {}
+        return {"group_weights": [1.0 / w for w in self.data_weights],
+                "l2_factors": [1.0 / w**2 for w in self.data_weights]}
+
+    def _group_values(self, s_list):
+        """||(g_p s_pk)|| of every cell (the group norm of the objective)."""
+        return group_norms(*[s / w for s, w in zip(s_list, self.data_weights)])
+
+    def _l2_value(self, s_list) -> float:
+        return 0.5 * float(sum((s @ s) / w**2 for s, w in zip(s_list, self.data_weights)))
+
     def _zero_feasible(self) -> bool:
         """Whether the reference (zeta = 0) is within the bounds in every cell."""
         if self.bounds is None:
@@ -1051,8 +1115,9 @@ class GroupLassoProblem:
                 for c, l, h in zip(c_list, lo, hi)]
 
     def _zero_threshold(self, zt_b) -> float:
-        """max_k ||(Z^T b)_k||, the components pointing out of the bounds left out."""
-        return float(np.max(group_norms(*self._outward_free(list(zt_b)))))
+        """max_k ||((Z^T b)_pk / g_p)||, the components pointing out of the bounds left out."""
+        c = self._outward_free(list(zt_b))
+        return float(np.max(group_norms(*[x * w for x, w in zip(c, self.data_weights)])))
 
     def _jtj_diag(self, i, m):
         sim = self.datasets[i].simulation
@@ -1146,6 +1211,39 @@ class GroupLassoProblem:
     def lambda1_max(self) -> float:
         """Smallest lambda1 whose solution is zero (the reference model): max_k ||(Z^T b)_k||."""
         return self._lambda1_max
+
+    def scale_models(self, factors, state: "ADMMState | None" = None):
+        """Weigh the data of each model by a further factor f_p > 0 (all its datasets).
+
+        Only the data terms change: model p's misfit is multiplied by f_p^2, the group
+        norm and the L2 term stay those of the same physical models — a weight per
+        dataset, as SimPEG's joint data weights, for balancing the fits of the datasets
+        (the worker's gl_balance).  The factor goes into the data scales s_d and the
+        model's c_p together, so the operators X_p, their factorizations and mu stay as
+        they are; the group norm and L2 term get the weights 1 / w_p and 1 / w_p^2 of the
+        accumulated factors w_p (``data_weights``), which the shrink takes exactly.  In
+        the scaled variables the same physical model is f_p zeta_p, so a warm start is
+        ``state`` times f_p (returned; None without a state).  Linear datasets only.
+        """
+        if not self.linear:
+            raise ValueError("scale_models needs linear datasets (it keeps the operators)")
+        f = [float(x) for x in factors]
+        if len(f) != self.n_models or not all(x > 0 and np.isfinite(x) for x in f):
+            raise ValueError(f"scale_models needs {self.n_models} positive factors, got {factors}")
+        for p, fp in enumerate(f):
+            self.model_factors[p] *= fp
+            self.data_weights[p] *= fp
+            for i in self.model_datasets[p]:
+                self.scales[i] = self.scales[i] * fp
+        self._set_bounds(self.bounds)
+        self._linearize_at(None, first=True)
+        self._lambda1_max = self._zero_threshold(self.Zt_b)
+        self._zt_b_ref = [z.copy() for z in self.Zt_b]
+        self._cg_factors = None
+        if state is None:
+            return None
+        return ADMMState(*([a * fp for a, fp in zip(arrs, f)]
+                           for arrs in (state.zeta, state.s, state.u)))
 
     def to_physical(self, *s_list):
         """Models in the operators' units: reference + w * scaled / (scalar data scale).
@@ -1254,8 +1352,8 @@ class GroupLassoProblem:
             r = self.scales[i] * (d.data - pred)
             out[f"misfit_{d.name}"] = 0.5 * float(r @ r)
             out["misfit"] += out[f"misfit_{d.name}"]
-        out["group"] = float(np.sum(group_norms(*s_list)))
-        out["l2"] = 0.5 * float(sum(s @ s for s in s_list))
+        out["group"] = float(np.sum(self._group_values(s_list)))
+        out["l2"] = self._l2_value(s_list)
         out["cross_gradient"] = self.cross_gradient_value(s_list)
         return out
 
@@ -1266,8 +1364,8 @@ class GroupLassoProblem:
             r = self.b[i] - self.dataset_ops[i].matvec(s_list[d.model])
             out[f"misfit_{d.name}"] = 0.5 * float(r @ r)
             out["misfit"] += out[f"misfit_{d.name}"]
-        out["group"] = float(np.sum(group_norms(*s_list)))
-        out["l2"] = 0.5 * float(sum(s @ s for s in s_list))
+        out["group"] = float(np.sum(self._group_values(s_list)))
+        out["l2"] = self._l2_value(s_list)
         out["cross_gradient"] = self.cross_gradient_value(s_list)
         return out
 
@@ -1306,18 +1404,21 @@ class GroupLassoProblem:
             if cross_gradient:
                 g -= cross_gradient * self.cross_gradient_gradient(p, s_list)
             c.append(g)
-        r = group_norms(*s_list)
+        gw = [1.0 / w for w in self.data_weights]
+        r = self._group_values(s_list)
         on = r > 0
         scale = max(lambda1, 1e-300)
         viol = np.zeros(self.m)
-        d = [cp - lambda1 * np.divide(sp_, r, out=np.zeros_like(r), where=on) - lambda2 * sp_
-             for cp, sp_ in zip(c, s_list)]
+        d = [cp - lambda1 * g**2 * np.divide(sp_, r, out=np.zeros_like(r), where=on)
+             - lambda2 * g**2 * sp_ for cp, sp_, g in zip(c, s_list, gw)]
         if self.bounds is not None:
             lo, hi = _box_arrays(s_list, *self._box())
             tol = [1e-10 * max(float(np.max(np.abs(x))), 1e-300) for x in s_list]
             d = [np.where((x >= h - t) & (dx > 0), 0.0, np.where((x <= l + t) & (dx < 0), 0.0, dx))
                  for x, l, h, t, dx in zip(s_list, lo, hi, tol, d)]
             c = self._outward_free(c)
+        d = [x / g for x, g in zip(d, gw)]   # in the units of the group norm
+        c = [x / g for x, g in zip(c, gw)]
         viol[on] = group_norms(*[x[on] for x in d]) / scale
         viol[~on] = np.maximum(group_norms(*[x[~on] for x in c]) - lambda1, 0.0) / scale
         return float(viol.max()) if viol.size else 0.0
@@ -1337,6 +1438,8 @@ class GroupLassoProblem:
         rhs = np.empty(m)
         s_old = [np.empty(m) for _ in range(P)]
         q = [np.empty(m) for _ in range(P)]
+        alpha = self.relaxation
+        zh = [np.empty(m) for _ in range(P)] if alpha != 1.0 else None
         coupled = lambda3 > 0 and self.cross_gradient_term is not None and P >= 2
         converged = stopped = False
         it = 0
@@ -1369,14 +1472,24 @@ class GroupLassoProblem:
                         rhs.copy(), st.zeta[p], lambda v, H=H: lambda3 * H(v), rtol=cg_rtol)
                 else:
                     st.zeta[p] = self.solvers[p].solve(rhs, st.zeta[p])
-            # 2. s update: group soft threshold of q = zeta - u
+            # 2. s update: group soft threshold of q = zeta_hat - u, zeta_hat =
+            # alpha zeta + (1 - alpha) s_old (over-relaxation; zeta itself for alpha = 1)
             for p in range(P):
                 s_old[p][:] = st.s[p]
-                np.subtract(st.zeta[p], st.u[p], out=q[p])
-            group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling, *self._box())
+            if zh is None:
+                zeta_hat = st.zeta
+            else:
+                for p in range(P):
+                    np.multiply(st.zeta[p], alpha, out=zh[p])
+                    zh[p] += (1.0 - alpha) * s_old[p]
+                zeta_hat = zh
+            for p in range(P):
+                np.subtract(zeta_hat[p], st.u[p], out=q[p])
+            group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling, *self._box(),
+                              **self._balance_weights())
             # 3. dual update
             for p in range(P):
-                st.u[p] += st.s[p] - st.zeta[p]
+                st.u[p] += st.s[p] - zeta_hat[p]
             # residuals
             r_pri = float(np.sqrt(sum(np.sum((s - z) ** 2) for s, z in zip(st.s, st.zeta))))
             r_dual = mu * float(np.sqrt(sum(np.sum((s - o) ** 2) for s, o in zip(st.s, s_old))))

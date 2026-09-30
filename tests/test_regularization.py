@@ -139,8 +139,12 @@ class TestDirectives:
                                    np.linalg.norm(p.G, axis=0), rtol=1e-6)  # G is float32
 
     @staticmethod
-    def _steer(directive_cls, n_iter=30):
-        """Drive the IRLS beta control against a steep phi_d(beta) curve."""
+    def _steer(directive_cls, n_iter=30, drift=None, noise=0.0, seed=0):
+        """Drive the IRLS beta control against a steep phi_d(beta) curve.
+
+        ``drift(k)``: the beta that meets the target at iteration k (default 1);
+        ``noise``: log-normal scatter of phi_d (the reweighting changes it too)."""
+        rng = np.random.default_rng(seed)
         target = 169.0
         directive = directive_cls()
         directive._metrics = IRLSMetrics(input_norms=[])
@@ -150,12 +154,35 @@ class TestDirectives:
         directive.inversion = SimpleNamespace(invProb=state)
         beta = 0.7  # phi_d grows steeply with beta and hits the target at beta = 1
         history = []
-        for _ in range(n_iter):
-            state.phi_d = target * beta ** 2.2
+        for k in range(n_iter):
+            state.phi_d = (target * (beta / (1.0 if drift is None else drift(k))) ** 2.2
+                           * np.exp(noise * rng.normal()))
             history.append(state.phi_d)
             directive.adjust_cooling_schedule()
             beta /= directive.cooling_factor
         return np.array(history) / target
+
+    def test_damped_irls_follows_a_drift(self):
+        """phi_d scattered by 8 % (the reweighting) while the beta that fits the data falls
+        4 % per iteration (as in the Karnataka joint total variation run): the halved step
+        must grow back, or beta creeps and phi_d stays far above the target."""
+        drift = lambda k: 0.96 ** k
+
+        def spread(recover):
+            runs = []
+            for seed in range(40):
+                d = DampedUpdateIRLS
+                if not recover:   # the former control: halving only
+                    class d(DampedUpdateIRLS):
+                        def adjust_cooling_schedule(self):
+                            self._same = -10 ** 9
+                            super().adjust_cooling_schedule()
+                runs.append(self._steer(d, n_iter=40, drift=drift, noise=0.08, seed=seed)[-15:])
+            runs = np.array(runs)
+            return np.mean(abs(np.log(runs))), np.mean(runs[:, -1] > 1.3)
+        (err, high), (err0, high0) = spread(True), spread(False)
+        assert err < 0.25 < 0.3 < err0          # mean |log(phi_d / target)|, last 15 iterations
+        assert high < 0.3 < 0.6 < high0         # runs that end 30 % above the target
 
     def test_damped_irls_converges_where_plain_cycles(self):
         plain = self._steer(directives.UpdateIRLS)

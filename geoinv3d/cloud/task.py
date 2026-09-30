@@ -173,6 +173,22 @@ class InversionTask:
     gl_coupling: str = "group"
     gl_gn_max_iter: int = 20
     gl_gn_tol: float = 1e-5
+    # How the group lasso weighs its cells: "sensitivity" (the paper: w = ||column||^(-gamma/2),
+    # gl_gamma = 2 makes every cell equally cheap, so on a mesh with wide padding the model
+    # leaves the core) or "depth": each cell weighed in the penalty by its volume x the Li &
+    # Oldenburg depth weight of its model's regularization (depth_weighting_exponent), as the
+    # SimPEG regularizations weigh it (see GroupLassoProblem cell_weights)
+    gl_weighting: str = "sensitivity"
+    # ADMM over-relaxation (1: plain ADMM; 1.6 took 31 % fewer iterations for the same
+    # minimizer on the Karnataka 2 km mesh)
+    gl_relaxation: float = 1.6
+    # Balance the datasets: one lambda1 serves all models, so chi^2 = N in total can hide
+    # an overfitted gravity model and an underfitted magnetic one (0.4 and 2.6 x N on the
+    # Karnataka 2 km mesh).  True: after the sweep, reweigh each model's data by
+    # sqrt(chi^2 / N) and find lambda1 for chi^2 = N again (warm-started), at most
+    # gl_balance_rounds times, until each model's chi^2 / N is within 1/1.2 .. 1.2
+    gl_balance: bool = False
+    gl_balance_rounds: int = 6
 
     # Arrays stored separately in the archive
     initial_model: Optional[NDArray] = None
@@ -294,6 +310,7 @@ GROUP_LASSO_KEYS = (
     "gl_lambda1_selection", "gl_lambda1", "gl_lambda1_ratio", "gl_lambda2", "gl_mu",
     "gl_data_scaling", "gl_gamma", "gl_n_lambda1", "gl_lambda1_decades", "gl_max_iter",
     "gl_tol", "gl_cross_gradient", "gl_gn_max_iter", "gl_gn_tol", "gl_coupling",
+    "gl_weighting", "gl_relaxation", "gl_balance", "gl_balance_rounds",
 )
 
 

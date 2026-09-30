@@ -79,3 +79,15 @@ COUPLINGS = {
 # Smaller exponents favour the cells the data see best (tests on the 2 km mesh).
 for _gamma in (0.5, 1.0, 1.5):
     COUPLINGS[f"group_lasso_std_g{_gamma:g}"] = {**COUPLINGS["group_lasso_std"], "gl_gamma": _gamma}
+
+# The group lasso as fixed on 30 September (evening): its cells weighed like those of the other
+# runs (volume x Li & Oldenburg depth weight, beta = 1 from each model's regularization) instead
+# of gamma = 2, every datum by its error, and the two datasets balanced to chi^2 = N each
+# (gl_balance) with lambda2 = 0.3 of the paper; over-relaxed ADMM.  On the 2 km mesh: chi^2 / N
+# 0.96 and 1.02 (0.40 and 2.86 before), 12 % and 33 % of the models outside the core (78 % and
+# 83 %); gamma = 1 kept 49 % and 83 % outside.
+_GL_FIXED = {"coupling": "group_lasso", "gl_weighting": "depth", "gl_data_scaling": "std",
+             "gl_lambda1_selection": "discrepancy", "gl_lambda2": 0.3, "gl_balance": True,
+             "gl_relaxation": 1.6, "gl_n_lambda1": 8}   # lambda1 from chi^2 = N: 8 points do
+COUPLINGS["group_lasso_depth"] = dict(_GL_FIXED)
+COUPLINGS["group_lasso_depth_uncoupled"] = {**_GL_FIXED, "gl_coupling": "none"}

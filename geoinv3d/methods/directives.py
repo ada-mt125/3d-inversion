@@ -442,7 +442,14 @@ class DampedUpdateIRLS(UpdateIRLS):
     phi_d to the target.  When phi_d is steep in beta this can settle into a
     two-cycle that never meets the target (e.g. phi_d alternating 149 / 320
     for a target of 169).  Here each reversal of the correction's direction
-    halves its size in log(beta), so beta brackets the target and converges.
+    halves its size in log(beta), so beta brackets the target and converges;
+    two corrections in a row in the same direction make it 1.5 times larger
+    again (up to SimPEG's own), so that a phi_d that drifts away later (the
+    reweighting, or a coupling term, makes the data harder to fit) is
+    followed.  Without the recovery, a Karnataka joint run (joint total
+    variation) halved the step while phi_d jumped about under the
+    reweighting, then moved beta by 1.7 % per iteration while phi_d stayed
+    20–50 % above the target, until the IRLS limit.
     Used for both the lp-norm (sparse) and L1–L2 paths.
     """
 
@@ -450,6 +457,7 @@ class DampedUpdateIRLS(UpdateIRLS):
         super().__init__(*args, **kwargs)
         self._damping = 1.0
         self._last_direction = 0.0
+        self._same = 0
 
     def adjust_cooling_schedule(self) -> None:
         super().adjust_cooling_schedule()
@@ -458,5 +466,11 @@ class DampedUpdateIRLS(UpdateIRLS):
         direction = np.sign(np.log(self.cooling_factor))
         if self._last_direction and direction != self._last_direction:
             self._damping *= 0.5
+            self._same = 0
+        elif self._last_direction:
+            self._same += 1
+            if self._same >= 2:          # still on one side of the target: speed up again
+                self._damping = min(1.0, 1.5 * self._damping)
+                self._same = 0
         self._last_direction = direction
         self.cooling_factor = self.cooling_factor ** self._damping

@@ -174,7 +174,8 @@ _KARNATAKA_FIELD = [42100.0, 19.3, -1.4]      # IGRF 2020 at the centre; declina
 def _magnetic_data(noise_pct=0.05, noise_floor=10.0, name="magnetic_1km.csv", **extra):
     return [{"method": "magnetics", "files": [name], "component": "tmi",
              "method_kwargs": {"inducing_field": _KARNATAKA_FIELD}, "noise_pct": noise_pct,
-             "noise_floor": noise_floor, "regional": {"method": "polynomial", "order": 2}, **extra}]
+             "noise_floor": noise_floor, "regional": {"method": "polynomial", "order": 2},
+             **extra}]
 
 
 KARNATAKA_MAGNETIC = {
@@ -197,6 +198,13 @@ KARNATAKA_MAGNETIC = {
         # tests at beta = 1: the upper bound, the data error, the height the data are continued
         # to (500 m; 80 m = as flown, aliased at 1 km) and a flat earth
         "beta1_ub0.3": ({**_SPARSE, **_dw(1.0), "bounds_upper": 0.3}, "c5.4xlarge"),
+        # remanence: a magnetization vector per cell (MVI; three components, so about 20 GB
+        # of sensitivities), |m_i| <= 1 SI, otherwise as beta1
+        "beta1_mvi": ({**_SPARSE, **_dw(1.0),
+                       "datasets": _magnetic_data(method_kwargs={"inducing_field": _KARNATAKA_FIELD,
+                                                                 "magnetization": "vector"}),
+                       "method_kwargs": {"inducing_field": _KARNATAKA_FIELD, "magnetization": "vector"}},
+                      "c5.9xlarge"),
         "beta1_err2": ({**_SPARSE, **_dw(1.0), "datasets": _magnetic_data(0.02, 5.0)}, "c5.4xlarge"),
         "beta1_h500": ({**_SPARSE, **_dw(1.0),
                         "datasets": _magnetic_data(name="magnetic_1km_h500.csv")}, "c5.4xlarge"),
