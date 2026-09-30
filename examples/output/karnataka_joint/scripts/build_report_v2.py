@@ -160,6 +160,88 @@ def mvi_table():
     return table(head, rows, numeric_from=1)
 
 
+def behaviour_table():
+    base = c("none")
+    rows = []
+
+    def row(k, asks, did, why):
+        if has(k):
+            rows.append([(f"<b>{LABEL[k]}</b>", "wrap"), (asks, "wrap"), (did, "wrap"), (why, "wrap")])
+    k = "cross_gradient"
+    if has(k):
+        row(k, "The gradients of the two models are parallel wherever both change: ∇ρ × ∇χ = 0.",
+            f"Cross-gradient measure {base['cross_gradient']:.2f} → {c(k)['cross_gradient']:.2f}, but only "
+            f"{pct(c(k)['edges_shared'])} of the susceptibility edges on a density edge ({pct(base['edges_shared'])} "
+            f"uncoupled). Density hardly changes ({g(k)['corr_with_none']:.2f}); susceptibility smoother "
+            f"({m(k)['corr_with_none']:.2f}), centroid in the belt {m('none')['box_sandur']['centroid_km']:.1f} → "
+            f"{m(k)['box_sandur']['centroid_km']:.1f} km.",
+            "A cross product is also zero where one of the two gradients is zero: keeping the edges of the two "
+            "models apart is cheaper than lining them up.")
+    k = "joint_total_variation"
+    if has(k):
+        row(k, "The two models change in the same places: one total variation of both, √(|∇ρ|² + |∇χ|²).",
+            f"Susceptibility edges on a density edge {pct(base['edges_shared'])} → {pct(c(k)['edges_shared'])}; "
+            f"magnetic cells anomalous in density {pct(base['support']['magnetic_in_dense'])} → "
+            f"{pct(c(k)['support']['magnetic_in_dense'])}. Density as uncoupled ({g(k)['corr_with_none']:.2f}); "
+            f"fit {g(k)['chi2']:.2f} / {m(k)['chi2']:.2f}.",
+            "√(a² + b²) &lt; a + b: two edges in the same cell cost less than two edges apart. Neither the values nor "
+            "the direction of the gradients are tied.")
+    k = "linear_correspondence"
+    if has(k):
+        row(k, "One linear relation between the values in every cell: density = 0.5 × susceptibility.",
+            f"{pct(c(k)['support']['magnetic_in_dense'])} of the magnetic cells anomalous in density; the dense body "
+            f"under the main high {rng(g('none')['main'])} → {rng(g(k)['main'])} km; {pct(g(k)['below'])} of the "
+            f"density model below the core ({pct(g('none')['below'])} uncoupled). Fit {g(k)['chi2']:.2f} / "
+            f"{m(k)['chi2']:.2f}.",
+            "A cell can be dense only if it is magnetic: density goes where the magnetic data put the magnetic rock "
+            "(near the surface) or where they cannot see it (below the core) (4.2).")
+    k = GLK
+    if has(k):
+        row(k, "Few cells are anomalous, and a cell is anomalous in both models or in neither; no ratio between "
+               "the values.",
+            f"{pct(c(k)['support']['magnetic_in_dense'])} of the magnetic cells anomalous in density "
+            f"({pct(c(CTRL)['support']['magnetic_in_dense']) + ' in its control, ' if has(CTRL) else ''}"
+            f"{pct(base['support']['magnetic_in_dense'])} uncoupled); {pct(c(k)['edges_shared'])} of the edges "
+            f"shared; the dense body {rng(g('none')['main'])} → {rng(g(k)['main'])} km; susceptibility spread "
+            f"through the dense body. Fit {g(k)['chi2']:.2f} / {m(k)['chi2']:.2f}.",
+            "The group norm ‖(ρ, χ)‖ &lt; |ρ| + |χ|: density is cheaper in a cell that already holds "
+            "susceptibility; with no fixed ratio it can still stay elsewhere, so the shift is partial (4.2).")
+    return table(["Coupling", "What it asks of the models", "What it did here", "Why"], rows, numeric_from=9)
+
+
+def guide_table():
+    rows = [
+        ["One rock carries both anomalies (a body that is both dense and magnetic: a mafic–ultramafic "
+         "intrusion, massive iron formation or magnetite ore alone)",
+         "Group lasso", "PGI, if the rock's density and susceptibility are measured",
+         "Whether the paired support is geologically one body; the depth of the dense body moves towards "
+         "the magnetic one"],
+        ["Different rocks share their boundaries (magnetic rock along the contacts or margins of dense rock, "
+         "as the iron formation along the greenstone of this belt, or a magnetic unit along a fault that also "
+         "bounds a dense one)",
+         "Joint total variation", "Cross-gradient",
+         "The share of common edges: the cross-gradient can meet its condition by keeping the edges apart "
+         "(2% here). Avoid the linear correspondence and the group lasso: they move one model to the other"],
+        ["A few rock types with known properties at the scale of a cell (logs, measured samples)",
+         "PGI, with the measured units", "Joint total variation",
+         "Whether each unit's cells make geological sense; units chosen by us are assumptions, not constraints"],
+        ["One rock type with a known, fixed relation between density and susceptibility (fitted to samples "
+         "of that rock)", "Linear correspondence", "Group lasso",
+         "The depth and the share below the core of the density model: a wrong relation moves it, and the data "
+         "fit does not warn"],
+        ["The relation is not known",
+         "No coupling first: invert separately and compare the two models (common edges, shared support)",
+         "Then the coupling whose assumption the comparison supports",
+         "Report what the couplings agree on; where they differ, the data do not decide"],
+        ["The magnetic anomalies do not fit an induced magnetization (a systematic residual, highs and lows "
+         "in the wrong ratio)",
+         "A magnetization-vector inversion of the magnetic data", "—",
+         "Couplings of the induced susceptibility are an approximation where the rock is remanent"],
+    ]
+    return table(["Geological setting", "First choice", "Also", "What to check"],
+                 [[(x, "wrap") for x in r] for r in rows], numeric_from=9)
+
+
 def depth_table():
     head = ["Depth below the ground (km)", "Gravity", "Magnetics", "Magnetics / gravity"]
     rows = [[f"{d['from_km']}–{d['to_km']}" if d["to_km"] < 40 else f"below {d['from_km']} (below the core)",
@@ -240,17 +322,33 @@ def body(fig, notes):
 {mvi_table()}
 {fig('mvi', "Magnetic residuals of the susceptibility inversion and of the magnetization-vector inversion (±150 nT; black dots: the stations the susceptibility model underfits by more than 150 nT), and the amplitude of the magnetization vector integrated with depth.")}
 
-<h2><span class="no">4</span>Which coupling suits this belt</h2>
+<h2><span class="no">4</span>Choosing a coupling</h2>
 <div class="prose">
-@@DISCUSSION@@
+<p>There is no known model of this area to compare the results with, and every coupling fits the data equally (Section 2.1), so the data do not rank the couplings. What this study can say falls into three kinds, of decreasing certainty: what each coupling does to the two models, which is a property of the method and would be the same whatever the true rock (4.1, 4.2); what the magnetic data themselves show, the remanence (Section 3); and which coupling suits this belt, a judgement from the geology and the rock samples, not from the inversions (4.3). Section 4.4 turns them into a first choice for other geological settings.</p>
 </div>
 
-<h3><span class="no">4.1</span>Why the couplings that tie the values lift the dense body</h3>
+<h3><span class="no">4.1</span>What each coupling does</h3>
+{behaviour_table()}
+<p class="note">Measured in the core of the 1 km runs against the uncoupled run (Sections 2.2 and 2.3). The behaviour follows from what each coupling asks of the models; it describes the method, not whether its result is right.</p>
+
+<h3><span class="no">4.2</span>Why the couplings that tie the values lift the dense body</h3>
 <div class="prose">
 @@WHY@@
 </div>
 {depth_table() if DS else ""}
 <p class="note">Median column norm of the error-weighted sensitivities per km³ of cell, in the core columns of the 2 km mesh, relative to the cells 0–2 km below the ground.</p>
+
+<h3><span class="no">4.3</span>Which coupling suits this belt</h3>
+<div class="prose">
+@@DISCUSSION@@
+</div>
+
+<h3><span class="no">4.4</span>Which coupling for which geology</h3>
+<div class="prose">
+<p>A coupling is an assumption about how the two properties are related. The first choice follows from what is known of the rocks before the inversion; the last column says what to check in the result.</p>
+</div>
+{guide_table()}
+<p class="note">From the behaviour of Section 4.1, the belt of this report and the synthetic comparison of 30 September (three dense bodies, of high, low and no susceptibility), where the group lasso recovered the bodies best because each magnetic body was a dense body. PGI was not run in this series.</p>
 
 <h2><span class="no">5</span>The 2 km study</h2>
 <div class="prose">
