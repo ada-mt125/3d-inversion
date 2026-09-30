@@ -335,6 +335,14 @@ def gaussian_mixture(settings: PGISettings, dmesh, active_cells, n_active: int):
     """SimPEG's WeightedGaussianMixture of the units (diagonal covariances)."""
     from simpeg import utils
 
+    # SimPEG builds it on scikit-learn's GaussianMixture and, without scikit-learn,
+    # quietly defines a stand-in that has no fit()
+    try:
+        import sklearn  # noqa: F401
+    except ImportError:
+        raise ImportError("The PGI coupling needs scikit-learn (SimPEG's Gaussian mixture is "
+                          "built on it): pip install scikit-learn") from None
+
     n_models = len(settings.units[0].means)
     gmm = utils.WeightedGaussianMixture(n_components=len(settings.units), mesh=dmesh,
                                         actv=active_cells, covariance_type="diag")

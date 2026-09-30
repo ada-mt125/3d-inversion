@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir \
     discretize \
     numba \
     rasterio \
+    scikit-learn \
     boto3
 
 # The worker code is baked into the image: rebuild and push it to ECR after
