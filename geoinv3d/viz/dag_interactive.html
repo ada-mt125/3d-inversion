@@ -708,7 +708,7 @@ svg#dag:active{cursor:grabbing;}
                 <li class="not-gl"><b>α (smoothness weights)</b>: α<sub>s</sub> = 1, α<sub>x</sub> = α<sub>y</sub> = α<sub>z</sub> = 1 (length scales)</li>
                 <li class="not-gl"><b>Model norms</b>: p = [0, 2, 2, 1] (compact bodies); IRLS thresholds tuned automatically</li>
                 <li id="up-auto-joint" class="not-gl" hidden><b>Joint inversion</b>: equal data weights, coupling weight 1 (as strong as the regularization)</li>
-                <li class="only-gl"><b>Group lasso + L2</b> (Utsugi 2025): sensitivity-weighted models, gravity scaled to the magnetic amplitude, λ<sub>2</sub> = 0.3, λ<sub>1</sub> at the L-curve corner of a 13-point sweep (χ² = N if there is no corner), μ automatic</li>
+                <li class="only-gl"><b>Group lasso + L2</b> (Utsugi 2025, set up for field data): cells weighed by volume × depth weight (β = 1) as in the other inversions, each datum by its error, λ<sub>2</sub> = 0.3, λ<sub>1</sub> for χ² = N on a 13-point sweep, then the two datasets balanced until each fits χ² = N; μ automatic. Manual mode has the paper's settings (sensitivity weighting, amplitude balance, L-curve).</li>
               </ul>
               <div class="up-row up-4 not-gl">
                 <div class="up-col"><label class="up-lbl" for="up-auto-maxit">Max iterations</label><input id="up-auto-maxit" type="number" class="up-in" step="1" min="1" value="30"></div>
@@ -723,8 +723,8 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-row up-4">
                   <div class="up-col"><label class="up-lbl" for="up-gl-sel">λ<sub>1</sub> (group sparsity)</label>
                     <select id="up-gl-sel" class="up-in">
-                      <option value="lcurve">L-curve corner of a λ₁ sweep</option>
                       <option value="discrepancy">χ² = N on a λ₁ sweep</option>
+                      <option value="lcurve">L-curve corner of a λ₁ sweep (paper)</option>
                       <option value="fixed">Fixed fraction of λ₁,max</option>
                     </select></div>
                   <div class="up-col"><label class="up-lbl" for="up-gl-ratio">λ<sub>1</sub> / λ<sub>1,max</sub></label><input id="up-gl-ratio" type="number" class="up-in" min="0" max="1" step="any" value="0.02" disabled></div>
@@ -734,17 +734,27 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-row up-4">
                   <div class="up-col"><label class="up-lbl" for="up-gl-scaling">Balance of the two datasets</label>
                     <select id="up-gl-scaling" class="up-in">
-                      <option value="max_ratio">Amplitude: gravity × max|f| / max|g| (paper)</option>
                       <option value="std">Data errors: each datum ÷ σ (χ² units)</option>
+                      <option value="max_ratio">Amplitude: gravity × max|f| / max|g| (paper)</option>
                     </select></div>
                   <div class="up-col"><label class="up-lbl" for="up-gl-n">λ<sub>1</sub> sweep points</label><input id="up-gl-n" type="number" class="up-in" min="4" max="40" step="1" value="13"></div>
                   <div class="up-col"><label class="up-lbl" for="up-gl-decades">λ<sub>1</sub> sweep (decades)</label><input id="up-gl-decades" type="number" class="up-in" min="0.5" step="0.5" value="3"></div>
                   <div class="up-col"><label class="up-lbl" for="up-gl-maxit">ADMM max iterations</label><input id="up-gl-maxit" type="number" class="up-in" min="10" step="1" value="3000"></div>
                 </div>
                 <div class="up-row up-4">
+                  <div class="up-col" style="flex:2"><label class="up-lbl" for="up-gl-weighting">Cell weighting</label>
+                    <select id="up-gl-weighting" class="up-in">
+                      <option value="depth">Volume × depth weight, as the other inversions (field data)</option>
+                      <option value="sensitivity_volume">Sensitivity × cell volume: the paper's in equal cells</option>
+                      <option value="sensitivity">Sensitivity, γ = 2: every cell equally cheap (paper)</option>
+                    </select></div>
+                  <div class="up-col"><label class="up-lbl" for="up-gl-beta">Depth exponent β</label><input id="up-gl-beta" type="number" class="up-in" min="0" step="0.5" value="1"></div>
+                  <div class="up-col up-chk"><label><input id="up-gl-balance" type="checkbox" checked> Balance the datasets (χ² = N each)</label></div>
+                </div>
+                <div class="up-row up-4">
                   <div class="up-col" style="flex:2"><label class="up-lbl" for="up-gl-xgrad">λ<sub>3</sub> — add a cross-gradient <span class="up-hint">a hybrid, not Utsugi's method; 0 = off</span></label><input id="up-gl-xgrad" type="number" class="up-in" min="0" step="any" value="0"></div>
                 </div>
-                <div class="up-note">φ = ½‖b − Zζ‖² + λ<sub>1</sub> Σ<sub>k</sub> √(β<sub>k</sub>² + ρ<sub>k</sub>²) + ½λ<sub>2</sub>‖ζ‖² on sensitivity-weighted models (unit columns, γ = 2). The group norm selects a cell for both models or for neither, without making either property non-zero or asking for the same sign, so bodies line up where the data allow. λ<sub>1</sub> is swept down from λ<sub>1,max</sub> (where both models are zero) with warm starts; λ<sub>2</sub> is plain amplitude damping, not smoothness: small values give compact bodies with inflated values (λ<sub>2</sub> = 0.01 inflated the synthetic body about six times), large ones spread it (λ<sub>2</sub> = 1 also kept χ² above N for small errors). Try a λ<sub>2</sub> sweep below. μ changes the speed of ADMM, not the result. No smoothness term. Bounds (below, or per model, e.g. susceptibility ≥ 0) are kept exactly by the ADMM.</div>
+                <div class="up-note">φ = ½‖b − Zζ‖² + λ<sub>1</sub> Σ<sub>k</sub> √(β<sub>k</sub>² + ρ<sub>k</sub>²) + ½λ<sub>2</sub>‖ζ‖² on sensitivity-weighted models (unit columns, γ = 2). The group norm selects a cell for both models or for neither, without making either property non-zero or asking for the same sign, so bodies line up where the data allow. λ<sub>1</sub> is swept down from λ<sub>1,max</sub> (where both models are zero) with warm starts; λ<sub>2</sub> is plain amplitude damping, not smoothness: small values give compact bodies with inflated values (λ<sub>2</sub> = 0.01 inflated the synthetic body about six times), large ones spread it (λ<sub>2</sub> = 1 also kept χ² above N for small errors). Try a λ<sub>2</sub> sweep below. μ changes the speed of ADMM, not the result. No smoothness term. Bounds (below, or per model, e.g. susceptibility ≥ 0) are kept exactly by the ADMM. On field data with wide padding the paper's weighting (γ = 2) makes every cell equally cheap and the models leave the core (Karnataka: 67 % and 82 % outside); weighing the cells like the other inversions kept 12 % and 33 % outside. One λ<sub>1</sub> serves both datasets, so χ² = N in total can hide an overfitted gravity model (0.45 N) and an underfitted magnetic one (2.4 N): the balance reweighs the two datasets until each fits χ² = N (0.96 and 1.02 N), and needs the sweep (not a fixed λ<sub>1</sub>).</div>
               </div>
               <div class="up-grp not-gl">Regularization</div>
               <div class="up-row not-gl">
@@ -1105,7 +1115,11 @@ function regSummary(p) {
   if (rt==='sparse') return 'sparse norms=('+(p.norms||[]).join(',')+')';
   if (rt==='group_lasso') return 'group lasso + L2, λ1 '+(p.gl_lambda1_selection==='fixed'
     ?'= '+(p.gl_lambda1_ratio??0.02)+' λ1max':'by '+(SEL_NAMES[p.gl_lambda1_selection||'lcurve']||p.gl_lambda1_selection))+
-    ', λ2 = '+(p.gl_lambda2??0.3)+', μ '+(p.gl_mu??'auto');
+    ', λ2 = '+(p.gl_lambda2??0.3)+', μ '+(p.gl_mu??'auto')+
+    (p.gl_weighting==='depth'?', cells by volume × depth weight (β = '+(p.depth_weighting_exponent??1)+')'
+      :p.gl_weighting==='sensitivity_volume'?', sensitivity × cell volume'
+      :p.gl_weighting==='sensitivity'?', sensitivity weighting (γ = 2)':'')+
+    (p.gl_balance?', datasets balanced to χ² = N each':'');
   return REG_NAMES[rt]||rt;
 }
 
@@ -3301,6 +3315,7 @@ window.GeoPreview=GeoPreview;
         {id:'amp',label:'Field strength (nT)',type:'number',value:50000},
         {id:'inc',label:'Inclination I (°)',type:'number',value:90},
         {id:'dec',label:'Declination D (°)',type:'number',value:0},
+        {id:'mag',label:'Magnetization',type:'select',options:[['induced','Induced — susceptibility'],['vector','Vector — with remanence (MVI)']]},
         {id:'reg',label:'Regional field',type:'select',options:[['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3']]}]},
     {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
       opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]}]},
@@ -4343,6 +4358,9 @@ window.GeoPreview=GeoPreview;
     $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, L2, MGS, TV
     $u('up-norm-block').hidden=rt!=='lp';        // norms: lp only
     if(rt==='mgs'||rt==='tv')$u('up-focus-scale').placeholder=rt==='mgs'?'default 1':'default 0.1';
+  });
+  $u('up-gl-weighting').addEventListener('change',()=>{
+    $u('up-gl-beta').disabled=$u('up-gl-weighting').value!=='depth';
   });
   $u('up-gl-sel').addEventListener('change',()=>{
     const fixed=$u('up-gl-sel').value==='fixed';
@@ -5513,6 +5531,8 @@ window.GeoPreview=GeoPreview;
     if(t.key==='magnetic'){
       spec.component=$u('up-magnetic-comp').value;
       spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};
+      // a magnetization vector per cell (MVI): remanence in any direction; single inversions
+      if($u('up-magnetic-mag').value==='vector')spec.method_kwargs.magnetization='vector';
     }
     // Thinning chosen in the area step (per data type)
     const d=analysis&&analysis.ds.find(x=>x.t===t), target=d&&decTarget(d);
@@ -5526,7 +5546,10 @@ window.GeoPreview=GeoPreview;
     const sel=$u('up-gl-sel').value, p={param_mode:'manual',regularization_type:'group_lasso',
       gl_lambda1_selection:sel,gl_lambda2:num('up-gl-lambda2','λ2',{min:0}),
       gl_data_scaling:$u('up-gl-scaling').value,
-      gl_max_iter:num('up-gl-maxit','ADMM max iterations',{min:10,integer:true})};
+      gl_max_iter:num('up-gl-maxit','ADMM max iterations',{min:10,integer:true}),
+      gl_weighting:$u('up-gl-weighting').value, gl_balance:$u('up-gl-balance').checked};
+    if(p.gl_weighting==='depth')p.depth_weighting_exponent=num('up-gl-beta','depth exponent β',{min:0});
+    if(p.gl_balance&&sel==='fixed')throw new Error('The balance of the datasets needs a λ₁ sweep: choose χ² = N or the L-curve, or untick the balance');
     if(sel==='fixed'){
       p.gl_lambda1_ratio=num('up-gl-ratio','λ1 / λ1,max',{min:0});
       if(!(p.gl_lambda1_ratio>0&&p.gl_lambda1_ratio<1))throw new Error('λ1 / λ1,max must be between 0 and 1');
@@ -5653,6 +5676,12 @@ window.GeoPreview=GeoPreview;
       :{flat_elevation:num('up-flat-elev','flat topography elevation')};
     const extra=topoFile?[topoFile]:[];
     const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams()};
+    if(s.mode==='joint'&&$u('up-magnetic-mag').value==='vector'&&s.types.some(t=>t.key==='magnetic'))
+      throw new Error('The magnetization-vector inversion (MVI) is for single magnetic inversions; set Magnetization to Induced for a joint inversion');
+    if(s.mode!=='joint'&&s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag').value==='vector'){
+      if(!['sparse','l2'].includes(reg.regularization_type))throw new Error('The magnetization-vector inversion takes the Lp-norm (sparse) or smooth L2 regularization');
+      if(reg.beta_selection&&!['auto','discrepancy'].includes(reg.beta_selection))throw new Error('The magnetization-vector inversion chooses β by χ² = N');
+    }
     if(s.mode==='joint'){
       const specs=s.types.map(datasetSpec), perModel=modelRegs(s);
       specs.forEach((d,i)=>{if(perModel[i])d.regularization=perModel[i];});

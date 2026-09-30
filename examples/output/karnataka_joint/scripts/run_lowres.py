@@ -1,9 +1,10 @@
 """The couplings of the joint inversion on the 2 km mesh, locally (a few minutes each).
 
-    py examples/output/karnataka_joint/scripts/run_lowres.py [coupling ...]
+    py examples/output/karnataka_joint/scripts/run_lowres.py [--out DIR] [coupling ...]
 
 2 km x 2 km x 500 m cells, every second node (1,296 gravity + 1,296 magnetic data), the
-ground from the DEM.  Results go to data/lowres_runs/<coupling>/.
+ground from the DEM.  Results go to data/lowres_runs/<coupling>/ (or DIR/<coupling>/, e.g.
+data/lowres_runs_fixed for the runs with the fixes of 30 September evening).
 """
 
 from __future__ import annotations
@@ -24,8 +25,12 @@ INPUTS = ROOT.parent / "karnataka_inputs"
 
 
 def main():
-    for name in sys.argv[1:] or list(COUPLINGS):
-        dest = ROOT / "data" / "lowres_runs" / name
+    args = sys.argv[1:]
+    out = ROOT / "data" / "lowres_runs"
+    if args[:1] == ["--out"]:
+        out, args = Path(args[1]), args[2:]
+    for name in args or list(COUPLINGS):
+        dest = out / name
         if (dest / "result.zip").exists():
             continue
         dest.mkdir(parents=True, exist_ok=True)

@@ -140,6 +140,19 @@ COUPLINGS = [
     ("group_lasso_uncoupled", {"coupling": "group_lasso", "gl_coupling": "none",
                                "gl_lambda1_selection": "lcurve", "gl_lambda2": 0.3,
                                "gl_data_scaling": "max_ratio"}),
+    # the fixes of the Karnataka test (30 September, evening): each datum by its error, lambda1 for
+    # chi^2 = N and the two datasets balanced to chi^2 = N each, with the paper's cell weights,
+    # the paper's x cell volume, or the depth weighting of the field runs (beta = 1)
+    ("group_lasso_balanced", {"coupling": "group_lasso", "gl_data_scaling": "std",
+                              "gl_lambda1_selection": "discrepancy", "gl_lambda2": 0.3,
+                              "gl_balance": True}),
+    ("group_lasso_sv", {"coupling": "group_lasso", "gl_weighting": "sensitivity_volume",
+                        "gl_data_scaling": "std", "gl_lambda1_selection": "discrepancy",
+                        "gl_lambda2": 0.3, "gl_balance": True}),
+    ("group_lasso_depth", {"coupling": "group_lasso", "gl_weighting": "depth",
+                           "depth_weighting_exponent": 1.0, "gl_data_scaling": "std",
+                           "gl_lambda1_selection": "discrepancy", "gl_lambda2": 0.3,
+                           "gl_balance": True}),
 ]
 NOTES = {
     "none": "one β for both models, no coupling: the reference",
@@ -147,6 +160,9 @@ NOTES = {
     "pgi": "the true rock units given (full petrophysical information); PGI replaces L1–L2",
     "group_lasso": "Utsugi (2025): L2 (λ2 = 0.3) + group lasso, λ1 at the L-curve corner; replaces L1–L2",
     "group_lasso_uncoupled": "control: L1 + L2 by ADMM with the group lasso run's settings, no pairing, no coupling",
+    "group_lasso_balanced": "group lasso, paper's cell weights; errors as data scaling, chi^2 = N, datasets balanced",
+    "group_lasso_sv": "group lasso, paper's weights x cell volume; errors, chi^2 = N, balanced",
+    "group_lasso_depth": "group lasso, volume x depth weight (beta = 1); errors, chi^2 = N, balanced",
 }
 
 

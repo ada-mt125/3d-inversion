@@ -525,7 +525,7 @@ def _box_arrays(qs, lower, upper):
 
 
 def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
-                      n_bisect: int = 60, l2_factors=None, group_weights=None):
+                      n_bisect: int = 45, l2_factors=None, group_weights=None):
     """The shrink of :func:`group_shrink_many` within per-component bounds, exactly.
 
     Per cell it minimizes mu/2 ||s - q||^2 + lambda1 ||(g_p s_p)|| + sum_p
@@ -541,8 +541,11 @@ def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
     vectorized over the cells.  0 is the minimizer when the box holds it and
     ||(mu q''_p / g_p)|| <= lambda1, where q'' drops the components that point
     out of the box at 0 (e.g. a negative susceptibility against a lower bound
-    of 0).  Unbounded, unweighted components reduce to the closed form.
-    ``coupling="none"``: per component, the clipped soft threshold of
+    of 0).  Unbounded, unweighted components reduce to the closed form.  With equal
+    weights the cells whose unconstrained group shrink lies inside the box take it
+    directly (it is then the constrained minimizer), so only the cells a bound cuts are
+    bisected (the bisection over all cells made the Karnataka ADMM iterations single-thread
+    bound).  ``coupling="none"``: per component, the clipped soft threshold of
     lambda1 g_p |s_p| (exact in one dimension).
     """
     P = len(qs)
@@ -561,6 +564,26 @@ def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
     free = [np.where(((l == 0) & (q < 0)) | ((h == 0) & (q > 0)), 0.0, q) / gp
             for q, gp, l, h in zip(mq, g, lo, hi)]
     empty = zero_ok & (np.sqrt(sum(np.square(x) for x in free)) <= lambda1)
+    for o in out:
+        o[:] = 0.0
+    todo = ~empty
+    if len(set(a)) == 1 and len(set(g)) == 1:
+        # equal weights: where the unconstrained group shrink lies inside the box it is the
+        # constrained minimizer (convex problem); only the cells a bound cuts are bisected
+        rq = np.sqrt(sum(np.square(q) for q in mq))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            factor = np.where(rq > lambda1 * g[0], (1.0 - lambda1 * g[0] / rq) / a[0], 0.0)
+        s0 = [factor * q for q in mq]
+        inside = todo & (factor > 0) & np.all([(x >= l) & (x <= h)
+                                               for x, l, h in zip(s0, lo, hi)], axis=0)
+        for o, x in zip(out, s0):
+            o[inside] = x[inside]
+        todo &= ~inside
+    idx = np.flatnonzero(todo)
+    if not idx.size:
+        return out
+    mq = [q[idx] for q in mq]
+    lo, hi = [l[idx] for l in lo], [h[idx] for h in hi]
     top = np.sqrt(sum(gp**2 * np.maximum(np.square(np.clip(q / ap, l, h)),
                                          np.square(np.clip(0.0, l, h)))
                       for q, ap, gp, l, h in zip(mq, a, g, lo, hi)))
@@ -579,7 +602,7 @@ def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
     r = 0.5 * (r_lo + r_hi)
     for p, o in enumerate(out):
         with np.errstate(invalid="ignore", divide="ignore"):
-            o[:] = np.where(empty, 0.0, s_of(r, p))
+            o[idx] = s_of(r, p)
     return out
 
 

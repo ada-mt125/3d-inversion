@@ -111,7 +111,19 @@ nearest to its means (by position, units of equal share came back under each oth
 (`alpha_smooth_ratio`, 1e-2), `ScalingMultipleDataMisfits_ByEig`, `BetaEstimate_ByEig`
 (`beta0_ratio`, 1e-2), `PGI_UpdateParameters`, `MultiTargetMisfits` (`chi_small`, 1),
 `JointScalingSchedule`, `PGI_BetaAlphaSchedule`, `PGI_AddMrefInSmooth`,
-`UpdatePreconditioner`; sensitivity weights per model from its own data.
+`UpdatePreconditioner`.  Cell weights per model: its regularization's Li & Oldenburg depth
+weights when it asks for depth weighting (as the other couplings weigh it), else its rms
+sensitivity per unit volume from its own data (SimPEG's tutorials).  With the tutorials'
+sensitivity weights the Karnataka PGI run left half of both models outside the core (the
+weighting that filled the bottom of the mesh in the single magnetic inversions); with the
+depth weights of the other runs (β = 1) the 2 km run holds 67 % of the density model and 51 %
+of the susceptibility model in the core (58 % and 33 % before; the measure of the joint
+report) and ends after 28 iterations, but overfitted (χ²/N 0.57 and 0.67): SimPEG's PGI
+schedule only ever lowers β, and the tutorials' first β (`beta0_ratio` 1e-2) fitted the data at
+once.  With depth-weighted models the default is now `PGI_BETA0_DEPTH` = 0.1 (0.74 / 0.93 after
+30 iterations; 1 left 1.36 / 1.35 after 60); `coupling_options["beta0_ratio"]` overrides it.
+At full resolution 0.1 still overfitted (0.42 N after 13 iterations): the first β has to be
+tuned per dataset, which is why PGI was not pursued further on these data.
 
 On the upload page the units are typed one per line —
 `BIF; density 3.3 ±0.1; susceptibility 0.05 ±0.01; share 0.03` (densities as rock

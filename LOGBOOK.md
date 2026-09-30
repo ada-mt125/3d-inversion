@@ -1186,3 +1186,76 @@ note no longer says it has no bounds (nor that joint L1–L2 is L2: it is IRLS).
 browser (values kept when the coupling changes, errors for norms, percentile and a box inverted
 against the job bounds, Review lists the rows) and by running the page's submitted parameters
 through run_data_pipeline: gravity sparse IRLS, magnetics MGS with χ ≥ 0.
+
+---
+
+## 2026-09-30 (late evening) — The open problems of the Karnataka joint report (Section 5)
+
+Merged the Karnataka commits (b761832, ba4ffe1) under the three local ones; the exact bounded
+shrink replaced b761832's projection-then-clip (its TestBounds pass unchanged; the local class
+is TestExactBounds).  Then each open problem of Section 5, first on the 2 km mesh
+(examples/output/karnataka_joint/data/lowres_runs_fixed, measures of make_figures.py via
+scripts/fixes_summary.py), then at full resolution on EC2 (data/ec2_runs_fixed).
+
+**Group lasso leaves the core.**  gamma = 2 gives every column of X unit norm: every cell,
+however deep or far out in the padding, is equally cheap.  gamma = 1 did not help (49 % / 83 %
+of rho / chi outside the core, pipeline measure).  `cell_weights` / `gl_weighting="depth"`: each
+cell weighed in the penalty as the SimPEG regularizations weigh it, volume x (z + z0)^-beta with
+each model's depth exponent (beta = 1), w = 1/R scaled to unit columns on average (lambda2 and mu
+keep their scale).  Report measure, 2 km: 35 % / 17 % of the models in the core -> 82 % / 62 %
+(uncoupled SimPEG run: 88 % / 62 %).
+
+**Group lasso fits gravity and magnetics unevenly.**  One lambda1 for both: along the sweep the
+gravity data are fitted faster, and the L2 term (lambda2 = 0.3) caps the magnetic fit, so chi^2
+= N in total is not reached (0.45 / 2.44 at the smallest lambda1); lambda2 = 0.03 reached it as
+0.35 / 1.66 with ADMM at its iteration limit.  `gl_balance`: a data weight per model
+(`GroupLassoProblem.scale_models`: into s_d and c_p, so X, its factors and mu stay; the group
+norm and the L2 term keep their physical meaning through per-model weights g_p = 1/w_p and f_p
+= 1/w_p^2, which the exact bounded shrink takes: s_p(r) = clip(mu q_p r / (a_p r + lambda1
+g_p^2), lo, hi)), rounds of f_p = sqrt(chi2_p / N_p) with a secant for the total chi^2 = N,
+warm-started.  2 km: two rounds, weights 0.60 / 1.68, chi^2 / N 0.96 / 1.02 (0.40 / 2.86 in the
+report).  A first version scaled the whole model (data, L2 and group terms) and diverged on a
+ridge-limited dataset (weights 1e-7 / 7e6): the L2 cap does not move when data and L2 scale
+together.  Checked against FISTA on the weighted objective, and for equal factors against
+lambda / f^2.
+
+**Group lasso cost.**  Over-relaxation (alpha = 1.6, default now): 6,458 -> 4,438 ADMM
+iterations on the 13-point sweep, same chi^2 to five digits; the fixed runs sweep 8 points
+(lambda1 comes from chi^2 = N and the balance, not the corner).
+
+**Joint total variation misses its target.**  DampedUpdateIRLS halved its beta step at every
+reversal and never let it grow back: in the report's run the step fell to about 1/16 while
+phi_d jumped about under the reweighting, then beta moved 1.7 % per iteration with phi_d 20-50 %
+above the target until the 40 IRLS iterations were used up.  Now two corrections in a row in the
+same direction make the step 1.5 x larger (up to SimPEG's).  Simulated with 8 % scatter and a
+4 %-per-iteration drift: runs ending 30 % above the target 82 % -> 15 %
+(tests/test_regularization.py::test_damped_irls_follows_a_drift).  2 km runs barely change (none
+0.93/0.81 -> 0.90/0.90; JTV 0.92/0.97 -> 0.90/0.91).
+
+**PGI is slow and not compact.**  Its cell weights were the tutorials' sensitivity weights; now
+each model's own depth weights when its regularization asks for them (beta = 1 here).  2 km: 28
+iterations in 83 s, 67 % / 51 % of the models in the core (58 % / 33 % before), but it ended
+overfitted (chi^2 / N 0.57 / 0.67; 1.08 / 1.00 before): beta never moved from its start
+(2.85e-12), because SimPEG's PGI schedule only lowers beta and the tutorials' beta0_ratio of
+1e-2 already fitted the data.  beta0_ratio 0.1: 0.74 / 0.93 in 30 iterations; 1: 1.36 / 1.35
+after 60.  Default with depth-weighted models now 0.1 (PGI_BETA0_DEPTH); the EC2 PGI run
+launched with 1e-2 was terminated after 3 iterations and launched again.  At full resolution
+0.1 still overfits (phi_d 0.42 N at iteration 13, falling), because SimPEG's schedule never
+raises beta; a directive that raised it when every dataset was overfitted (and withdrew the
+early stop) did not help reliably on the 2 km mesh (0.77 / 0.94 with beta0 0.1, 1.41 / 0.96
+with 1e-2), so it was dropped, the run terminated, and PGI is not pursued further for now
+(it needs tuning per dataset; its rock units are assumptions anyway).
+
+**Remanence.**  MVI: `MagneticsMethod(magnetization="vector")`, `run_mvi_inversion` (SimPEG
+Cartesian MVI, VectorAmplitude with the task's norms, depth weighting, |m_i| <= bounds_upper;
+result: amplitude as the model, the (n, 3) vectors, the direction of the strong cells).  Page:
+the magnetic card's Magnetization select; single inversions only (the joint paths refuse it).
+tests/test_mvi.py: a block at I -30, D 120 under I 60, D 0 — induced chi^2/N > 3, MVI < 1.5,
+direction within 30 degrees (-33, 122).  Karnataka 2 km: RMS 47 -> 26 nT; the 29 stations the
+induced model underfits by > 150 nT (south of the Sandur belt) from 260 to 70 nT on average; the
+strong cells point at I 74, D -49 (coherence 0.73) against the field's I 19, D -1.
+
+Page (Inversion step, group lasso, manual): cell weighting, its depth exponent and the balance;
+the paper's settings remain selectable.  The pipeline's auto mode uses GROUP_LASSO_AUTO (depth
+weighting beta = 1, errors as data scaling, chi^2 = N, balance).  docs/group_lasso_joint.md
+"Field data", docs/joint_couplings.md (PGI weights), docs/magnetization_vector.md.  454 tests.

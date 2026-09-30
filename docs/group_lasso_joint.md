@@ -112,6 +112,8 @@ and dual μ‖s − s_old‖ ≤ √(2M)·ε_abs + ε_rel·‖μu‖, with ε_re
 | `lambda2` | L2 damping of the unit-column variables (XᵀX has a unit diagonal) | 0.3 |
 | `mu` | ADMM penalty: speed only, not a regularization parameter | mean eigenvalue of XᵀX |
 | `gamma` | sensitivity weighting exponent | 2 |
+| `cell_weights` | per model, each cell's weight R in the penalty (w = 1/R, scaled to unit columns on average) instead of `gamma` | none (worker `gl_weighting="depth"`: volume × depth weight) |
+| `relaxation` | ADMM over-relaxation α | 1 (`GroupLassoProblem`), 1.6 (worker) |
 | `data_scaling` | `"max_ratio"` (paper), `"std"`, `"none"`, `"auto"`, or scales | `"max_ratio"` (`JointGroupLassoProblem`), `"auto"` (worker) |
 | `tol_primal`, `tol_dual`, `tol_abs` | ADMM stopping | 1e-4, 1e-4, 1e-9 max\|Zᵀb\| |
 | `max_iter` | ADMM iterations per λ1 | 2000 (pipeline: 3000) |
@@ -119,7 +121,10 @@ and dual μ‖s − s_old‖ ≤ √(2M)·ε_abs + ε_rel·‖μu‖, with ε_re
 Pipeline keys (`InversionTask`, `params_json`): `gl_lambda1_selection`
 (`lcurve`/`discrepancy`/`fixed`), `gl_lambda1`, `gl_lambda1_ratio`, `gl_lambda2`,
 `gl_mu`, `gl_data_scaling`, `gl_gamma`, `gl_n_lambda1` (13), `gl_lambda1_decades`
-(3), `gl_max_iter`, `gl_tol`, `gl_cross_gradient`, `gl_gn_max_iter`, `gl_gn_tol`.
+(3), `gl_max_iter`, `gl_tol`, `gl_cross_gradient`, `gl_gn_max_iter`, `gl_gn_tol`,
+`gl_weighting` (`sensitivity`/`sensitivity_volume`/`depth`), `gl_relaxation` (1.6), `gl_balance` (False),
+`gl_balance_rounds` (6).  The pipeline's auto mode uses `GROUP_LASSO_AUTO`: `depth`
+weighting with β = 1, `std` data scaling, λ1 for χ² = N, and the balance.
 
 ## Validation (tests/test_group_lasso.py)
 
@@ -241,9 +246,83 @@ Worker: a model's bounds are its first dataset's `joint_regularizations` bounds_
 bounds_upper, else the task's `bounds_lower` / `bounds_upper`; the result's `group_lasso.bounds`
 lists them.  (Geology constraints, with per-cell bounds, apply to single inversions only.)
 
+## Field data: cell weighting, the balance of the datasets, over-relaxation
+
+The first field test (Karnataka, 70 × 70 km, one mesh with terrain and 20 km padding; joint
+report of 30 September, Section 5) showed three problems the synthetics had not.  On the 2 km
+mesh (1,296 + 1,296 data, 21,575 cells, errors 0.5 mGal and 5 % + 10 nT, bounds −0.2…0.5 g/cc
+and 0…1 SI, λ2 = 0.3):
+
+| run | outside the core (ρ / χ) | χ²/N (gravity / magnetics) |
+|---|---|---|
+| paper settings, errors as data scaling (γ = 2) | 67 % / 82 % | 0.38 / 2.62 |
+| γ = 1 | 49 % / 83 % | 0.37 / 1.63 |
+| volume × depth weight (β = 1) | 8 % / 23 % | 0.45 / 2.44 |
+| … and λ2 = 0.03 | 8 % / 20 % | 0.35 / 1.66 (ADMM at its 3000-iteration limit) |
+| … and the balance (λ2 = 0.3) | 12 % / 33 % | 0.96 / 1.02 |
+| sensitivity × cell volume, balanced (`sensitivity_volume`) | 28 % / 46 % (mostly beside the core; 2 % / 6 % below it) | 0.96 / 1.07 |
+| SimPEG sparse, no coupling (for comparison) | 9 % / 36 % | 0.93 / 0.81 |
+
+**Where the model goes.**  With γ = 2 every column of X has unit norm, so every cell is equally
+cheap however little the data see it, and a wide padding soaks up the model.  `cell_weights`
+(worker: `gl_weighting="depth"`) weighs each cell in the penalty like a SimPEG regularization
+with depth weighting weighs it, R = volume × (z + z0)^(−β) with the depth exponent of the
+model's own regularization (`depth_weighting_exponent`, β = 1 in these runs): the group norm
+becomes Σ R_k ‖(c_p m_pk)‖, the discretized ∫ w(z) ‖m‖ dV, and large, deep cells cost what
+their volume says.  w = 1/R is scaled so that the columns of X have a mean square of 1, as with
+γ = 2, so λ2 and μ keep their meaning.
+
+**The synthetic tests** (examples/output/coupling_comparison: three dense bodies with χ = 0.05,
+0.01 and 0 SI, 357 stations, a mesh with padding) are where the paper's settings did best of all
+couplings; the depth weighting does not carry over to them unchanged:
+
+| blocks (true ρ 0.3, χ 0.05 / 0.01 / 0) | body A ρ / χ | ρ rms error | χ rms error | χ² (N = 357) |
+|---|---|---|---|---|
+| paper settings (γ = 2, amplitude balance, L-curve) | 0.267 / 0.049 | 0.0342 | 0.00438 | 382 / 436 |
+| paper weighting + errors + balance | 0.260 / 0.048 | 0.0304 | 0.00393 | 328 / 390 |
+| sensitivity × volume + balance | 0.260 / 0.048 | 0.0302 | 0.00396 | 326 / 391 |
+| depth weighting β = 1 + balance | 0.229 / 0.030 | 0.0390 | 0.00294 | 344 / 369 |
+| depth weighting β = 2 + balance | 0.265 / 0.046 | 0.0449 | 0.00379 | 396 / 335 |
+| SimPEG L1–L2, cross-gradient (for comparison) | 0.095 / 0.019 | 0.0380 | 0.00356 | 394 / 399 |
+
+(dipping bodies: ρ rms 0.0451 paper, 0.0423 paper + balance, 0.0422 sensitivity × volume,
+0.0480 depth β = 1.)  The balance helps everywhere.  The weighting is a property of the mesh:
+the group norm counts anomalous *cells*, so one large padding cell that explains a long
+wavelength costs as much as one core cell; on the synthetic mesh the model hardly reaches the
+padding and the paper's weighting is best, on the Karnataka mesh (20 km of padding, cells to 51
+times the core volume) it is not.  `sensitivity_volume` (`cell_factors` = volume / smallest
+volume, on top of γ = 2, not rescaled) keeps the paper's weighting in the equal core cells —
+identical results on the synthetics — and charges a padding cell for its volume: on Karnataka it
+keeps the model out of the bottom padding (2 % / 6 % below the core) but not out of the lateral
+padding next to the core (30 % / 43 % of |model| × volume by the joint report's measure), where
+cells are barely larger.  The depth weighting
+keeps the Karnataka models in the core like the SimPEG runs but, with β = 1, underestimates the
+compact magnetic body of the synthetic (0.030 SI of 0.05).
+
+**One λ1 for two datasets.**  Along the sweep the gravity data are fitted faster than the
+magnetic data (at the smallest λ1: 0.45 and 2.44 N), and the L2 term caps the magnetic fit, so
+χ² = N in total can never be reached, or hides an overfitted gravity and an underfitted
+magnetic model.  `gl_balance` gives each model a data weight: `GroupLassoProblem.scale_models`
+multiplies its data scales and c_p by f_p (the operators, their factorizations and μ stay),
+and keeps the group norm and the L2 term those of the same physical models by per-model
+weights in the shrink (group weights 1/w_p, L2 factors 1/w_p², w_p the accumulated factors;
+the bounded shrink takes them exactly: s_p(r) = clip(μ q_p r / (a_p r + λ1 g_p²), lo, hi)),
+so only the data terms change — a data weight per dataset, as SimPEG's.  Each round sets
+f_p = sqrt(χ²_p / N_p) (normalized, at most 4× per round) and finds λ1 for the total χ² = N
+again by a secant in log λ1, warm-started from the same physical models; it stops when every
+χ²_p / N_p is within 1/1.2…1.2 or a round does not narrow the spread.  On the 2 km mesh: two
+rounds, data weights 0.60 (gravity) and 1.68 (magnetics).  Checked against FISTA on the
+weighted objective (`test_scale_models_weighs_the_data_only`).
+
+**Cost.**  Over-relaxation (`relaxation`, α = 1.6; Boyd et al. 2011, 3.4.3: the s and u updates
+use α ζ + (1 − α) s_old) took 4,438 instead of 6,458 ADMM iterations over the 13-point sweep
+(146 instead of 198 s), with the same χ² to five digits.  A smaller λ2 lets the data be fitted
+without the balance, but ADMM then needs many more iterations for the same μ (3,000 per λ1 at
+λ2 = 0.03, not converged).
+
 ## Not in this version
 
-Spatial smoothness, adaptive μ or over-relaxation,
+Spatial smoothness, adaptive μ,
 uncertainty estimates; the upload page has no controls for model labels (the pipeline
 accepts them) and offers the group lasso for gravity + magnetics; its λ3 is a manual
 setting of the Inversion step.
