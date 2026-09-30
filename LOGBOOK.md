@@ -1174,3 +1174,15 @@ light-body data with ρ ≥ 0 (density stays empty, susceptibility keeps the bod
 a box above the reference (no empty cells).  Worker: per model its first dataset's
 bounds_lower / bounds_upper, else the job's; the pipeline applies the job bounds to every model
 and says which per-dataset settings the group lasso does not use.  tests: TestExactBounds (6).
+
+**Upload page: regularization per model** (Inversion step, manual, joint jobs).  The worker
+took per-dataset overrides (`datasets[i].regularization` → `joint_regularizations`) but the
+page sent none, so both models of a joint job had one regularization and one pair of bounds —
+e.g. no way to keep susceptibility ≥ 0 while the density contrast has both signs.  Each model
+now has a row: regularization (As above / L2 / Lp + norms / L1–L2 + α / MGS, TV + focusing
+percentile), α_s, lower and upper bound; empty fields send nothing.  The group lasso and PGI
+rows have the bounds only; the page's property bounds now go to the group lasso too, and its
+note no longer says it has no bounds (nor that joint L1–L2 is L2: it is IRLS).  Checked in the
+browser (values kept when the coupling changes, errors for norms, percentile and a box inverted
+against the job bounds, Review lists the rows) and by running the page's submitted parameters
+through run_data_pipeline: gravity sparse IRLS, magnetics MGS with χ ≥ 0.

@@ -157,6 +157,7 @@ svg#dag:active{cursor:grabbing;}
 .up-auto-list{margin:0 0 10px 18px;font-size:12px;color:var(--text2);line-height:1.8;}
 .up-note{font-size:11px;color:var(--text3);background:var(--bg3);border-left:3px solid var(--accent);padding:8px 10px;border-radius:4px;}
 .up-grp{font-size:11px;font-weight:600;color:var(--text);margin-top:16px;}
+.up-mr-h{font-size:11px;color:var(--text2);margin-top:12px;}
 #up-manual>.up-grp:first-child{margin-top:0;}
 .up-submit{width:100%;padding:12px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;}
 .up-submit:disabled{opacity:.5;cursor:not-allowed;}
@@ -743,7 +744,7 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-row up-4">
                   <div class="up-col" style="flex:2"><label class="up-lbl" for="up-gl-xgrad">λ<sub>3</sub> — add a cross-gradient <span class="up-hint">a hybrid, not Utsugi's method; 0 = off</span></label><input id="up-gl-xgrad" type="number" class="up-in" min="0" step="any" value="0"></div>
                 </div>
-                <div class="up-note">φ = ½‖b − Zζ‖² + λ<sub>1</sub> Σ<sub>k</sub> √(β<sub>k</sub>² + ρ<sub>k</sub>²) + ½λ<sub>2</sub>‖ζ‖² on sensitivity-weighted models (unit columns, γ = 2). The group norm selects a cell for both models or for neither, without making either property non-zero or asking for the same sign, so bodies line up where the data allow. λ<sub>1</sub> is swept down from λ<sub>1,max</sub> (where both models are zero) with warm starts; λ<sub>2</sub> is plain amplitude damping, not smoothness: small values give compact bodies with inflated values (λ<sub>2</sub> = 0.01 inflated the synthetic body about six times), large ones spread it (λ<sub>2</sub> = 1 also kept χ² above N for small errors). Try a λ<sub>2</sub> sweep below. μ changes the speed of ADMM, not the result. Unconstrained first version: no bounds, no smoothness, no cross-gradient.</div>
+                <div class="up-note">φ = ½‖b − Zζ‖² + λ<sub>1</sub> Σ<sub>k</sub> √(β<sub>k</sub>² + ρ<sub>k</sub>²) + ½λ<sub>2</sub>‖ζ‖² on sensitivity-weighted models (unit columns, γ = 2). The group norm selects a cell for both models or for neither, without making either property non-zero or asking for the same sign, so bodies line up where the data allow. λ<sub>1</sub> is swept down from λ<sub>1,max</sub> (where both models are zero) with warm starts; λ<sub>2</sub> is plain amplitude damping, not smoothness: small values give compact bodies with inflated values (λ<sub>2</sub> = 0.01 inflated the synthetic body about six times), large ones spread it (λ<sub>2</sub> = 1 also kept χ² above N for small errors). Try a λ<sub>2</sub> sweep below. μ changes the speed of ADMM, not the result. No smoothness term. Bounds (below, or per model, e.g. susceptibility ≥ 0) are kept exactly by the ADMM.</div>
               </div>
               <div class="up-grp not-gl">Regularization</div>
               <div class="up-row not-gl">
@@ -773,7 +774,7 @@ svg#dag:active{cursor:grabbing;}
                     </select></div>
                   <div class="up-col"><label class="up-lbl" for="up-lambda-decades">λ range (decades)</label><input id="up-lambda-decades" type="number" class="up-in" min="1" step="0.5" value="4"></div>
                 </div>
-                <div class="up-note">φ<sub>m</sub> = (1−α)/2·‖β‖² + α·‖β‖₁ on the depth-weighted model. α → 1 gives compact bodies, α → 0 smooth ones. The coordinate-descent solver computes the whole λ path from λ<sub>max</sub> and picks λ on it (L-curve by default); it needs gravity or magnetic data. On our magnetic synthetic, α ≈ 0.8 with wS1 recovered the body best (wS2 pushed it too deep). There is no smoothness term, so norms and α<sub>x,y,z</sub> do not apply. Joint jobs still use L2.</div>
+                <div class="up-note">φ<sub>m</sub> = (1−α)/2·‖β‖² + α·‖β‖₁ on the depth-weighted model. α → 1 gives compact bodies, α → 0 smooth ones. The coordinate-descent solver computes the whole λ path from λ<sub>max</sub> and picks λ on it (L-curve by default); it needs gravity or magnetic data. On our magnetic synthetic, α ≈ 0.8 with wS1 recovered the body best (wS2 pushed it too deep). There is no smoothness term, so norms and α<sub>x,y,z</sub> do not apply. Joint jobs run it by IRLS.</div>
               </div>
 
               <div id="up-focus-params" class="not-gl" hidden>
@@ -850,16 +851,22 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col"><label class="up-lbl">Max IRLS iterations</label><input id="up-maxirls" type="number" class="up-in" step="1" min="1" value="30"></div>
               </div>
 
-              <div class="up-grp not-gl">Property bounds</div>
-              <div class="up-row up-4 not-gl">
-                <div class="up-col"><label class="up-lbl">Lower bound</label><input id="up-lower" type="number" class="up-in" step="any" placeholder="none"></div>
-                <div class="up-col"><label class="up-lbl">Upper bound</label><input id="up-upper" type="number" class="up-in" step="any" placeholder="none"></div>
-                <div class="up-col up-chk"><label><input id="up-precond" type="checkbox" checked> Jacobi preconditioner</label></div>
+              <div class="up-grp">Property bounds <span class="up-hint" id="up-bounds-hint"></span></div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl" for="up-lower">Lower bound</label><input id="up-lower" type="number" class="up-in" step="any" placeholder="none"></div>
+                <div class="up-col"><label class="up-lbl" for="up-upper">Upper bound</label><input id="up-upper" type="number" class="up-in" step="any" placeholder="none"></div>
+                <div class="up-col up-chk not-gl"><label><input id="up-precond" type="checkbox" checked> Jacobi preconditioner</label></div>
               </div>
 
               <div id="up-joint-params" class="not-gl" hidden>
                 <div class="up-grp">Joint data weights</div>
                 <div class="up-row up-4" id="up-joint-weights"></div>
+              </div>
+
+              <div id="up-model-reg" hidden>
+                <div class="up-grp">Regularization per model <span class="up-hint">optional — “As above” and empty fields keep the settings above</span></div>
+                <div id="up-model-reg-rows"></div>
+                <div class="up-note" id="up-model-reg-note" style="margin-top:10px;"></div>
               </div>
 
               <div class="up-grp">Parameter sweep <span class="up-hint">optional — one job per value, run in parallel and compared side by side</span></div>
@@ -4503,6 +4510,94 @@ window.GeoPreview=GeoPreview;
     return out;
   }
 
+  // ── Regularization per model (joint): a dataset's overrides of the settings above for
+  // its model (the worker's joint_regularizations, keys JOINT_REG_KEYS). The group lasso
+  // and PGI have their own regularization and take only the bounds.
+  const PROP_UNIT={density:'density contrast (g/cc)',susceptibility:'susceptibility (SI)',resistivity:'log conductivity ln(S/m)'};
+  const MR_TYPES=[['','As above'],['l2','Smooth L2'],['lp','Lp-norm IRLS (sparse)'],['l1l2','L1–L2 elastic net'],
+    ['mgs','Focusing: MGS'],['tv','Total variation']];
+  const MR_EXTRA={lp:{label:'Norms p<sub>s</sub>, p<sub>x</sub>, p<sub>y</sub>, p<sub>z</sub>',def:'0, 2, 2, 1'},
+    l1l2:{label:'Mixing ratio α (0–1)',def:'0.8'},mgs:{label:'Focusing percentile',def:'95'},tv:{label:'Focusing percentile',def:'95'}};
+  const MR_KEEP={};   // the fields' values across re-renders (also those a bounds-only panel hides)
+  function modelRegKind(s){return !s||s.mode!=='joint'?null:s.gl||s.coupling==='pgi'?'bounds':'full';}
+  function mrTypeChanged(k){
+    const rt=$u(`up-mr-${k}-type`).value, x=MR_EXTRA[rt], inp=$u(`up-mr-${k}-extra`);
+    $u(`up-mr-${k}-extra-col`).hidden=!x;
+    $u(`up-mr-${k}-as-col`).hidden=rt==='l1l2';    // L1–L2 has no smallness weight
+    if(x)$u(`up-mr-${k}-extra-lbl`).innerHTML=x.label;
+    if(inp.dataset.kind!==rt){inp.value=x?x.def:'';inp.dataset.kind=rt;}
+  }
+  function renderModelReg(s){
+    const kind=modelRegKind(s), box=$u('up-model-reg-rows'), keep=MR_KEEP;
+    box.querySelectorAll('input,select').forEach(i=>keep[i.id]=i.value);
+    $u('up-model-reg').hidden=!kind;
+    if(!kind)return;
+    const v=id=>escH(keep[id]??'');
+    box.innerHTML=s.types.map(t=>{
+      const k=t.key, rt=keep[`up-mr-${k}-type`]??'';
+      const reg=kind!=='full'?'':
+        `<div class="up-col"><label class="up-lbl" for="up-mr-${k}-type">Regularization</label><select id="up-mr-${k}-type" data-key="${k}" class="up-in">`+
+        MR_TYPES.map(([val,l])=>`<option value="${val}"${val===rt?' selected':''}>${l}</option>`).join('')+'</select></div>'+
+        `<div class="up-col" id="up-mr-${k}-extra-col"><label class="up-lbl" id="up-mr-${k}-extra-lbl" for="up-mr-${k}-extra"></label>`+
+        `<input id="up-mr-${k}-extra" class="up-in" data-kind="${escH(rt)}" value="${v(`up-mr-${k}-extra`)}"></div>`+
+        `<div class="up-col" id="up-mr-${k}-as-col"><label class="up-lbl" for="up-mr-${k}-as">α<sub>s</sub></label>`+
+        `<input id="up-mr-${k}-as" type="number" step="any" min="0" class="up-in" placeholder="as above" value="${v(`up-mr-${k}-as`)}"></div>`;
+      return `<div class="up-mr-h">${t.label} — ${PROP_UNIT[PROP_OF_TYPE[k]]}</div><div class="up-row up-4">${reg}`+
+        `<div class="up-col"><label class="up-lbl" for="up-mr-${k}-lo">Lower bound</label>`+
+        `<input id="up-mr-${k}-lo" type="number" step="any" class="up-in" placeholder="as above" value="${v(`up-mr-${k}-lo`)}"></div>`+
+        `<div class="up-col"><label class="up-lbl" for="up-mr-${k}-hi">Upper bound</label>`+
+        `<input id="up-mr-${k}-hi" type="number" step="any" class="up-in" placeholder="as above" value="${v(`up-mr-${k}-hi`)}"></div></div>`;
+    }).join('');
+    if(kind==='full')s.types.forEach(t=>{
+      mrTypeChanged(t.key);
+      $u(`up-mr-${t.key}-type`).addEventListener('change',()=>mrTypeChanged(t.key));
+    });
+    $u('up-model-reg-note').innerHTML=s.gl
+      ?'The group lasso has one regularization for both models; each model can have its own bounds, e.g. susceptibility ≥ 0 while the density contrast keeps both signs. The bounds are in the model’s units and exact (the ADMM projects onto them).'
+      :kind==='bounds'?'PGI regularizes the models by its rock units; each model can have its own bounds.'
+      :'Each model can have its own regularization and bounds — e.g. a sparse density model and a smooth, non-negative susceptibility. Bounds are in the model’s units. α<sub>x,y,z</sub>, depth weighting and iterations stay as above.';
+  }
+  // Each dataset's overrides for its model (null: the settings above)
+  function modelRegs(s){
+    const kind=modelRegKind(s);
+    if(!kind||paramMode!=='manual')return s.types.map(()=>null);
+    const gLo=num('up-lower','lower bound',{optional:true}), gHi=num('up-upper','upper bound',{optional:true});
+    return s.types.map(t=>{
+      const k=t.key, name=`${t.label} model`, r={};
+      const lo=num(`up-mr-${k}-lo`,`${name} lower bound`,{optional:true}), hi=num(`up-mr-${k}-hi`,`${name} upper bound`,{optional:true});
+      const eLo=lo??gLo, eHi=hi??gHi;
+      if(eLo!==undefined&&eHi!==undefined&&eLo>=eHi)throw new Error(`${name}: the lower bound (${eLo}) must be less than the upper bound (${eHi})`);
+      if(lo!==undefined)r.bounds_lower=lo;
+      if(hi!==undefined)r.bounds_upper=hi;
+      if(kind==='full'){
+        const rt=$u(`up-mr-${k}-type`).value, x=`up-mr-${k}-extra`;
+        const as=num(`up-mr-${k}-as`,`${name} α_s`,{min:0,optional:true});
+        if(as!==undefined&&rt!=='l1l2')r.alpha_s=as;
+        if(rt==='lp'){
+          const a=$u(x).value.split(/[\s,;]+/).filter(Boolean).map(Number);
+          if(a.length!==4||a.some(q=>!(q>=0&&q<=2)))throw new Error(`${name}: norms need four numbers between 0 and 2`);
+          r.norms=a; r.regularization_type=a.every(q=>q===2)?'l2':'sparse';
+        }else if(rt==='l1l2'){
+          r.regularization_type='l1l2'; r.l1_ratio=num(x,`${name} mixing ratio α`,{min:0});
+          if(r.l1_ratio>1)throw new Error(`${name}: the mixing ratio α must be between 0 and 1`);
+        }else if(rt==='mgs'||rt==='tv'){
+          r.regularization_type=rt; r.focusing_percentile=num(x,`${name} focusing percentile`,{min:1});
+          if(r.focusing_percentile>100)throw new Error(`${name}: the focusing percentile must be at most 100`);
+        }else if(rt==='l2')r.regularization_type='l2';
+      }
+      return Object.keys(r).length?r:null;
+    });
+  }
+  function modelRegSummary(r){
+    const bits=[];
+    if(r.regularization_type)bits.push(r.regularization_type==='sparse'?`sparse p = [${r.norms.join(', ')}]`
+      :r.regularization_type==='l1l2'?`L1–L2 α = ${r.l1_ratio}`
+      :(REG_NAMES[r.regularization_type]||r.regularization_type)+(r.focusing_percentile?` (percentile ${r.focusing_percentile})`:''));
+    if(r.alpha_s!==undefined)bits.push(`α_s = ${r.alpha_s}`);
+    if(r.bounds_lower!==undefined||r.bounds_upper!==undefined)bits.push(`bounds [${r.bounds_lower??'as above'}, ${r.bounds_upper??'as above'}]`);
+    return bits.join(' · ');
+  }
+
   function updateMode(){
     renderCoupling();
     const s=selection(), joint=s&&s.mode==='joint', gl=!!(s&&s.gl);
@@ -4516,6 +4611,8 @@ window.GeoPreview=GeoPreview;
     renderGeo(); mbRender();
     $u('up-auto-joint').hidden=!joint;
     $u('up-joint-params').hidden=!joint;
+    $u('up-bounds-hint').textContent=joint?'every model — or per model below':'';
+    renderModelReg(s);
     if(joint){
       const box=$u('up-joint-weights'), keep={};
       box.querySelectorAll('input').forEach(i=>keep[i.id]=i.value);
@@ -5271,7 +5368,8 @@ window.GeoPreview=GeoPreview;
     const cells=analysis&&analysis.extent?meshCells(m):null;
     const regTxt=s.gl?(p.param_mode==='auto'?'Auto — ':'')+escH(regSummary(p))+
         (p.gl_lambda1_selection==='fixed'?'':` · sweep of ${p.gl_n_lambda1??13} λ1 over ${p.gl_lambda1_decades??3} decades`)+
-        ` · data balance: ${(p.gl_data_scaling||'max_ratio')==='std'?'1/σ':'amplitude ratio'}`
+        ` · data balance: ${(p.gl_data_scaling||'max_ratio')==='std'?'1/σ':'amplitude ratio'}`+
+        (p.bounds_lower!=null||p.bounds_upper!=null?` · bounds [${p.bounds_lower??'−∞'}, ${p.bounds_upper??'∞'}]`:'')
       :p.param_mode==='auto'?'Auto — sparse IRLS, p = [0, 2, 2, 1], β by χ² = N'
       :`${escH(regSummary(p))} · β/λ: ${escH(p.beta_selection||'auto')}`+(p.bounds_lower!=null||p.bounds_upper!=null?` · bounds [${p.bounds_lower??'−∞'}, ${p.bounds_upper??'∞'}]`:'');
     const rows=[
@@ -5286,6 +5384,8 @@ window.GeoPreview=GeoPreview;
       ['Iterations',s.gl?`ADMM max ${p.gl_max_iter??3000} per λ1, stopping on the primal and dual residuals (10⁻⁴)`
         :`max ${p.max_iter??30} · IRLS max ${p.max_irls_iterations??30}`],
     ];
+    const perModel=(p.datasets||[]).map((d,i)=>d.regularization?`${escH(s.types[i]?.label||d.type)}: ${escH(modelRegSummary(d.regularization))}`:'').filter(Boolean);
+    if(perModel.length)rows.splice(rows.findIndex(r=>r[0]==='Regularization')+1,0,['Per model',perModel.join('<br>')]);
     const geoJob=jobs.find(j=>j.params.geology);
     if(geoJob){
       const g=geoJob.params.geology;
@@ -5438,6 +5538,10 @@ window.GeoPreview=GeoPreview;
     if(mu!==undefined){if(!(mu>0))throw new Error('μ must be positive');p.gl_mu=mu;}
     const l3=num('up-gl-xgrad','λ3 (cross-gradient)',{min:0,optional:true});
     if(l3)p.gl_cross_gradient=l3;     // the hybrid: not Utsugi's method
+    const lo=num('up-lower','lower bound',{optional:true}), hi=num('up-upper','upper bound',{optional:true});
+    if(lo!==undefined&&hi!==undefined&&lo>=hi)throw new Error('Lower bound must be less than upper bound');
+    if(lo!==undefined)p.bounds_lower=lo;
+    if(hi!==undefined)p.bounds_upper=hi;
     return p;
   }
 
@@ -5550,7 +5654,8 @@ window.GeoPreview=GeoPreview;
     const extra=topoFile?[topoFile]:[];
     const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams()};
     if(s.mode==='joint'){
-      const specs=s.types.map(datasetSpec);
+      const specs=s.types.map(datasetSpec), perModel=modelRegs(s);
+      specs.forEach((d,i)=>{if(perModel[i])d.regularization=perModel[i];});
       const jointP={...couplingParams(s),...(paramMode==='manual'&&!s.gl?{
         joint_weights:s.types.map(t=>num('up-jw-'+t.key,`${t.label} data weight`,{min:0}))}:{})};
       return [{method:'joint',files:[...s.types.flatMap(t=>files[t.key]),...extra],params:{

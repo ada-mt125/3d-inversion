@@ -134,6 +134,12 @@ with a value for each property of the job becomes a unit.
   (manual), the linear relation or the rock units, and a description with the reference;
   the method list has one "Joint — A + B" entry per combination. The group lasso is
   offered for gravity + magnetics; its λ3 (manual) makes the hybrid.
+- Upload page, Inversion step (manual), "Regularization per model": for each model its
+  own regularization (“As above”, L2, Lp with its norms, L1–L2 with α, MGS / TV with the
+  focusing percentile), α_s and bounds, sent as the dataset's `regularization`
+  (`joint_regularizations`); empty fields keep the settings above. The group lasso and
+  PGI have their own regularization, so there it offers the bounds only. The property
+  bounds above apply to every model, the group lasso's included.
 
 ## References
 
