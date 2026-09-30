@@ -574,7 +574,8 @@ class JointInversion:
         from simpeg import (directives, inverse_problem, inversion, maps, optimization,
                             regularization, utils)
 
-        from .coupling import check, gaussian_mixture, pgi_settings
+        from .coupling import (PGI_BETA0_DEPTH, PGI_BETA0_SENSITIVITY, check, gaussian_mixture,
+                               pgi_settings)
 
         check("pgi", len(self.models))
         if len({m.n_params for m in self.models}) > 1:
@@ -587,6 +588,10 @@ class JointInversion:
         n = self.models[0].n_params
         refs = [float(np.median(self.reference_model(m))) for m in self.models]
         settings = pgi_settings(self.coupling_options, [m.name for m in self.models], refs)
+        if settings.beta0_ratio is None:
+            depth = any(m.regularization is not None and m.regularization.depth_weighting == "depth"
+                        for m in self.models)
+            settings.beta0_ratio = PGI_BETA0_DEPTH if depth else PGI_BETA0_SENSITIVITY
         gmm = gaussian_mixture(settings, dmesh, active, n)
         m0 = self.starting_model()
         cells = np.column_stack([wire_of[m.name] * m0 for m in self.models])   # cell x property

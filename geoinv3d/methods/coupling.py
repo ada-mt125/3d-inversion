@@ -257,12 +257,22 @@ class PetroUnit:
     proportion: float = 0.1
 
 
+# PGI's first beta, as a ratio of the eigenvalue estimate.  SimPEG's PGI schedule only ever
+# lowers beta, so a start that fits the data at once stays overfitted.  With depth-weighted
+# models (the Karnataka runs, beta = 1) the tutorials' 1e-2 gave chi^2 / N 0.57 / 0.67 after 28
+# iterations on the 2 km mesh, 0.1 gave 0.74 / 0.93 after 30, 1 had 1.36 / 1.35 left after 60.
+PGI_BETA0_SENSITIVITY = 1e-2
+PGI_BETA0_DEPTH = 0.1
+
+
 @dataclass
 class PGISettings:
     units: list = field(default_factory=list)       # PetroUnit, the background first
     learn: bool = False          # update the units' means from the models (kappa = 0)
     alpha_smooth_ratio: float = 1e-2
-    beta0_ratio: float = 1e-2
+    # None: 1e-2 (SimPEG's tutorials, with sensitivity weights) or PGI_BETA0_DEPTH when the
+    # models are depth-weighted (JointInversion._build_pgi)
+    beta0_ratio: float | None = None
     chi_small: float = 1.0       # the petrophysical target (MultiTargetMisfits' chiSmall)
 
     def to_dict(self) -> dict:
@@ -327,7 +337,8 @@ def pgi_settings(options: dict, model_names: list[str], references: list[float])
         u.proportion /= total
     return PGISettings(units=units, learn=bool(options.get("learn", False)),
                        alpha_smooth_ratio=float(options.get("alpha_smooth_ratio", 1e-2)),
-                       beta0_ratio=float(options.get("beta0_ratio", 1e-2)),
+                       beta0_ratio=(float(options["beta0_ratio"])
+                                    if options.get("beta0_ratio") is not None else None),
                        chi_small=float(options.get("chi_small", 1.0)))
 
 

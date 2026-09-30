@@ -198,3 +198,23 @@ def test_node_params_round_trip():
     assert (m.coupling, m.coupling_options) == ("pgi", n.coupling_options)
     old = JointRegularizedInversionNode(["gravity", "magnetic"], regularization_type="group_lasso")
     assert old.coupling == "group_lasso"
+
+
+def test_pgi_first_beta_follows_the_depth_weighting(surveys):
+    """Depth-weighted models: a first beta of PGI_BETA0_DEPTH (SimPEG's schedule never
+    raises beta: 1e-2 left Karnataka overfitted); otherwise the tutorials' 1e-2; a given
+    beta0_ratio wins."""
+    from geoinv3d.methods.coupling import PGI_BETA0_DEPTH, PGI_BETA0_SENSITIVITY
+    units = {"units": [{"name": "block", "means": {"gravity": 0.3, "magnetics": 0.05}}]}
+    depth = ModelRegularization(kind="sparse", depth_weighting="depth", depth_weighting_exponent=1.0)
+
+    def settings(reg, **options):
+        setups = [MethodSetup(surveys[k][0], surveys[k][1], MESH, np.zeros(MESH.n_cells),
+                              regularization=reg) for k in ("gz", "tmi")]
+        joint = JointInversion(setups, coupling="pgi", coupling_options={**units, **options})
+        with contextlib.redirect_stdout(io.StringIO()):
+            c = joint.build()
+        return c["pgi"]["settings"], c["pgi"]["regularization"]
+    assert settings(depth)[0].beta0_ratio == PGI_BETA0_DEPTH
+    assert settings(None)[0].beta0_ratio == PGI_BETA0_SENSITIVITY
+    assert settings(depth, beta0_ratio=0.5)[0].beta0_ratio == 0.5
