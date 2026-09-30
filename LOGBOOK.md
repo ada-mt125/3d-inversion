@@ -1148,3 +1148,29 @@ repository; `deploy/ec2_multi_run.py <case> --local --collect DIR` runs a case w
 AWS this afternoon: about $17, all instances terminated (checked: no instance or volume left).
 Tests: test_terrain, test_topography, test_data_pipeline, test_coupling, test_ec2_backend,
 test_joint_* (131) and test_group_lasso (59) pass; the full suite was last run before these changes.
+---
+
+## 2026-09-30 (evening) — Exact bounds for the group lasso; scikit-learn for PGI (macOS session)
+
+Pulled 9cb670c and 6ca6e51 (fast-forward); rebased onto b761832 / ba4ffe1 later.  On this Mac 2 of 419 tests failed: SimPEG's PGI
+builds its WeightedGaussianMixture on scikit-learn and, without it, defines a stand-in with no
+fit(); scikit-learn was in neither pyproject nor the EC2 package list, so PGI jobs on EC2 would
+have failed the same way.  Added (pyproject, Batch image; on EC2 the 1.8.0 of b761832) with an explicit error in
+gaussian_mixture(); 419 passed.
+
+**Group lasso bounds** (`GroupLassoProblem(bounds=...)`, docs/group_lasso_joint.md "Bounds").
+Written in parallel with b761832, whose s update projected the sign constraints before the group
+shrink (exact) and clipped the other bounds after it (not exact within a group: e.g. ρ ≤ 0.35
+with χ free), with λ1,max and the KKT check unaware of the bounds.  This version replaces it, with
+the same `bounds=` argument and worker semantics; b761832's tests (TestBounds) pass unchanged.
+Rather than a third ADMM block (ζ = t, t in the box: 2μ in the ζ systems,
+new factors, and the cross-gradient normalization would have moved), the box goes into the s
+update's proximal step, solved exactly: per cell 0, or clip(q′ r/(r + κ), lo, hi) at the root of
+r = ‖s(r)‖ (bisection, vectorized).  ADMM, μ, factors, stopping and the λ3 normalization are
+unchanged, and so are unbounded runs.  λ1,max and the KKT check are bound-aware; the physical
+models are clipped after the scaling round trip (it passed an upper bound by 1 ulp).  Checked:
+per-cell numerical minima (4 boxes), FISTA with the same step (objective to 10 digits, KKT 4e-7),
+light-body data with ρ ≥ 0 (density stays empty, susceptibility keeps the body, λ1,max drops),
+a box above the reference (no empty cells).  Worker: per model its first dataset's
+bounds_lower / bounds_upper, else the job's; the pipeline applies the job bounds to every model
+and says which per-dataset settings the group lasso does not use.  tests: TestExactBounds (6).

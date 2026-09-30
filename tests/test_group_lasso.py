@@ -1082,3 +1082,117 @@ class TestBounds:
     def test_crossed_bounds_are_refused(self, small):
         with pytest.raises(ValueError, match="bound"):
             self._problem(small, [(0.1, 0.0), None])
+
+
+# ── Bounds ──────────────────────────────────────────────────────────────
+
+
+class TestExactBounds:
+    """The exact bounded proximal step (any box), its lambda1_max and KKT; the pipeline."""
+    BOXES = [((0.0, np.inf), (-1.0, 0.8)), ((0.0, 0.5), (-np.inf, np.inf)),
+             ((0.2, 1.0), (-0.5, 0.5)), ((-np.inf, 0.0), (0.0, np.inf))]
+
+    def test_the_bounded_shrink_is_exact(self):
+        """Against a numerical minimum of the per-cell problem, for boxes that hold 0
+        and one that does not."""
+        from scipy.optimize import minimize
+        lam1, lam2, mu = 1.3, 0.4, 2.0
+        rng = np.random.default_rng(7)
+        for (lb, ub), (lr, ur) in self.BOXES:
+            for q in rng.normal(size=(15, 2)) * 2:
+                sb, sr = np.empty(1), np.empty(1)
+                gl.group_shrink_many([q[:1], q[1:]], lam1, lam2, mu, [sb, sr], "group",
+                                     [lb, lr], [ub, ur])
+                s = np.array([sb[0], sr[0]])
+                assert lb <= s[0] <= ub and lr <= s[1] <= ur
+
+                def h(v):
+                    return lam1 * np.hypot(*v) + 0.5 * lam2 * v @ v + 0.5 * mu * (v - q) @ (v - q)
+                box = [(None if np.isinf(a) else a, None if np.isinf(b) else b)
+                       for a, b in ((lb, ub), (lr, ur))]
+                starts = [np.clip(q, [max(lb, -9), max(lr, -9)], [min(ub, 9), min(ur, 9)]),
+                          np.clip([0.0, 0.0], [max(lb, -9), max(lr, -9)], [min(ub, 9), min(ur, 9)])]
+                best = min(minimize(h, x0, method="Powell", bounds=box,
+                                    options={"xtol": 1e-12, "ftol": 1e-14}).fun for x0 in starts)
+                assert h(s) <= best + 1e-12
+
+    def test_infinite_bounds_and_separate_thresholds(self):
+        rng = np.random.default_rng(8)
+        q = rng.normal(size=(2, 300)) * 3
+        free = gl.group_shrink_many([q[0], q[1]], 1.3, 0.4, 2.0)
+        boxed = gl.group_shrink_many([q[0], q[1]], 1.3, 0.4, 2.0, None, "group",
+                                     [None, -np.inf], [np.inf, None])
+        for a, b in zip(free, boxed):
+            np.testing.assert_allclose(b, a, atol=1e-12)
+        # one dimension at a time: the clipped soft threshold
+        sep = gl.group_shrink_many([q[0], q[1]], 1.3, 0.4, 2.0, None, "none", [0.0, None],
+                                   [None, 0.5])
+        ref = gl.group_shrink_many([q[0], q[1]], 1.3, 0.4, 2.0, None, "none")
+        np.testing.assert_allclose(sep[0], np.maximum(ref[0], 0.0))
+        np.testing.assert_allclose(sep[1], np.minimum(ref[1], 0.5))
+
+    def test_matches_projected_fista_and_its_optimality(self, small):
+        K, G, f, g, _ = small
+        P = gl.JointGroupLassoProblem(K, G, f, g, bounds=[(0.0, None), (0.0, 0.2)])
+        lam1, lam2 = 0.03 * P.lambda1_max(), 0.3
+        r = P.solve(lam1, lam2, tol_primal=1e-9, tol_dual=1e-9, max_iter=40000)
+        assert r.converged
+        assert r.beta_physical.min() >= 0.0 and r.rho_physical.min() >= 0.0
+        assert r.rho_physical.max() <= 0.2 and np.sum(r.rho_physical == 0.2) > 0   # active
+        assert P.kkt_residual(r.beta_scaled, r.rho_scaled, lam1, lam2) < 1e-5
+        # FISTA with the same bounded proximal step: the same minimizer
+        X, Y = _dense(P.X), _dense(P.Y)
+        L = max(np.linalg.norm(X, 2), np.linalg.norm(Y, 2)) ** 2 + lam2
+        b, y, t = [np.zeros(P.m)] * 2, [np.zeros(P.m)] * 2, 1.0
+        for _ in range(15000):
+            grad = [X.T @ (X @ y[0] - P.bf) + lam2 * y[0], Y.T @ (Y @ y[1] - P.bg) + lam2 * y[1]]
+            nb = gl.group_shrink_many([y[0] - grad[0] / L, y[1] - grad[1] / L], lam1 / L, 0.0,
+                                      1.0, None, "group", P.box_lower, P.box_upper)
+            tn = 0.5 * (1 + np.sqrt(1 + 4 * t * t))
+            y = [n + (t - 1) / tn * (n - o) for n, o in zip(nb, b)]
+            b, t = nb, tn
+        assert r.objective <= _objective(P, b[0], b[1], lam1, lam2) * (1 + 1e-9)
+        for a, c in zip(r.models_scaled, b):
+            np.testing.assert_allclose(a, c, atol=1e-4 * abs(c).max())
+
+    def test_non_negativity_against_the_wrong_sign(self, small):
+        """Data of a light body (rho < 0) with rho >= 0: the density stays empty, the
+        susceptibility still takes the body, and lambda1_max ignores the gravity
+        components that point below the bound."""
+        K, G, f, g, _ = small
+        free = gl.JointGroupLassoProblem(K, G, f, -g)
+        P = gl.JointGroupLassoProblem(K, G, f, -g, bounds=[None, (0.0, None)])
+        assert P.lambda1_max() < free.lambda1_max()
+        a = free.solve(0.03 * free.lambda1_max(), 0.3)
+        r = P.solve(0.03 * P.lambda1_max(), 0.3)
+        assert a.rho_physical.min() < -0.05                  # free: the light body
+        assert r.rho_physical.min() >= 0.0 and r.rho_physical.max() < 0.02
+        assert r.beta_physical.max() > 0.5 * a.beta_physical.max()
+
+    def test_a_box_without_the_reference(self, small):
+        """lower > reference: no cell can be empty, and the zero shortcut is off."""
+        K, G, f, g, _ = small
+        P = gl.JointGroupLassoProblem(K, G, f, g, bounds=[None, (0.01, 0.5)])
+        r = P.solve(1.01 * P.lambda1_max(), 0.3)
+        assert r.n_iterations > 0 and r.rho_physical.min() >= 0.01
+        assert r.n_active == P.m
+        with pytest.raises(ValueError, match="not below"):
+            gl.JointGroupLassoProblem(K, G, f, g, bounds=[(0.1, 0.1), None])
+
+    def test_through_the_pipeline(self, tmp_path):
+        """Job bounds for every model, a dataset's own bounds for its model."""
+        from tests.test_data_pipeline import _joint_params
+        from geoinv3d.cloud.worker import run_data_pipeline
+        _pipeline_files(tmp_path)
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual",
+                               regularization_type="group_lasso", gl_n_lambda1=5,
+                               gl_lambda1_decades=2.0, bounds_lower=0.0)
+        params["datasets"][0]["regularization"] = {"bounds_lower": 0.0, "bounds_upper": 0.25,
+                                                   "regularization_type": "sparse"}
+        result = run_data_pipeline(params, str(tmp_path))
+        info = result["group_lasso"]
+        assert info["bounds"] == {"gravity": [0.0, 0.25], "magnetics": [0.0, None]}
+        rho, chi = result["recovered_models"]["gravity"], result["recovered_models"]["magnetics"]
+        assert rho.min() >= 0.0 and rho.max() <= 0.25 and chi.min() >= 0.0
+        assert any("bounds apply to every model" in n for n in result["notes"])
+        assert any("['regularization_type'] are not applied" in n for n in result["notes"])

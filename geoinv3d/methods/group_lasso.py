@@ -471,20 +471,25 @@ def make_solver(op, mu: float, solver: str = "auto",
 
 
 def group_shrink_many(qs, lambda1: float, lambda2: float, mu: float, out=None,
-                      coupling: str = "group"):
+                      coupling: str = "group", lower=None, upper=None):
     """Proximal step of lambda1 ||.||_group + lambda2/2 ||.||^2 at mu, for P models.
 
     s_pk = mu / (mu + lambda2) * max(1 - lambda1 / (mu r_k), 0) * q_pk with
     r_k = sqrt(sum_p q_pk^2): all components of a cell shrink together, and a
     cell with r_k <= lambda1 / mu (also r_k = 0) is emptied.  O(P M), vectorized.
 
+    ``lower`` / ``upper`` (one array or None per model): the step is taken
+    within these bounds, exactly (see :func:`_group_shrink_box`).
+
     ``coupling="none"`` soft-thresholds every model separately (ordinary
     elastic net on each model): a reference for comparisons, not the method.
     """
-    damp = mu / (mu + lambda2)
-    t = lambda1 / mu
     if out is None:
         out = [np.empty_like(np.asarray(q, dtype=float)) for q in qs]
+    if lower is not None or upper is not None:
+        return _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling)
+    damp = mu / (mu + lambda2)
+    t = lambda1 / mu
     if coupling == "none":
         for q, o in zip(qs, out):
             o[:] = np.sign(q) * np.maximum(np.abs(q) - t, 0.0) * damp
@@ -498,6 +503,67 @@ def group_shrink_many(qs, lambda1: float, lambda2: float, mu: float, out=None,
     factor *= damp
     for q, o in zip(qs, out):
         np.multiply(factor, q, out=o)
+    return out
+
+
+def _box_arrays(qs, lower, upper):
+    """Per-model lower and upper bounds as full arrays (None: unbounded)."""
+    lo = [np.full(q.shape, -np.inf) if lower is None or lower[p] is None
+          else np.broadcast_to(np.asarray(lower[p], dtype=float), q.shape)
+          for p, q in enumerate(qs)]
+    hi = [np.full(q.shape, np.inf) if upper is None or upper[p] is None
+          else np.broadcast_to(np.asarray(upper[p], dtype=float), q.shape)
+          for p, q in enumerate(qs)]
+    return lo, hi
+
+
+def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
+                      n_bisect: int = 60):
+    """The shrink of :func:`group_shrink_many` within per-component bounds, exactly.
+
+    Per cell it minimizes mu/2 ||s - q||^2 + lambda1 ||s|| + lambda2/2 ||s||^2
+    over the box lo <= s <= hi.  With a = mu + lambda2, q' = mu q / a and
+    kappa = lambda1 / a, the minimizer (unique: strictly convex) is either 0 or,
+    for fixed r = ||s||, the separable problem's solution
+
+        s(r) = clip(q' r / (r + kappa), lo, hi),
+
+    so r solves r = ||s(r)||: one root, found by bisection on
+    (0, sqrt(sum max(clip(q')^2, clip(0)^2))], vectorized over the cells.
+    0 is the minimizer when the box holds it and ||q''|| <= kappa, where q''
+    drops the components that point out of the box at 0 (e.g. a negative
+    susceptibility against a lower bound of 0).  Unbounded components reduce
+    to the closed form.  ``coupling="none"``: per component, the clipped soft
+    threshold (exact in one dimension).
+    """
+    lo, hi = _box_arrays(qs, lower, upper)
+    a = mu + lambda2
+    kappa = lambda1 / a
+    qp = [mu * np.asarray(q, dtype=float) / a for q in qs]
+    if coupling == "none":
+        for q, l, h, o in zip(qp, lo, hi, out):
+            o[:] = np.clip(np.sign(q) * np.maximum(np.abs(q) - kappa, 0.0), l, h)
+        return out
+    if coupling != "group":
+        raise ValueError(f"Unknown coupling {coupling!r} (expected 'group' or 'none')")
+    zero_ok = np.all([(l <= 0) & (h >= 0) for l, h in zip(lo, hi)], axis=0)
+    free = [np.where(((l == 0) & (q < 0)) | ((h == 0) & (q > 0)), 0.0, q)
+            for q, l, h in zip(qp, lo, hi)]
+    empty = zero_ok & (np.sqrt(sum(np.square(f) for f in free)) <= kappa)
+    top = np.sqrt(sum(np.maximum(np.square(np.clip(q, l, h)), np.square(np.clip(0.0, l, h)))
+                      for q, l, h in zip(qp, lo, hi)))
+    r_lo, r_hi = np.zeros_like(top), top.copy()
+    for _ in range(n_bisect):
+        r = 0.5 * (r_lo + r_hi)
+        tau = r / (r + kappa) if kappa > 0 else np.ones_like(r)
+        norm = np.sqrt(sum(np.square(np.clip(q * tau, l, h)) for q, l, h in zip(qp, lo, hi)))
+        above = norm > r          # F(r) > 0: the root is further out
+        r_lo = np.where(above, r, r_lo)
+        r_hi = np.where(above, r_hi, r)
+    r = 0.5 * (r_lo + r_hi)
+    tau = r / (r + kappa) if kappa > 0 else np.ones_like(r)
+    for q, l, h, o in zip(qp, lo, hi, out):
+        o[:] = np.where(empty, 0.0, np.clip(q * tau, l, h))
     return out
 
 
@@ -814,14 +880,19 @@ class GroupLassoProblem:
         solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
         mesh, active_cells: the models' mesh (discretize) and cells, for the
             cross-gradient; None: no cross-gradient.
-        bounds: per model, (lower, upper) in the operators' units (each None, a number
-            or one value per cell), or None for an unbounded model.  ADMM's s-update
-            then projects onto the bounds that lie at the reference (a sign constraint,
-            e.g. susceptibility >= 0) before the group shrink, which is the exact
-            proximal step for them, and clips to the other bounds after it (exact for
-            one model, a close approximation within a group).
-            Without bounds, field data with wide padding put unphysical values in the
-            cells the data barely see (21 g/cc in the Karnataka test).
+        bounds: (lower, upper) of each model's physical values, each a
+            scalar, a per-cell array or None; None: unbounded.  They become
+            bounds on the scaled variables (w and the data scale are
+            positive), which the s update keeps exactly (see
+            :func:`group_shrink_many`); the returned models are within them.
+            Without bounds, field data with wide padding put unphysical values in
+            the cells the data barely see (21.9 g/cc in the Karnataka test).
+
+    Bounds: lambda1_max is then the smallest lambda1 whose solution is zero
+    within the bounds (the components of Z^T b that point out of them at 0
+    do not count), and the optimality conditions include the bounds'
+    normal cone (:meth:`kkt_residuals`).  A box that does not hold the
+    reference (0 in the scaled variables) has no empty cells.
     """
 
     def __init__(self, datasets, mu: float | None = None, *, model_names=None, references=None,
@@ -908,6 +979,7 @@ class GroupLassoProblem:
                 w = np.ones(self.m)
             self.weights.append(w)
             traces.append(None if norms2 is None else float(np.sum(w**2 * norms2)))
+        self._set_bounds(bounds)
         self._build_operators()
         if mu is None:
             # the mean non-zero eigenvalue of X^T X (M / min(N, M) for unit columns):
@@ -922,7 +994,7 @@ class GroupLassoProblem:
         self._build_solvers(range(self.n_models))
         self.setup_seconds = time.time() - t0
         self._linearize_at(None, first=True)
-        self._lambda1_max = float(np.max(group_norms(*self.Zt_b)))
+        self._lambda1_max = self._zero_threshold(self.Zt_b)
         self._zt_b_ref = [z.copy() for z in self.Zt_b]
         self._ref_ops = list(self.ops)
         # cross-gradient normalization (fixed, from the reference model)
@@ -932,32 +1004,55 @@ class GroupLassoProblem:
                              f"(active) cells, the models {self.m}")
         self.w_median = [float(np.median(w)) for w in self.weights]
         self._cg_factors = None
-        self.scaled_bounds = self._scaled_bounds(bounds)
 
     # -- setup helpers -------------------------------------------------------
 
-    def _scaled_bounds(self, bounds):
-        """``bounds`` in the scaled variables: zeta = (m - reference) x factor / weight."""
-        if bounds is None:
-            return [None] * self.n_models
+    def _set_bounds(self, bounds):
+        """Physical bounds -> bounds on the scaled variables (None when there are none)."""
+        self.bounds = None
+        self.box_lower = self.box_upper = None
+        if bounds is None or all(b is None or (b[0] is None and b[1] is None) for b in bounds):
+            return
+        bounds = [None if b is None else tuple(None if v is None else np.asarray(v, dtype=float)
+                                               for v in b) for b in bounds]
         if len(bounds) != self.n_models:
             raise ValueError(f"{len(bounds)} bounds for {self.n_models} models")
-        out = []
-        for p, b in enumerate(bounds):
-            lower, upper = b if b is not None else (None, None)
-            if lower is None and upper is None:
-                out.append(None)
-                continue
-            to_scaled = self.model_factors[p] / self.weights[p]
-            lo = np.full(self.m, -np.inf) if lower is None else \
-                (np.broadcast_to(np.asarray(lower, dtype=float), (self.m,)) - self.references[p]) * to_scaled
-            hi = np.full(self.m, np.inf) if upper is None else \
-                (np.broadcast_to(np.asarray(upper, dtype=float), (self.m,)) - self.references[p]) * to_scaled
-            if np.any(lo > hi):
-                raise ValueError(f"Lower bound above the upper bound ({self.model_names[p]})")
-            # the bounds at the reference (zeta = 0) make a cone: projected before the shrink
-            out.append((lo, hi, np.where(lo == 0, 0.0, -np.inf), np.where(hi == 0, 0.0, np.inf)))
-        return out
+        self.bounds = [None if b is None else tuple(b) for b in bounds]
+        lower, upper = [], []
+        for p, b in enumerate(self.bounds):
+            lo, hi = (None, None) if b is None else b
+            ref, factor = self.references[p], self.model_factors[p] / self.weights[p]
+            lo = None if lo is None else np.broadcast_to(np.asarray(lo, dtype=float), (self.m,))
+            hi = None if hi is None else np.broadcast_to(np.asarray(hi, dtype=float), (self.m,))
+            if lo is not None and hi is not None and np.any(lo >= hi):
+                raise ValueError(f"The lower bound of '{self.model_names[p]}' is not below the "
+                                 f"upper bound in {int(np.sum(lo >= hi))} cells")
+            # zeta = (m - ref) c / w (a bound at the reference is exactly 0)
+            lower.append(None if lo is None else (lo - ref) * factor)
+            upper.append(None if hi is None else (hi - ref) * factor)
+        self.box_lower, self.box_upper = lower, upper
+
+    def _box(self):
+        return (self.box_lower, self.box_upper) if self.bounds is not None else (None, None)
+
+    def _zero_feasible(self) -> bool:
+        """Whether the reference (zeta = 0) is within the bounds in every cell."""
+        if self.bounds is None:
+            return True
+        lo, hi = _box_arrays([np.zeros(self.m)] * self.n_models, *self._box())
+        return bool(all(np.all(l <= 0) and np.all(h >= 0) for l, h in zip(lo, hi)))
+
+    def _outward_free(self, c_list):
+        """``c_list`` without the components that point out of the bounds at zeta = 0."""
+        if self.bounds is None:
+            return c_list
+        lo, hi = _box_arrays(c_list, *self._box())
+        return [np.where(((l == 0) & (c < 0)) | ((h == 0) & (c > 0)), 0.0, c)
+                for c, l, h in zip(c_list, lo, hi)]
+
+    def _zero_threshold(self, zt_b) -> float:
+        """max_k ||(Z^T b)_k||, the components pointing out of the bounds left out."""
+        return float(np.max(group_norms(*self._outward_free(list(zt_b)))))
 
     def _jtj_diag(self, i, m):
         sim = self.datasets[i].simulation
@@ -986,8 +1081,13 @@ class GroupLassoProblem:
                                           factor_max_bytes, cg_rtol, cg_maxiter)
 
     def _physical_all(self, s_list):
-        return [self.references[p] + self.weights[p] * s / self.model_factors[p]
-                for p, s in enumerate(s_list)]
+        m = [self.references[p] + self.weights[p] * s / self.model_factors[p]
+             for p, s in enumerate(s_list)]
+        if self.bounds is not None:   # the round trip through the scaling can pass a bound by 1 ulp
+            m = [x if b is None else np.clip(x, -np.inf if b[0] is None else b[0],
+                                             np.inf if b[1] is None else b[1])
+                 for x, b in zip(m, self.bounds)]
+        return m
 
     def _linearize_at(self, s_list, first: bool = False, damping: float = 0.0):
         """Data b of the linearization at ``s_list`` (None: the reference model).
@@ -1192,7 +1292,10 @@ class GroupLassoProblem:
         With c_p = Z_p^T (b - Z s) - lambda3 dC/dzeta_p (at the current
         linearization, which for a nonlinear problem is the model it was last
         solved at): a cell with s_k != 0 needs c_k = lambda1 s_k / ||s_k|| +
-        lambda2 s_k; an empty cell ||c_k|| <= lambda1.
+        lambda2 s_k; an empty cell ||c_k|| <= lambda1.  With bounds the
+        difference may point out of the box where a component sits on a bound
+        (the normal cone: >= 0 on an upper, <= 0 on a lower bound), and an
+        empty cell's components that point out of the box at 0 do not count.
         """
         c = []
         for p, ds in enumerate(self.model_datasets):
@@ -1209,6 +1312,12 @@ class GroupLassoProblem:
         viol = np.zeros(self.m)
         d = [cp - lambda1 * np.divide(sp_, r, out=np.zeros_like(r), where=on) - lambda2 * sp_
              for cp, sp_ in zip(c, s_list)]
+        if self.bounds is not None:
+            lo, hi = _box_arrays(s_list, *self._box())
+            tol = [1e-10 * max(float(np.max(np.abs(x))), 1e-300) for x in s_list]
+            d = [np.where((x >= h - t) & (dx > 0), 0.0, np.where((x <= l + t) & (dx < 0), 0.0, dx))
+                 for x, l, h, t, dx in zip(s_list, lo, hi, tol, d)]
+            c = self._outward_free(c)
         viol[on] = group_norms(*[x[on] for x in d]) / scale
         viol[~on] = np.maximum(group_norms(*[x[~on] for x in c]) - lambda1, 0.0) / scale
         return float(viol.max()) if viol.size else 0.0
@@ -1234,8 +1343,9 @@ class GroupLassoProblem:
         # inexact ADMM: the coupled zeta systems are solved to a tolerance that
         # follows the primal residual (errors that shrink as ADMM converges)
         cg_rtol = 1e-3
-        lam_max = float(np.max(group_norms(*self.Zt_b)))
-        if coupling == "group" and lambda1 >= lam_max and prox is None:
+        lam_max = self._zero_threshold(self.Zt_b)
+        if coupling == "group" and lambda1 >= lam_max and prox is None \
+                and self._zero_feasible():
             # the exact solution is zero (see lambda1_max; the cross-gradient has a zero
             # gradient there too); nothing to iterate
             for a in st.zeta + st.s + st.u:
@@ -1263,13 +1373,7 @@ class GroupLassoProblem:
             for p in range(P):
                 s_old[p][:] = st.s[p]
                 np.subtract(st.zeta[p], st.u[p], out=q[p])
-            for p, b in enumerate(self.scaled_bounds):
-                if b is not None:        # sign constraints: project, then shrink (see ``bounds``)
-                    np.clip(q[p], b[2], b[3], out=q[p])
-            group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling)
-            for p, b in enumerate(self.scaled_bounds):
-                if b is not None:        # the other bounds: shrink, then clip
-                    np.clip(st.s[p], b[0], b[1], out=st.s[p])
+            group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling, *self._box())
             # 3. dual update
             for p in range(P):
                 st.u[p] += st.s[p] - st.zeta[p]
@@ -1557,6 +1661,8 @@ class JointGroupLassoProblem(GroupLassoProblem):
             X^T X and Y^T Y (M / min(N, M) with unit columns).
         solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
         mesh, active_cells: for the cross-gradient (see :class:`GroupLassoProblem`).
+        bounds: [(lower, upper) of the susceptibility, (lower, upper) of the
+            density], see :class:`GroupLassoProblem`.
 
     Memory: the operators are used as given (no weighted copies); the
     Cholesky solver adds one min(N, M)^2 float64 matrix per method, CG none.
@@ -1567,7 +1673,7 @@ class JointGroupLassoProblem(GroupLassoProblem):
                  gamma: float = 2.0, magnetic_weights=None, gravity_weights=None,
                  data_scaling="max_ratio", std_f=None, std_g=None, solver: str = "auto",
                  factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
-                 cg_maxiter: int = 500, mesh=None, active_cells=None):
+                 cg_maxiter: int = 500, mesh=None, active_cells=None, bounds=None):
         K, G = magnetic_operator, gravity_operator
         if K.shape[1] != G.shape[1]:
             raise ValueError(f"The operators have {K.shape[1]} and {G.shape[1]} cells; "
@@ -1584,7 +1690,8 @@ class JointGroupLassoProblem(GroupLassoProblem):
             model_weights=None if magnetic_weights is None and gravity_weights is None
             else [magnetic_weights, gravity_weights],
             data_scaling=data_scaling, solver=solver, factor_max_bytes=factor_max_bytes,
-            cg_rtol=cg_rtol, cg_maxiter=cg_maxiter, mesh=mesh, active_cells=active_cells)
+            cg_rtol=cg_rtol, cg_maxiter=cg_maxiter, mesh=mesh, active_cells=active_cells,
+            bounds=bounds)
 
     # the paper's names
     f = property(lambda self: self.datasets[0].data)

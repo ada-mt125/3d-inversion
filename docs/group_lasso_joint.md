@@ -44,7 +44,7 @@ sparse inversions, nor as λ(‖β‖₁ + ‖ρ‖₁): those have no coupling 
 | ζ-update as two independent systems (XᵀX + μI)β = Xᵀf + μ(s_β + u_β), same for ρ | `_DataSpaceCholesky`, `_ModelSpaceCholesky`, `_ConjugateGradient` |
 | s-update: group soft threshold sₖ = μ/(μ + λ2) · max(1 − λ1/(μ‖qₖ‖), 0) · qₖ, q = ζ − u | `group_shrink` |
 | λ2 fixed first, λ1 from the L-curve of log10(misfit) against log10(group penalty) | `lcurve`, `plot_lcurve` |
-| No bounds or non-negativity in this version | — |
+| Bounds (e.g. susceptibility ≥ 0) — an addition, not in the paper | `bounds`, `_group_shrink_box` (below) |
 
 ## Engineering choices (not from the paper)
 
@@ -220,9 +220,30 @@ conductor (log₁₀σ −1.3 in the body for −1, −2.00 outside) and never i
 the objective; the cross-gradient matches SimPEG, lowers C monotonically in
 λ3 and is unit-free.
 
+## Bounds
+
+`GroupLassoProblem(..., bounds=[(lower, upper) per model])`: scalars, per-cell arrays or None,
+in each model's physical units.  With m = ref + w ζ / c (w, c > 0) they are a box on ζ, and the
+box goes into the s update, which stays exact: per cell it minimizes
+μ/2‖s − q‖² + λ1‖s‖ + ½λ2‖s‖² over lo ≤ s ≤ hi.  With a = μ + λ2, q′ = μq/a and κ = λ1/a the
+minimizer (unique, the problem is strictly convex) is 0, when the box holds 0 and ‖q″‖ ≤ κ (q″
+without the components that point out of the box at 0, e.g. a negative susceptibility against a
+lower bound of 0), or s(r) = clip(q′ r/(r + κ), lo, hi) at the one root of r = ‖s(r)‖, found by
+bisection over the cells at once.  So ADMM keeps two blocks, the same μ, factors and stopping;
+no bounds, the same code as before.  λ1,max counts only the components of Zᵀb that point into the
+box; the KKT check allows the normal cone of the box; a box without the reference (lower bound
+above it) has no empty cells.  Checked (tests/test_group_lasso.py, TestExactBounds) against a
+numerical minimum per cell (four boxes, one without 0), and against FISTA with the same bounded
+step on the test problem with χ ≥ 0, 0 ≤ ρ ≤ 0.2 (upper bound active): the same objective to
+10 digits, models within 2e-6 of the largest value, KKT residual 4e-7.
+
+Worker: a model's bounds are its first dataset's `joint_regularizations` bounds_lower /
+bounds_upper, else the task's `bounds_lower` / `bounds_upper`; the result's `group_lasso.bounds`
+lists them.  (Geology constraints, with per-cell bounds, apply to single inversions only.)
+
 ## Not in this version
 
-Bounds / non-negativity, spatial smoothness, adaptive μ or over-relaxation,
+Spatial smoothness, adaptive μ or over-relaxation,
 uncertainty estimates; the upload page has no controls for model labels (the pipeline
 accepts them) and offers the group lasso for gravity + magnetics; its λ3 is a manual
 setting of the Inversion step.

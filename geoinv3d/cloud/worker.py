@@ -917,24 +917,29 @@ def _group_lasso_problem(task: InversionTask, mesh):
         if refs[p] is None:
             refs[p] = np.full(n_params, float(method.default_model_value))
     dmesh = mesh.to_discretize() if task.gl_cross_gradient > 0 else None
-    # each model's bounds: those of its first dataset (joint_regularizations), else the task's
-    bounds = [None] * len(names)
-    for i, model in enumerate(model_labels):
-        p = names.index(model)
-        if bounds[p] is None:
-            over = (task.joint_regularizations[i] if task.joint_regularizations
-                    and i < len(task.joint_regularizations) else None) or {}
-            bounds[p] = (over.get("bounds_lower", task.bounds_lower),
-                         over.get("bounds_upper", task.bounds_upper))
-    if all(b == (None, None) for b in bounds):
-        bounds = None
-    else:
-        print("[Group lasso] bounds: " + ", ".join(f"{n} {b[0]}..{b[1]}" for n, b in zip(names, bounds)))
+    bounds = group_lasso_bounds(task, model_labels, names)
+    if any(b != (None, None) for b in bounds):
+        print("[Group lasso] bounds: " + ", ".join(
+            f"{n} {'per cell' if np.ndim(b[0]) else b[0]}..{'per cell' if np.ndim(b[1]) else b[1]}"
+            for n, b in zip(names, bounds)))
     problem = GroupLassoProblem(
         datasets, task.gl_mu, model_names=names, references=refs, gamma=task.gl_gamma,
         data_scaling=task.gl_data_scaling, mesh=dmesh,
         active_cells=active if dmesh is not None else None, bounds=bounds)
     return problem, setups, model_labels, dataset_labels
+
+
+def group_lasso_bounds(task: InversionTask, model_labels, names):
+    """(lower, upper) of each group-lasso model: its first dataset's
+    joint_regularizations bounds_lower / bounds_upper, else the task's."""
+    overrides = task.joint_regularizations or []
+    bounds = []
+    for name in names:
+        i = model_labels.index(name)
+        over = dict(overrides[i] or {}) if i < len(overrides) else {}
+        bounds.append((over.get("bounds_lower", task.bounds_lower),
+                       over.get("bounds_upper", task.bounds_upper)))
+    return bounds
 
 
 def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
@@ -1078,6 +1083,11 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
         "criterion": criterion, "lambda1": result.lambda1, "lambda2": lam2, "mu": problem.mu,
         "lambda1_max": lam_max, "lambda1_lcurve": lam_lcurve, "lambda1_discrepancy": lam_disc,
         "data_scaling": task.gl_data_scaling, "data_scales": scales,
+        "bounds": ({name: [None if v is None else float(v) if np.ndim(v) == 0 else "per cell"
+                           for v in b]
+                    for name, b in zip(problem.model_names, problem.bounds)
+                    if b is not None and (b[0] is not None or b[1] is not None)}
+                   if problem.bounds is not None else {}),
         "gamma": task.gl_gamma, "solver": problem.solver_name,
         "admm_iterations": result.n_iterations, "admm_converged": result.converged,
         "n_active_cells": result.n_active, "chi2": chi2_final,
@@ -2229,6 +2239,14 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 notes.append("The group lasso balances the two datasets by its data scaling "
                              f"(gl_data_scaling='{task.gl_data_scaling}'); joint_weights are not "
                              "applied")
+            if task.bounds_lower is not None or task.bounds_upper is not None:
+                notes.append("The bounds apply to every model of the group lasso "
+                             "(per dataset: its regularization's bounds_lower / bounds_upper)")
+            unused = sorted({k for r in (task.joint_regularizations or []) if r for k in r}
+                            - {"bounds_lower", "bounds_upper"})
+            if unused:
+                notes.append("The group lasso uses only the bounds of a dataset's regularization; "
+                             f"{unused} are not applied")
             if task.beta_selection not in ("auto", "discrepancy"):
                 notes.append("The group lasso chooses lambda1 by gl_lambda1_selection="
                              f"'{task.gl_lambda1_selection}'; beta_selection is not applied")
