@@ -259,8 +259,11 @@ class TestPipelinePlumbing:
         t, mesh = capture["task"], capture["mesh"]
 
         locs = t.station_locations
-        np.testing.assert_allclose(locs[:, 2], _dem_values(locs[:, 0], locs[:, 1]) + 2.0,
-                                   atol=1e-6)
+        # 2 m above the ground, or on top of the ground cell a station would be inside of
+        lift = locs[:, 2] - (_dem_values(locs[:, 0], locs[:, 1]) + 2.0)
+        lifted = result["topography"]["stations_lifted"]["gravity"]
+        assert lift.min() > -1e-6 and (lift > 1e-6).sum() == lifted["n"]
+        assert lift.max() == pytest.approx(lifted["max_m"], abs=0.06)
         cc = mesh.to_discretize().cell_centers
         ground = _dem_values(cc[:, 0], cc[:, 1])
         np.testing.assert_array_equal(t.active_cells, cc[:, 2] < ground)
@@ -268,7 +271,8 @@ class TestPipelinePlumbing:
         top = mesh.origin[2] + mesh.hz.sum()
         assert top >= _dem_values(XS[-1], 0) - 1e-6  # mesh reaches the highest ground
         assert result["topography"] == {"source": "dem", "file": "dem.asc",
-                                         "elevation_min": 50.0, "elevation_max": 110.0}
+                                         "elevation_min": 50.0, "elevation_max": 110.0,
+                                         "stations_lifted": {"gravity": lifted}}
         assert result["n_active_cells"] == int(t.active_cells.sum())
 
     def test_point_dem_and_station_elevations_kept(self, tmp_path, capture):

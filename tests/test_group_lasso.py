@@ -1034,3 +1034,51 @@ class TestWorkerGeneral:
         task.joint_surveys, task.joint_kwargs_list = surveys[:2], [{}, {"component": "gzz"}]
         with pytest.raises(ValueError, match="at least two models"):
             execute_task(task)
+
+
+class TestBounds:
+    """Bounds of the group lasso: projection before the group shrink (field data need them)."""
+
+    def _problem(self, small, bounds):
+        K, G, f, g, _ = small
+        return gl.GroupLassoProblem(
+            [gl.GroupLassoData("magnetic", f, 0, 0.02 * abs(f).max(), operator=K),
+             gl.GroupLassoData("gravity", g, 1, 0.02 * abs(g).max(), operator=G)],
+            data_scaling="std", bounds=bounds)
+
+    def test_models_stay_inside_their_bounds(self, small):
+        free = self._problem(small, None)
+        lam1 = 0.02 * free.lambda1_max()
+        a = free.solve(lam1, 0.3, max_iter=3000)
+        chi, rho = a.models_physical
+        assert chi.min() < 0                            # the unbounded susceptibility goes negative
+        top = 0.6 * rho.max()                           # an upper bound that is active
+        p = self._problem(small, [(0.0, None), (0.0, top)])
+        b = p.solve(lam1, 0.3, max_iter=3000)
+        chi_b, rho_b = b.models_physical
+        assert chi_b.min() >= 0 and rho_b.min() >= 0 and rho_b.max() <= top * (1 + 1e-12)
+        assert (chi_b > 0).any() and np.isclose(rho_b.max(), top)
+
+    def test_inactive_bounds_change_nothing(self, small):
+        free = self._problem(small, None)
+        lam1 = 0.05 * free.lambda1_max()
+        a = free.solve(lam1, 0.3, max_iter=3000)
+        wide = self._problem(small, [(-10.0, 10.0), (-100.0, 100.0)]).solve(lam1, 0.3, max_iter=3000)
+        for x, y in zip(a.models_physical, wide.models_physical):
+            np.testing.assert_allclose(y, x, rtol=0, atol=1e-10 * abs(x).max())
+
+    def test_sign_constraint_is_the_exact_proximal_step(self):
+        # prox of lam ||s|| + indicator(s >= 0) at q is the group shrink of max(q, 0):
+        # check against a brute-force minimum over a grid
+        q = np.array([[0.9], [-0.6]])
+        lam, mu = 0.3, 1.0
+        s = gl.group_shrink_many([np.maximum(q[0], 0), np.maximum(q[1], 0)], lam, 0.0, mu)
+        grid = np.linspace(0, 1.5, 601)
+        a, b = np.meshgrid(grid, grid, indexing="ij")
+        cost = lam * np.hypot(a, b) + 0.5 * mu * ((a - q[0]) ** 2 + (b - q[1]) ** 2)
+        i, j = np.unravel_index(np.argmin(cost), cost.shape)
+        assert s[0][0] == pytest.approx(grid[i], abs=3e-3) and s[1][0] == pytest.approx(grid[j], abs=3e-3)
+
+    def test_crossed_bounds_are_refused(self, small):
+        with pytest.raises(ValueError, match="bound"):
+            self._problem(small, [(0.1, 0.0), None])

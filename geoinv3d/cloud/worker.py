@@ -917,10 +917,23 @@ def _group_lasso_problem(task: InversionTask, mesh):
         if refs[p] is None:
             refs[p] = np.full(n_params, float(method.default_model_value))
     dmesh = mesh.to_discretize() if task.gl_cross_gradient > 0 else None
+    # each model's bounds: those of its first dataset (joint_regularizations), else the task's
+    bounds = [None] * len(names)
+    for i, model in enumerate(model_labels):
+        p = names.index(model)
+        if bounds[p] is None:
+            over = (task.joint_regularizations[i] if task.joint_regularizations
+                    and i < len(task.joint_regularizations) else None) or {}
+            bounds[p] = (over.get("bounds_lower", task.bounds_lower),
+                         over.get("bounds_upper", task.bounds_upper))
+    if all(b == (None, None) for b in bounds):
+        bounds = None
+    else:
+        print("[Group lasso] bounds: " + ", ".join(f"{n} {b[0]}..{b[1]}" for n, b in zip(names, bounds)))
     problem = GroupLassoProblem(
         datasets, task.gl_mu, model_names=names, references=refs, gamma=task.gl_gamma,
         data_scaling=task.gl_data_scaling, mesh=dmesh,
-        active_cells=active if dmesh is not None else None)
+        active_cells=active if dmesh is not None else None, bounds=bounds)
     return problem, setups, model_labels, dataset_labels
 
 
@@ -1895,6 +1908,36 @@ def _active_below_surface(dmesh, surface) -> np.ndarray:
     return cc[:, 2] < surface(cc[:, 0], cc[:, 1])
 
 
+def _lift_buried_stations(dmesh, active, locations: np.ndarray) -> dict | None:
+    """Move stations that lie inside active (ground) cells to the top of their column.
+
+    The ground of the mesh is a staircase of cells: a station at its true elevation can
+    sit inside the top cell of its column, where part of that cell's rock is above it and
+    pulls the wrong way.  ``locations`` (n, 3) is changed in place; returns
+    {"n": lifted, "max_m", "mean_m"} or None when no station was inside the ground.
+    """
+    lift = np.zeros(len(locations))
+    todo = np.arange(len(locations))
+    for _ in range(64):                      # one cell per pass: never more than the relief
+        try:
+            idx = np.atleast_1d(dmesh.point2index(locations[todo]))
+        except Exception:                    # stations outside the mesh: leave them
+            break
+        inside = active[idx]
+        if not inside.any():
+            break
+        todo, idx = todo[inside], idx[inside]
+        top = dmesh.cell_centers[idx, 2] + 0.5 * dmesh.h_gridded[idx, 2]
+        new = top + 1e-3 * dmesh.h_gridded[idx, 2]
+        lift[todo] += new - locations[todo, 2]
+        locations[todo, 2] = new
+    moved = lift > 0
+    if not moved.any():
+        return None
+    return {"n": int(moved.sum()), "max_m": round(float(lift.max()), 1),
+            "mean_m": round(float(lift[moved].mean()), 1)}
+
+
 def _jsonable(obj):
     """Convert numpy containers to plain Python for json.dumps."""
     if isinstance(obj, dict):
@@ -1983,8 +2026,10 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 "order": k} (trend surface); default none.
             topography: {file: DEM name} or {flat_elevation: metres}.
                 Stations without an elevation are placed on the surface
-                (+ station_height, default 0 m); with a DEM, cells above
-                the surface are inactive.
+                (+ station_height, default 0 m; a dataset's own
+                station_height overrides it); with a DEM, cells above
+                the surface are inactive, and stations inside the staircase
+                of ground cells are moved up to the top of their column.
             param_mode: "auto" (defaults; manual-only keys are ignored) or
                 "manual" (norms, alpha_*, beta0_ratio, cooling_factor,
                 max_iter, max_irls_iterations, use_preconditioner, bounds_*).
@@ -2053,10 +2098,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
 
     # ── Topography and station elevations ──
     surface, topo_info, has_dem = _load_topography(params, data_dir, crs, datasets)
-    station_height = float(params.get("station_height", 0.0))
-    for ds in datasets:
+    for ds, spec in zip(datasets, specs):
         if ds.extent_points is not None:   # MT / DC: elevations are part of the data
             continue
+        # above the ground: per dataset (a flight height), else the job's value
+        station_height = float(spec.get("station_height", params.get("station_height", 0.0)))
         missing = np.isnan(ds.locations[:, 2])
         if missing.any():
             ds.locations[missing, 2] = (
@@ -2101,6 +2147,20 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         if not active.any():
             raise ValueError("No mesh cells lie below the topography surface")
     n_params = int(active.sum()) if active is not None else mesh.n_cells
+    # Stations cannot be underground: those inside the staircase of ground cells go to
+    # the top of their column (MT / DC stations are part of their own geometry)
+    lifts = {}
+    if active is not None:
+        for ds in datasets:
+            if ds.extent_points is None:
+                lifted = _lift_buried_stations(dmesh, active, ds.locations)
+                if lifted:
+                    lifts[ds.method] = lifted
+                    print(f"[Pipeline] {ds.method}: {lifted['n']} of {len(ds.locations)} stations "
+                          f"were inside ground cells and moved up to the top of their column "
+                          f"(by {lifted['mean_m']:g} m on average, at most {lifted['max_m']:g} m)")
+    if lifts:
+        topo_info["stations_lifted"] = lifts
     print(f"[Pipeline] {mesh_type} mesh: {mesh.n_cells} cells "
           f"({n_params} active), {n_data} observations, "
           f"topography: {topo_info['source']}")
@@ -2169,9 +2229,6 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 notes.append("The group lasso balances the two datasets by its data scaling "
                              f"(gl_data_scaling='{task.gl_data_scaling}'); joint_weights are not "
                              "applied")
-            if task.bounds_lower is not None or task.bounds_upper is not None:
-                notes.append("The group lasso is unconstrained (first version): bounds are "
-                             "not applied")
             if task.beta_selection not in ("auto", "discrepancy"):
                 notes.append("The group lasso chooses lambda1 by gl_lambda1_selection="
                              f"'{task.gl_lambda1_selection}'; beta_selection is not applied")

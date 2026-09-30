@@ -9,3 +9,17 @@ examples/output/**/models.npz
 
 # raw survey inputs copied in by example scripts (not ours to redistribute)
 examples/output/karnataka_gravity/geology/data/
+
+# the launcher's own viewers (each study builds one viewer of all its runs)
+examples/output/ec2_runs/
+# Karnataka with terrain: workflows and viewers (25-30 MB each) are rebuilt from the results
+# by scripts/build_workflow.py
+examples/output/karnataka_gravity_terrain/*.geoinv3d.json
+examples/output/karnataka_gravity_terrain/*_viewer.html
+examples/output/karnataka_magnetic/*.geoinv3d.json
+examples/output/karnataka_magnetic/*_viewer.html
+examples/output/karnataka_joint/*.geoinv3d.json
+examples/output/karnataka_joint/*_viewer.html
+# leftovers of unfinished local tests (30 September)
+examples/output/karnataka_joint/figures_test/
+examples/output/karnataka_joint/data/lowres_runs/log_g*.txt

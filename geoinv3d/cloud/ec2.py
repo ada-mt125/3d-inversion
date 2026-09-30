@@ -44,7 +44,7 @@ REMOTE = "/opt/geoinv3d"
 PYTHON_VERSION = "3.13"
 # The versions tested locally; the instance installs exactly these.
 PINNED_PACKAGES = ("numpy==2.3.3 scipy==1.16.2 simpeg==0.25.2 discretize==0.12.0 "
-                   "numba==0.67.0 rasterio==1.5.0")
+                   "numba==0.67.0 rasterio==1.5.0 scikit-learn==1.8.0")   # scikit-learn: PGI
 PHASE_STATUS = {
     "launching": "STARTING", "bootstrapping": "STARTING", "uploading": "STARTING",
     "running": "RUNNING", "finishing": "RUNNING",
@@ -330,6 +330,12 @@ class EC2Backend:
             return self._with_status(fields)
 
         inst = self._instance(job_id)
+        if inst is None and phase == "launching" \
+                and self.clock() * 1000 - record.get("created", 0) < 120_000:
+            # describe_instances may not know an instance launched seconds ago (with several
+            # launches at once two of eight were reported gone and left running untracked)
+            fields["progress"] = {"stage": "launching"}
+            return self._with_status(fields)
         state = inst["State"]["Name"] if inst else "terminated"
         fields["instance_state"] = state
         if state in ("terminated", "shutting-down") and phase not in TERMINAL_PHASES:

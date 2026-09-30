@@ -98,7 +98,11 @@ class TestPipeline:
         locs = result["data"]["locations"]
         ex, ey = project(lon, lat, "EPSG:4326", "EPSG:32643")
         np.testing.assert_allclose(np.sort(locs[:, 0]), np.sort(ex), atol=1e-3)
-        np.testing.assert_allclose(np.sort(locs[:, 2]), np.sort(elev), atol=1e-6)
+        # ... except those inside the staircase of ground cells, moved to the top of their column
+        lifted = result["topography"]["stations_lifted"]["gravity"]
+        kept = np.abs(locs[:, 2][:, None] - elev[None, :]).min(axis=1) < 1e-3
+        assert (~kept).sum() == lifted["n"] and 0 < lifted["n"] < len(elev) // 4
+        assert lifted["max_m"] <= SMALL["core_cell_z_m"] and locs[~kept, 2].min() > elev.min()
         # the mesh follows the ground: cells above it are inactive
         assert result["active_cells"].sum() < result["n_cells"]
 
@@ -113,7 +117,7 @@ class TestPipeline:
         m3 = next(n for n in wf["nodes"] if n["type"] == "RegularizedInversionNode")["output"]["model_3d"]
         assert len(m3["surface"]["z"]) == len(m3["surface"]["y"]) == 101
         assert max(max(r) for r in m3["surface"]["z"]) == pytest.approx(elev.max(), abs=30)
-        np.testing.assert_allclose(sorted(m3["stations"]["z"]), np.sort(elev), atol=0.05)
+        np.testing.assert_allclose(sorted(m3["stations"]["z"]), np.sort(locs[:, 2]), atol=0.05)
         z_top = max(m3["z_edges"])
         n_relief = int(np.ceil((z_top - elev.min()) / 500.0))
         assert m3["nz"] >= 3000 / 500 + n_relief - 1   # core plus the relief layers
@@ -137,7 +141,8 @@ class TestPipeline:
         assert result["crs"] == "EPSG:32643" and result["topography"]["source"] == "dem"
         # grid nodes draped on the ground from the projected station elevations
         z = result["data"]["locations"][:, 2]
-        assert 500 - 1 < z.min() and z.max() < 800 + 1 and np.ptp(z) > 100
+        # on the ground, or on top of the ground cell a station would be inside of
+        assert 500 - 1 < z.min() and z.max() < 800 + 1 + SMALL["core_cell_z_m"] and np.ptp(z) > 100
 
     def test_geographic_dem_with_utm_data(self, tmp_path):
         """An SRTM-like DEM in EPSG:4326 is sampled in its own coordinates; the job stays in UTM."""
@@ -161,7 +166,9 @@ class TestPipeline:
         locs = result["data"]["locations"]
         expect = 300 + 1000 * (lon - LON0)
         order_got, order_exp = np.argsort(locs[:, 0]), np.argsort(ex)
-        np.testing.assert_allclose(locs[order_got, 2], expect[order_exp], atol=3.0)
+        lift = locs[order_got, 2] - expect[order_exp]
+        top = (result["topography"].get("stations_lifted") or {}).get("gravity", {"max_m": 0.0})["max_m"]
+        assert lift.min() > -3.0 and lift.max() < 3.0 + top
 
     def test_lonlat_needs_a_crs_only_when_nothing_gives_one(self, tmp_path):
         lon, lat, elev, gz = _stations_lonlat()
@@ -169,3 +176,38 @@ class TestPipeline:
         # stated explicitly: used as given
         result = run_data_pipeline(_params(["s.csv"], crs="EPSG:32643"), str(tmp_path))
         assert result["crs"] == "EPSG:32643" and result["data"]["locations"][:, 0].min() > 1e5
+
+
+class TestStationsAboveTheGround:
+    """Stations inside the staircase of ground cells, and per-dataset receiver heights."""
+
+    def _mesh(self):
+        import discretize
+        mesh = discretize.TensorMesh([np.full(4, 100.0), np.full(4, 100.0), np.full(6, 50.0)], origin=(0, 0, 0))
+        cc = mesh.cell_centers
+        ground = 120.0 + 0.4 * cc[:, 0]                  # a slope: 120 m to 280 m
+        return mesh, cc[:, 2] < ground
+
+    def test_buried_stations_go_to_the_top_of_their_column(self):
+        from geoinv3d.cloud.worker import _lift_buried_stations
+        mesh, active = self._mesh()
+        # column x in 0-100: ground cells up to z = 150 (centres 25, 75, 125 < 140)
+        locs = np.array([[50.0, 50.0, 140.0],            # inside the cell 100-150: lifted to 150
+                         [50.0, 150.0, 151.0],           # above the staircase: kept
+                         [350.0, 50.0, 30.0]])           # deep inside: lifted through all ground cells
+        info = _lift_buried_stations(mesh, active, locs)
+        assert info["n"] == 2 and info["max_m"] == pytest.approx(250.0 - 30.0, abs=0.1)
+        assert locs[0, 2] == pytest.approx(150.0, abs=0.1) and locs[1, 2] == 151.0
+        assert locs[2, 2] == pytest.approx(250.0, abs=0.1)
+        assert not active[mesh.point2index(locs)].any()
+        assert _lift_buried_stations(mesh, active, locs) is None     # nothing left to move
+
+    def test_a_dataset_has_its_own_height_above_the_ground(self, tmp_path):
+        x, y = np.meshgrid(np.arange(8) * 1000.0 + 500000.0, np.arange(8) * 1000.0 + 1600000.0)
+        x, y = x.ravel(), y.ravel()
+        gz = 5 * np.exp(-((x - x.mean()) ** 2 + (y - y.mean()) ** 2) / 4e6)
+        _write_table(tmp_path / "grav.csv", ["x", "y", "gz"], np.column_stack([x, y, gz]))
+        params = _params(["grav.csv"], topography={"flat_elevation": 300.0}, station_height=2.0)
+        params["datasets"][0]["station_height"] = 80.0
+        result = run_data_pipeline(params, str(tmp_path))
+        np.testing.assert_allclose(result["data"]["locations"][:, 2], 380.0)

@@ -814,13 +814,21 @@ class GroupLassoProblem:
         solver: "auto", "cholesky" or "cg" (see :func:`make_solver`).
         mesh, active_cells: the models' mesh (discretize) and cells, for the
             cross-gradient; None: no cross-gradient.
+        bounds: per model, (lower, upper) in the operators' units (each None, a number
+            or one value per cell), or None for an unbounded model.  ADMM's s-update
+            then projects onto the bounds that lie at the reference (a sign constraint,
+            e.g. susceptibility >= 0) before the group shrink, which is the exact
+            proximal step for them, and clips to the other bounds after it (exact for
+            one model, a close approximation within a group).
+            Without bounds, field data with wide padding put unphysical values in the
+            cells the data barely see (21 g/cc in the Karnataka test).
     """
 
     def __init__(self, datasets, mu: float | None = None, *, model_names=None, references=None,
                  sensitivity_weighting: bool = True, gamma: float = 2.0, model_weights=None,
                  data_scaling="auto", solver: str = "auto",
                  factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
-                 cg_maxiter: int = 500, mesh=None, active_cells=None):
+                 cg_maxiter: int = 500, mesh=None, active_cells=None, bounds=None):
         self.datasets = list(datasets)
         if not self.datasets:
             raise ValueError("A group-lasso problem needs at least one dataset")
@@ -924,8 +932,32 @@ class GroupLassoProblem:
                              f"(active) cells, the models {self.m}")
         self.w_median = [float(np.median(w)) for w in self.weights]
         self._cg_factors = None
+        self.scaled_bounds = self._scaled_bounds(bounds)
 
     # -- setup helpers -------------------------------------------------------
+
+    def _scaled_bounds(self, bounds):
+        """``bounds`` in the scaled variables: zeta = (m - reference) x factor / weight."""
+        if bounds is None:
+            return [None] * self.n_models
+        if len(bounds) != self.n_models:
+            raise ValueError(f"{len(bounds)} bounds for {self.n_models} models")
+        out = []
+        for p, b in enumerate(bounds):
+            lower, upper = b if b is not None else (None, None)
+            if lower is None and upper is None:
+                out.append(None)
+                continue
+            to_scaled = self.model_factors[p] / self.weights[p]
+            lo = np.full(self.m, -np.inf) if lower is None else \
+                (np.broadcast_to(np.asarray(lower, dtype=float), (self.m,)) - self.references[p]) * to_scaled
+            hi = np.full(self.m, np.inf) if upper is None else \
+                (np.broadcast_to(np.asarray(upper, dtype=float), (self.m,)) - self.references[p]) * to_scaled
+            if np.any(lo > hi):
+                raise ValueError(f"Lower bound above the upper bound ({self.model_names[p]})")
+            # the bounds at the reference (zeta = 0) make a cone: projected before the shrink
+            out.append((lo, hi, np.where(lo == 0, 0.0, -np.inf), np.where(hi == 0, 0.0, np.inf)))
+        return out
 
     def _jtj_diag(self, i, m):
         sim = self.datasets[i].simulation
@@ -1231,7 +1263,13 @@ class GroupLassoProblem:
             for p in range(P):
                 s_old[p][:] = st.s[p]
                 np.subtract(st.zeta[p], st.u[p], out=q[p])
+            for p, b in enumerate(self.scaled_bounds):
+                if b is not None:        # sign constraints: project, then shrink (see ``bounds``)
+                    np.clip(q[p], b[2], b[3], out=q[p])
             group_shrink_many(q, lambda1, lambda2, mu, st.s, coupling)
+            for p, b in enumerate(self.scaled_bounds):
+                if b is not None:        # the other bounds: shrink, then clip
+                    np.clip(st.s[p], b[0], b[1], out=st.s[p])
             # 3. dual update
             for p in range(P):
                 st.u[p] += st.s[p] - st.zeta[p]

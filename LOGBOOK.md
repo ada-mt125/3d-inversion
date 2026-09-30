@@ -1079,3 +1079,72 @@ value solved by ADMM.  Report, figure rows, coupling label and workflow names no
 ADMM, no coupling; 3. group lasso, ADMM (the pairing is the coupling).  The report's cross-gradient section was dropped: with
 40 cycles the cross-gradient gains 20–90 %.  make_report_pdf.py prints the report to report/coupling_comparison_report.pdf
 (A4, headless Chrome/Edge; block layout in print, since Chrome overlapped grid rows across page breaks).
+
+
+## 2026-09-30 (afternoon) — Karnataka with terrain: gravity again, magnetics, joint
+
+**Inputs (examples/output/karnataka_inputs/prepare_inputs.py).**  Copernicus GLO-90 DEM (6 tiles,
+Desktop/karnataka_ap_gravity/DEM; DEM − NGPM station height +1.5 ± 4.5 m).  Terrain correction at the
+3,269 stations in and around the AOI (methods/terrain.py: polar integration over the DEM's bilinear
+surface within ~0.5 km, 90 m prisms to 4.7 km, 450 m and 1.8 km vertical lines to 50 km, mean h and
+mean h² in the coarse cells; ring plateaus within 3 % of the analytic hollow cylinder; flat prisms next
+to the station counted the step to the neighbouring cell as a slab, 0.17 mGal on a 10 % slope).
+Median 0.10 mGal, 77 stations > 1 mGal, max 6.7 on the Sandur ridge tops; gridded by thin-plate spline
+and added to the NGPM grid at its 1 km nodes (the inverted anomaly changes by −0.7…+6.0 mGal).  TMI
+(37.5 m grid, flown 80 m above the ground): 18 % of the variance is at wavelengths < 2 km, so the grid
+is continued upwards by 920 m (methods/continuation.py) before sampling at 1 km (0.07 % left);
+receivers 1 km above the 450 m-mean DEM.
+
+**Pipeline.**  Stations inside the staircase of ground cells move to the top of their column
+(`_lift_buried_stations`; result topography.stations_lifted; 1,900 of 5,040 gravity stations, 72 m on
+average with 250 m layers); a dataset's own `station_height`; EC2: a just-launched instance that
+describe_instances does not know yet is "launching", not "terminated" (2 of 8 parallel launches were
+dropped and left running; terminated by hand); ec2_multi_run --parallel / --collect, waits at the vCPU
+limit; scikit-learn on the instances (PGI).  Group lasso: `bounds` per model (sign constraints
+projected before the group shrink = the exact proximal step, other bounds clipped after it); without
+them the 2 km Karnataka test gave 21.9 g/cc in padding cells.  tests: test_terrain.py (16),
+TestStationsAboveTheGround, TestBounds.
+
+**Gravity with terrain (karnataka_gravity_terrain; 8 runs on c5.4xlarge, 4.5–8.5 min, $0.67).**
+84×84×50 cells of 1 km × 250 m, 335,518 below the ground.  Main-body centroid below the ground: β 0.5 /
+L1–L2 / 1 / 1.5 = 3.1 / 3.6 / 5.4 / 7.7 km (flat earth: 3.4 / 3.8 / 5.6 / 7.6): the depth follows the
+regularization as before.  Steps at β = 1: 250 m layers 5.6 km, ground in the mesh 5.4, terrain
+correction 5.4; the correction adds dense rock in the top kilometre under the ridges (up to +0.15
+g/cc·km), a continuous dense line along the south-western ridge.  Integrated density vs flat earth
+0.97–1.00.
+
+**Magnetics (karnataka_magnetic; 13 runs, 12.6–15.4 min, $2.11).**  5 % + 10 nT, susceptibility 0–1 SI,
+IGRF 2020 (42,100 nT, 19.3°, −1.4° grid).  Share of susceptibility × volume below the 10 km core:
+β 0.5 / 1 / L1–L2 8–10 %, β 1.5 45 %, β 2 70 %, β 3 82 %, sensitivity weighting 63 %: the textbook β = 3
+fills the bottom padding.  Sandur belt centroid 0.8 / 2.1 / 2.8 (L1–L2) / 2.9 / 3.7 / 5.6 km.  Every
+model underfits the high south of the belt (> 150 nT at 57–113 nodes, < −150 nT at 0–3): remanence
+likely.  Tests at β = 1: α_s 0.1, 500 m continuation and a flat earth give the same model at 5 km
+(0.95–0.98); bound 0.3 SI the same product in 4× the volume; 2 % + 5 nT is reachable (RMS 16 nT);
+without continuation χ²/N 1.45 and a smeared model.  Integrated susceptibility vs integrated density:
+0.24 column by column; the magnetic sheets rim the dense belt.
+
+**Joint inversion (karnataka_joint; 7 runs on c5.9xlarge / c5.18xlarge, $10.4; stopped early on the
+user's request).**  Each model as in its single inversion (sparse, α_s 1, β 1, bounds); weight 1.
+Uncoupled = the single inversions (0.97 / 0.94 cell by cell).  Cross-gradient: measure
+Σ|∇ρ×∇χ|² / Σ|∇ρ|²|∇χ|² 0.43 → 0.07, but only 2 % of the susceptibility edges lie on a density edge
+(30 % uncoupled): it is satisfied by keeping the edges apart; susceptibility becomes a smooth shell.
+JTV: 44 % shared edges, gravity χ²/N 1.26 (target not reached in 44 it).  Linear correspondence
+(ρ = 0.5 χ): density pulled up to 0–3.5 km, 46 % below the core, both fits 1.12.  PGI (iron formation /
+greenstone / light granite, our values): stopped at it 43 of 60 (68 min, 1.4–1.6 min per it), fits
+1.10 / 1.18, half of both models outside the core (it weights by sensitivity, not by depth).  Group
+lasso (paper settings, with the new bounds): 28 min set-up + ~5 min per λ1 on 72 cores, stopped at λ1
+9 of 13 (χ²/N 2.1 / 6.9); 96 % of magnetic cells dense too (35 % in the uncoupled control), 69 % of χ
+below the core.  2 km study (local): group lasso without bounds −0.67…21.9 g/cc; with bounds gravity
+0.40 / magnetics 2.86 (error weighting + discrepancy: 0.38 / 2.62), > 80 % of χ outside the core.
+
+**Open (see the joint report, Section 5).**  Group lasso: per-dataset balance, a weighting that keeps
+the model in the core (γ = 0.5 / 1 / 1.5 tests on the 2 km mesh were started and stopped; settings
+in joint_params.py), a shorter λ1 path at full resolution.  PGI: run to the end, depth weighting,
+measured units.  JTV: more iterations.  Magnetics: remanence (systematic residual south of the
+Sandur belt).  Not committed: the workflow viewers (25–30 MB each; scripts/build_workflow.py).
+
+**Another machine.**  examples/output/karnataka_inputs/README.md: the prepared inputs are in the
+repository; `deploy/ec2_multi_run.py <case> --local --collect DIR` runs a case without AWS.
+AWS this afternoon: about $17, all instances terminated (checked: no instance or volume left).
+Tests: test_terrain, test_topography, test_data_pipeline, test_coupling, test_ec2_backend,
+test_joint_* (131) and test_group_lasso (59) pass; the full suite was last run before these changes.
