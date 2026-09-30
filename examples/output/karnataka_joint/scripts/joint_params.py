@@ -25,12 +25,24 @@ MAGNETIC_REG = {"regularization_type": "sparse", "norms": [0, 2, 2, 2], "alpha_s
 # background, the lightest granite (2.52) is -0.14.  With the +0.5 bound above, half the dense
 # cells of the uncoupled model sit at the bound, which then sets the belt's thickness.
 DENSITY_BOUNDS = {"rho30": (-0.15, 0.30), "rho35": (-0.15, 0.35), "rho40": (-0.15, 0.40)}
+# The 2 km variants of the models' own regularization (run_lowres.py --bounds KEY): the density
+# bounds above, and with the +0.35 bound the depth weighting beta of the gravity model alone
+# (gb05) or of both models (b05).  The belt crops out, while with beta = 1 the dense body
+# starts 2-3 km below the ground.
+VARIANTS = {**{k: {"density_bounds": b} for k, b in DENSITY_BOUNDS.items()},
+            "rho35_gb05": {"density_bounds": DENSITY_BOUNDS["rho35"], "betas": (0.5, 1.0)},
+            "rho35_b05": {"density_bounds": DENSITY_BOUNDS["rho35"], "betas": (0.5, 0.5)}}
 
 
-def base(core_cell_m=1000.0, core_cell_z_m=250.0, decimate=None, density_bounds=None):
+def base(core_cell_m=1000.0, core_cell_z_m=250.0, decimate=None, density_bounds=None, betas=None):
+    """The joint run; ``density_bounds`` = (lower, upper) and ``betas`` = the depth weighting
+    exponents (gravity, magnetics) replace those of the models' regularizations."""
     thin = {"decimate_spacing_m": decimate} if decimate else {}
-    gravity_reg = GRAVITY_REG if density_bounds is None else {
-        **GRAVITY_REG, "bounds_lower": density_bounds[0], "bounds_upper": density_bounds[1]}
+    gravity_reg, magnetic_reg = dict(GRAVITY_REG), dict(MAGNETIC_REG)
+    if density_bounds is not None:
+        gravity_reg.update(bounds_lower=density_bounds[0], bounds_upper=density_bounds[1])
+    if betas is not None:
+        gravity_reg["depth_weighting_exponent"], magnetic_reg["depth_weighting_exponent"] = betas
     return {
         "method_type": "joint", "inversion_mode": "joint", "crs": "EPSG:32643",
         "datasets": [
@@ -39,7 +51,7 @@ def base(core_cell_m=1000.0, core_cell_z_m=250.0, decimate=None, density_bounds=
              "regularization": gravity_reg, **thin},
             {"method": "magnetics", "files": ["magnetic_1km.csv"], "component": "tmi",
              "method_kwargs": {"inducing_field": FIELD}, "noise_pct": 0.05, "noise_floor": 10.0,
-             "regional": {"method": "polynomial", "order": 2}, "regularization": MAGNETIC_REG, **thin}],
+             "regional": {"method": "polynomial", "order": 2}, "regularization": magnetic_reg, **thin}],
         "joint_weights": [1.0, 1.0],
         "topography": {"file": "dem_utm43n_450m.tif"}, "mesh_type": "tensor",
         "core_cell_m": core_cell_m, "core_cell_z_m": core_cell_z_m, "depth_core_m": 10000.0,

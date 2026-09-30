@@ -21,7 +21,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(ROOT.parents[2]))
 sys.path.insert(0, str(HERE))
 from geoinv3d.cloud.worker import pack_result, result_metadata_json, run_data_pipeline   # noqa: E402
-from joint_params import COUPLINGS, DENSITY_BOUNDS, base   # noqa: E402
+from joint_params import COUPLINGS, VARIANTS, base   # noqa: E402
 
 INPUTS = ROOT.parent / "karnataka_inputs"
 
@@ -37,7 +37,7 @@ def main():
         args = args[2:]
     if out is None:
         out = ROOT / "data" / ("lowres_runs" if bounds is None else f"lowres_bounds/{bounds}")
-    density_bounds = None if bounds is None else DENSITY_BOUNDS[bounds]
+    variant = {} if bounds is None else VARIANTS[bounds]
     tag = "" if bounds is None else f"-{bounds}"
     for name in args or list(COUPLINGS):
         dest = out / name
@@ -45,7 +45,7 @@ def main():
             continue
         dest.mkdir(parents=True, exist_ok=True)
         t = time.time()
-        params = {**base(2000.0, 500.0, decimate=2000, density_bounds=density_bounds),
+        params = {**base(2000.0, 500.0, decimate=2000, **variant),
                   **COUPLINGS[name], "task_id": f"karnataka-joint-2km{tag}-{name}"}
         result = run_data_pipeline(params, str(INPUTS))
         pack_result(result, str(dest / "result.zip"))

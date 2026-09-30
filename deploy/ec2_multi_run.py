@@ -219,7 +219,8 @@ KARNATAKA_MAGNETIC = {
 # Joint gravity + magnetics over the same area and mesh: one run per coupling (parameters in
 # examples/output/karnataka_joint/scripts/joint_params.py, shared with the local 2 km study)
 sys.path.insert(0, str(REPO / "examples" / "output" / "karnataka_joint" / "scripts"))
-from joint_params import COUPLINGS as _JOINT_COUPLINGS, base as _joint_base   # noqa: E402
+from joint_params import COUPLINGS as _JOINT_COUPLINGS, VARIANTS as _JOINT_VARIANTS   # noqa: E402
+from joint_params import base as _joint_base   # noqa: E402
 
 KARNATAKA_JOINT = {
     "files": [_KI / "gravity_complete_1km.csv", _KI / "magnetic_1km.csv", _KI / "dem_utm43n_450m.tif"],
@@ -227,6 +228,11 @@ KARNATAKA_JOINT = {
     "variants": {name: (extra, "c5.18xlarge" if name.startswith("group_lasso") else "c5.9xlarge")
                  for name, extra in _JOINT_COUPLINGS.items()},
 }
+# no coupling and JTV with the models' regularization of a joint_params.VARIANTS entry (the
+# density bounds of the rock samples, the depth weighting): e.g. "joint_total_variation_rho35_gb05"
+KARNATAKA_JOINT["variants"].update({
+    f"{c}_{key}": ({**_JOINT_COUPLINGS[c], "datasets": _joint_base(**v)["datasets"]}, "c5.9xlarge")
+    for c in ("none", "joint_total_variation") for key, v in _JOINT_VARIANTS.items()})
 CASES = {"karnataka-gravity": KARNATAKA_GRAVITY, "synthetic-magnetic": SYNTHETIC_MAGNETIC,
          "karnataka-gravity-terrain": KARNATAKA_GRAVITY_TERRAIN,
          "karnataka-magnetic": KARNATAKA_MAGNETIC, "karnataka-joint": KARNATAKA_JOINT}
