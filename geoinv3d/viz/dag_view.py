@@ -82,6 +82,16 @@ def _label_for(node: Node) -> str:
         if cg:
             parts.append(f"cross_grad={cg}")
         parts.append(f"iter={p.get('max_iter', '?')}")
+    elif node_type == "JointRegularizedInversionNode":
+        parts.append(f"methods={'+'.join(p.get('method_types', []))}")
+        coupling = p.get("coupling") or ("group_lasso" if p.get("regularization_type") == "group_lasso"
+                                         else "cross_gradient" if p.get("cross_gradient_weight") else "none")
+        weight = p.get("coupling_weight", p.get("cross_gradient_weight"))
+        parts.append(f"coupling={coupling}" + (f" ({weight})" if weight and coupling not in
+                                               ("none", "pgi", "group_lasso") else ""))
+        if coupling not in ("group_lasso", "pgi"):
+            parts.append(f"reg={p.get('regularization_type', '?')}")
+        parts.append(f"iter={p.get('max_iter', '?')}")
     else:
         for key in ("method_type", "value", "factor", "offset", "weight",
                     "alpha_s", "max_iter"):

@@ -6,3 +6,6 @@ build/
 dist/
 .venv/
 examples/output/**/models.npz
+
+# raw survey inputs copied in by example scripts (not ours to redistribute)
+examples/output/karnataka_gravity/geology/data/

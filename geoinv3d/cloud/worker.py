@@ -141,8 +141,14 @@ def _single_problem(task: InversionTask, mesh, sim=None):
         if len(m0) != n_active:
             m0 = np.full(n_active, float(method.default_model_value))
 
-    # the reference model: the method's background (0, or log sigma for MT / DC)
+    # the reference model: the task's (e.g. from geology constraints), else the method's
+    # background (0, or log sigma for MT / DC)
     reference = np.full(len(m0), float(method.default_model_value))
+    if task.reference_model is not None:
+        if len(task.reference_model) != len(m0):
+            raise ValueError(f"reference_model has {len(task.reference_model)} values for "
+                             f"{len(m0)} active cells")
+        reference = np.asarray(task.reference_model, dtype=float)
     if kind == "smooth":
         reg_kwargs = dict(
             alpha_s=effective_alpha_s(task, length_scales=False),
@@ -150,6 +156,8 @@ def _single_problem(task: InversionTask, mesh, sim=None):
             alpha_y=task.alpha_y,
             alpha_z=task.alpha_z,
         )
+        if task.reference_model is not None:
+            reg_kwargs["reference_model"] = reference
     elif kind == "l1l2":
         reg_kwargs = dict(l1_ratio=task.l1_ratio, reference_model=reference)
     else:
@@ -184,18 +192,41 @@ def _single_problem(task: InversionTask, mesh, sim=None):
     }[kind](dmesh, **reg_kwargs)
     if depth_weighting == "depth" and kind in ("l2", "sparse", "mgs", "tv"):
         reg.set_weights(depth=_depth_weights(task, dmesh))
+    if task.smallness_weights is not None:
+        # how strongly each cell is pulled to the reference (geology constraints): on the
+        # smallness terms only, so the smoothness terms keep their usual weights
+        smallness = [o for o in getattr(reg, "objfcts", [reg])
+                     if isinstance(o, regularization.Smallness)]
+        if not smallness:
+            raise ValueError(f"The {kind} regularization has no smallness term to weight")
+        for term in smallness:
+            term.set_weights(geology=np.asarray(task.smallness_weights, dtype=float))
+    if task.smoothness_labels is not None:
+        # sharp boundaries: faces between cells of different labels get a small smoothness
+        # weight, so the model may jump there (ModEM's covariance "tears")
+        labels = np.asarray(task.smoothness_labels)
+        if len(labels) != len(m0):
+            raise ValueError(f"smoothness_labels has {len(labels)} values for {len(m0)} cells")
+        for term in getattr(reg, "objfcts", [reg]):
+            if isinstance(term, regularization.SmoothnessFirstOrder):
+                term.set_weights(geology=_face_breaks(term, labels, task.smoothness_break_factor))
 
     lo = hi = None
+    bounded = any(v is not None for v in (task.bounds_lower, task.bounds_upper,
+                                          task.cell_lower, task.cell_upper))
     if kind == "smooth":
         opt = optimization.InexactGaussNewton(maxIter=task.max_iter, cg_maxiter=20)
-    elif task.bounds_lower is not None or task.bounds_upper is not None:
-        lo = task.bounds_lower if task.bounds_lower is not None else -np.inf
-        hi = task.bounds_upper if task.bounds_upper is not None else np.inf
+    elif bounded:
+        # per-cell bounds (geology constraints) where given, else the job's
+        lo = np.asarray(task.cell_lower, dtype=float) if task.cell_lower is not None \
+            else (task.bounds_lower if task.bounds_lower is not None else -np.inf)
+        hi = np.asarray(task.cell_upper, dtype=float) if task.cell_upper is not None \
+            else (task.bounds_upper if task.bounds_upper is not None else np.inf)
         # A start exactly on a bound (e.g. m0 = 0 with lower = 0) leaves every
         # cell in ProjectedGNCG's active set and the model never moves, so
         # start just inside the bounds.
-        span = hi - lo
-        nudge = 1e-4 * span if np.isfinite(span) else 1e-4
+        span = np.asarray(hi, dtype=float) - np.asarray(lo, dtype=float)
+        nudge = np.where(np.isfinite(span), 1e-4 * span, 1e-4)
         m0 = np.clip(m0, lo + nudge, hi - nudge)
         # The CG tolerances the deprecated tolCG=1e-4 set, which differ by class in SimPEG
         # 0.25: absolute 1e-4 (relative 0) for ProjectedGNCG, relative 1e-4 for
@@ -409,9 +440,9 @@ def _selection_point(p, inv_prob, m) -> dict:
     if G is not None:
         J = np.asarray(G, dtype=float) * (1.0 / p.dmis.data.standard_deviation)[:, None]
         free = None
-        if p.lo is not None:
-            span = p.hi - p.lo if np.isfinite(p.hi - p.lo) else 1.0
-            tol = 1e-8 * span
+        if p.lo is not None:   # scalar or per-cell bounds
+            span = np.asarray(p.hi, dtype=float) - np.asarray(p.lo, dtype=float)
+            tol = 1e-8 * np.where(np.isfinite(span), span, 1.0)
             free = (m > p.lo + tol) & (m < p.hi - tol)
         trace = influence_trace(J, reg.deriv2(m) / 2.0, point["beta"], free=free)
         point["trace_A"] = trace
@@ -584,18 +615,35 @@ def run_l1l2_cda(task: InversionTask, mesh=None) -> dict:
             callback(SimpleNamespace(iteration=i + 1, phi_d=chi2, beta=lam,
                                      extra={"max_iter": n_lambdas, "sweeps": sweeps}))
 
+    # A reference model (geology constraints) makes the elastic net act on the deviation
+    # from it: invert d - G m_ref for m - m_ref, with the bounds shifted the same way.
+    # (Its per-cell weights have no place in the coordinate descent: use l1l2_solver="irls".)
+    lower = task.cell_lower if task.cell_lower is not None else task.bounds_lower
+    upper = task.cell_upper if task.cell_upper is not None else task.bounds_upper
+    data = task.observed_data
+    ref = None
+    if task.reference_model is not None:
+        ref = np.asarray(task.reference_model, dtype=float)
+        data = data - np.asarray(G, dtype=float) @ ref
+        lower = None if lower is None else np.asarray(lower, dtype=float) - ref
+        upper = None if upper is None else np.asarray(upper, dtype=float) - ref
+        if task.smallness_weights is not None:
+            print("[L1–L2 CDA] Note: the geology weights are not used by the coordinate "
+                  "descent (its reference model and bounds are)")
     res, scale = invert_l1l2(
-        np.asarray(G), task.observed_data, task.l1_ratio,
+        np.asarray(G), data, task.l1_ratio,
         weighting=task.l1l2_weighting, model_unit=model_unit, std=task.data_std,
-        criterion=criterion, lower=task.bounds_lower, upper=task.bounds_upper,
+        criterion=criterion, lower=lower, upper=upper,
         n_decades=task.lambda_decades, step=task.lambda_step,
         fallback=task.beta_selection == "auto", callback=on_point, should_stop=stop_requested,
     )
+    if ref is not None:
+        res.model = res.model + ref
     path = res.path
     chi2 = res.chi2
     iterations = []
     for i, (lam, beta) in enumerate(zip(path.lambdas, path.betas)):
-        m = beta / (scale * model_unit)
+        m = beta / (scale * model_unit) + (0.0 if ref is None else ref)
         iterations.append({
             "iteration": i,
             "phi_d": float(chi2[i]),
@@ -744,9 +792,10 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
     depth weighting, bounds and per-model overrides; any other
     regularization_type keeps the original joint path (WeightedLeastSquares
     with alpha_s and alpha_x/y/z as length scales, BetaSchedule cooling).
-    task.cross_gradient_weight > 0 couples the models structurally.  Beta
-    follows the discrepancy principle (chi^2 = N); L-curve / GCV sweeps are
-    single-method.
+    The models are coupled as ``task.coupling`` says (cross-gradient, joint total
+    variation, linear correspondence, PGI or none; see methods/coupling.py) with the
+    unit-free ``coupling_weight``.  Beta follows the discrepancy principle (chi^2 = N);
+    L-curve / GCV sweeps are single-method.
     """
     from ..methods.joint import JointInversion
 
@@ -758,7 +807,9 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
         max_iter=task.max_iter,
         beta0_ratio=task.beta0_ratio,
         cooling_factor=task.cooling_factor,
-        cross_gradient_weight=task.cross_gradient_weight,
+        coupling=task.coupling,
+        coupling_weight=task.effective_coupling_weight,
+        coupling_options=task.coupling_options,
         reg_kwargs=dict(
             alpha_s=effective_alpha_s(task),
             length_scale_x=task.alpha_x,
@@ -801,9 +852,11 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
         **stopped,
         "task_id": task.task_id,
         "methods": [canonical_method(m) for m in task.joint_methods],
-        "regularization": "joint_L2" if joint.legacy
+        "regularization": "joint_pgi" if joint.coupling == "pgi" else "joint_L2" if joint.legacy
         else "joint_" + (labels[0] if len(labels) == 1 else "mixed"),
-        "cross_gradient_weight": task.cross_gradient_weight,
+        "coupling": result.extras["coupling"],
+        **({"pgi": result.extras["pgi"]} if "pgi" in result.extras else {}),
+        "cross_gradient_weight": joint.cross_gradient_weight,
         "converged": result.converged,
         "n_iterations": len(iterations),
         "iterations": iterations,
@@ -904,9 +957,12 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
     lam_max = problem.lambda1_max()
     lam2 = float(task.gl_lambda2)
     lam3 = float(task.gl_cross_gradient)
+    if task.gl_coupling not in ("group", "none"):
+        raise ValueError(f"gl_coupling must be 'group' or 'none', got '{task.gl_coupling}'")
     solve_kw = dict(max_iter=int(task.gl_max_iter), tol_primal=float(task.gl_tol),
                     tol_dual=float(task.gl_tol), history_every=10, cross_gradient=lam3,
-                    gn_max_iter=int(task.gl_gn_max_iter), gn_tol=float(task.gl_gn_tol))
+                    gn_max_iter=int(task.gl_gn_max_iter), gn_tol=float(task.gl_gn_tol),
+                    coupling=task.gl_coupling)
     scales = {d.name: (float(sc) if np.ndim(sc) == 0 else "per datum")
               for d, sc in zip(problem.datasets, problem.scales)}
     print(f"[Group lasso] {len(problem.model_names)} models {problem.model_names}, "
@@ -1048,7 +1104,22 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
         "dataset_labels": list(dataset_labels),
         "joint_data": joint_data,
         "group_lasso": info,
+        "coupling": _group_lasso_coupling(task, problem.model_names),
     }
+
+
+def _group_lasso_coupling(task: InversionTask, model_names) -> dict:
+    """The coupling record of a group-lasso run; with a cross-gradient it is the hybrid."""
+    from ..methods.coupling import COUPLINGS, coupling_label
+    hybrid = task.gl_cross_gradient > 0
+    key = "group_lasso+cross_gradient" if hybrid else "group_lasso"
+    if task.gl_coupling == "none":   # the control: the same solver, no coupling
+        key = "group_lasso_uncoupled"
+    return {"kind": key, "label": coupling_label(key), "family": "sparsity",
+            "reference": COUPLINGS["group_lasso"].reference
+            + ("; the cross-gradient (λ3) is our extension" if hybrid else ""),
+            "models": list(model_names), "lambda2": task.gl_lambda2,
+            **({"lambda3": task.gl_cross_gradient} if hybrid else {})}
 
 
 def execute_task(task: InversionTask, mesh=None) -> dict:
@@ -1059,7 +1130,7 @@ def execute_task(task: InversionTask, mesh=None) -> dict:
             it is built from the task's mesh fields.
     """
     if task.joint_methods:
-        if task.regularization_type == "group_lasso":
+        if task.coupling == "group_lasso":
             return run_group_lasso_joint(task, mesh)
         return run_joint_inversion(task, mesh)
     if task.regularization_type == "group_lasso":
@@ -1083,7 +1154,7 @@ _DEFAULT_COMPONENT = {"gravity": "gz", "magnetics": "tmi"}
 _MANUAL_KEYS = (
     "norms", "alpha_s", "alpha_x", "alpha_y", "alpha_z", "beta0_ratio",
     "cooling_factor", "use_preconditioner",
-    "bounds_lower", "bounds_upper", "joint_weights", "cross_gradient_weight",
+    "bounds_lower", "bounds_upper", "joint_weights", "cross_gradient_weight", "coupling_weight",
     "l1_ratio", "beta_selection", "beta_sweep",
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
@@ -1122,6 +1193,7 @@ class PipelineDataset:
     spacing_kind: str = ""            # "grid" or "points"
     regional: dict | None = None      # summary of the removed regional field
     trend: np.ndarray | None = None   # the removed regional field at the stations
+    bouguer_check: dict | None = None  # per station table: reduction density, terrain correction
     # observed (file convention) x sign = SimPEG convention; see _simpeg_sign
     sign: float = 1.0
     decimation: dict | None = None    # how the data were thinned (target spacing, per file)
@@ -1173,22 +1245,28 @@ def thin_points(xy: np.ndarray, spacing: float, origin=None) -> np.ndarray:
 
 
 def _read_observations(path: str, component: str, stride: int, aoi,
-                       target_spacing: float | None = None) -> tuple:
+                       target_spacing: float | None = None, crs: str | None = None) -> tuple:
     """Read one data file -> (locations (n, 3), values (n,), metadata).
 
     Gridded files give stations at the grid nodes with unknown elevation
-    (z = NaN); point files keep their z if present.  ``aoi`` = [west, east,
-    south, north] crops both.  ``target_spacing`` (m) thins grids by whole
+    (z = NaN); point files keep their z if present.  Point files in
+    longitude/latitude are projected to ``crs``, the job's working CRS (see
+    :func:`_job_crs`), before anything else.  ``aoi`` = [west, east, south,
+    north] (m) crops both.  ``target_spacing`` (m) thins grids by whole
     strides per axis and points to one per cell (see :func:`thin_points`);
     without it, grids use ``stride``.  ``metadata["decimation"]`` records
     what was done.
     """
+    from ..io.crs import GEOGRAPHIC, looks_geographic, project
     from ..io.readers import GridData, detect_format, read_auto, read_station_table
 
     name = os.path.basename(path)
     fmt = detect_format(path)
     if fmt in _GRID_FORMATS:
         grid = read_auto(path)
+        if crs and grid.crs and grid.crs != crs:
+            raise ValueError(f"'{name}' is in {grid.crs} but the job works in {crs}: "
+                             "reproject the grid, or give the job's 'crs'")
         x, y, values = grid.x, grid.y, grid.values
         if aoi:
             west, east, south, north = aoi
@@ -1232,12 +1310,21 @@ def _read_observations(path: str, component: str, stride: int, aoi,
     if locs.shape[1] == 2:
         locs = np.column_stack([locs, np.full(len(locs), np.nan)])
     values = np.asarray(points.values, dtype=np.float64)
+    projected = None
+    if looks_geographic(locs[:, 0], locs[:, 1]):
+        if not crs:
+            raise ValueError(f"'{name}' is in longitude/latitude; give the job's 'crs'")
+        locs[:, 0], locs[:, 1] = project(locs[:, 0], locs[:, 1], GEOGRAPHIC, crs)
+        projected = {"from": GEOGRAPHIC, "to": crs}
+        print(f"[Pipeline] {name}: projected from longitude/latitude to {crs}")
     if aoi:
         west, east, south, north = aoi
         keep = ((locs[:, 0] >= west) & (locs[:, 0] <= east)
                 & (locs[:, 1] >= south) & (locs[:, 1] <= north))
         locs, values = locs[keep], values[keep]
     meta = dict(points.metadata)
+    if projected:
+        meta["projected"] = projected
     if target_spacing:
         n_before = len(locs)
         origin = (aoi[0], aoi[2]) if aoi else None
@@ -1309,7 +1396,52 @@ def _dataset_specs(params: dict, data_dir: str, exclude: set) -> list:
     }]
 
 
-def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> PipelineDataset:
+def _job_crs(params: dict, data_dir: str, specs: list, topo_file: str | None) -> str | None:
+    """The job's working CRS: ``params["crs"]``, else that of its first georeferenced
+    grid (data or DEM), else the UTM zone of its longitude/latitude station tables,
+    else None (all coordinates already in metres).  See io/crs.py."""
+    from ..io.crs import looks_geographic, working_crs
+    from ..io.readers import detect_format, read_station_table
+
+    names = [f for s in specs for f in (s.get("files") or ([s["file"]] if s.get("file") else []))]
+    if topo_file:
+        names.append(topo_file)
+    grid_crs, lonlat, geographic_grids = [], [], []
+    for fname in names:
+        path = os.path.join(data_dir, fname)
+        if not os.path.exists(path):
+            continue
+        fmt = detect_format(path)
+        try:
+            if fmt == "geotiff":
+                import rasterio
+                with rasterio.open(path) as src:   # a geographic grid (e.g. SRTM) cannot be it
+                    projected = src.crs is not None and not src.crs.is_geographic
+                    grid_crs.append(str(src.crs) if projected else None)
+                    if src.crs is not None and src.crs.is_geographic:
+                        b = src.bounds
+                        geographic_grids.append(((b.left + b.right) / 2, (b.bottom + b.top) / 2))
+            elif fmt == "csv":
+                pts = read_station_table(path)
+                if looks_geographic(pts.locations[:, 0], pts.locations[:, 1]):
+                    lonlat.append((pts.locations[:, 0], pts.locations[:, 1]))
+        except Exception:   # unreadable here: the loaders report it properly
+            continue
+    crs = working_crs(grid_crs, lonlat, params.get("crs"))
+    if crs is None and geographic_grids:
+        # data in metres with no CRS, and a longitude/latitude DEM (e.g. SRTM): the data
+        # lie on the DEM, so take the UTM zone of its centre
+        from ..io.crs import utm_crs
+        crs = utm_crs([geographic_grids[0][0]], [geographic_grids[0][1]])
+        print(f"[Pipeline] Note: the DEM is in longitude/latitude and nothing else gives a "
+              f"CRS; the data are taken to be in {crs} (set 'crs' if not)")
+    if crs:
+        print(f"[Pipeline] Working coordinate system: {crs}")
+    return crs
+
+
+def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
+                  crs: str | None = None) -> PipelineDataset:
     """Load all files of one dataset spec and attach its noise model."""
     method = canonical_method(spec.get("method") or spec.get("type")
                               or params.get("method_type", "gravity"))
@@ -1349,7 +1481,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
     for fname in files:
         path = os.path.join(data_dir, fname)
         print(f"[Pipeline] Loading {method} ({component}) data from {fname}")
-        locs, values, meta = _read_observations(path, component, stride, aoi, target)
+        locs, values, meta = _read_observations(path, component, stride, aoi, target, crs)
         if meta.get("decimation"):
             thinning[fname] = meta["decimation"]
             print(f"[Pipeline] {fname}: thinned to {len(values)} data ({meta['decimation']})")
@@ -1398,7 +1530,27 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool) -> Pipe
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
         model=spec.get("model") or None,
         regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
+        bouguer_check=_bouguer_checks(files, data_dir) if method == "gravity" else None,
     )
+
+
+def _bouguer_checks(files, data_dir) -> dict | None:
+    """Reduction density and terrain correction of each gravity station table that has
+    the columns for it (see methods/bouguer.py); recorded with the run."""
+    from ..methods.bouguer import check_table
+
+    out = {}
+    for fname in files:
+        if not fname.lower().endswith((".csv", ".txt", ".xyz", ".dat")):
+            continue
+        try:
+            r = check_table(os.path.join(data_dir, fname))
+        except Exception as e:   # a diagnostic only: never fail the job for it
+            r = {"verdict": "unclear", "message": f"check failed: {e}"}
+        if r is not None:
+            out[fname] = r
+            print(f"[Pipeline] {fname}: {r['message']}")
+    return out or None
 
 
 def _nearest_spacing(points: np.ndarray) -> float | None:
@@ -1548,8 +1700,16 @@ def _point_surface(xyz: np.ndarray):
     return surface
 
 
-def _load_topography(params: dict, data_dir: str) -> tuple:
-    """Return (surface(x, y) -> z, info dict, has_dem)."""
+def _load_topography(params: dict, data_dir: str, crs: str | None = None,
+                     datasets: list | None = None) -> tuple:
+    """Return (surface(x, y) -> z, info dict, has_dem).
+
+    ``topography``: {"file": DEM grid or x, y, z points}, {"from_data": true} (the
+    elevations of the data's stations, e.g. a gravity station table with an elevation
+    column), or {"flat_elevation": z}.  A DEM in another CRS than the job's is sampled in
+    its own CRS; longitude/latitude points are projected to ``crs``.
+    """
+    from ..io.crs import GEOGRAPHIC, looks_geographic, project
     from ..io.readers import GridData, detect_format, read_auto, read_station_table
 
     topo = params.get("topography") or {}
@@ -1561,7 +1721,16 @@ def _load_topography(params: dict, data_dir: str) -> tuple:
         fmt = detect_format(path)
         print(f"[Pipeline] Loading topography from {fname}")
         if fmt in _GRID_FORMATS:
-            surface = _grid_surface(read_auto(path))
+            grid = read_auto(path)
+            surface = _grid_surface(grid)
+            if crs and grid.crs and grid.crs != crs:
+                native = surface
+
+                def surface(qx, qy, native=native, src=grid.crs):
+                    qx, qy = np.asarray(qx, dtype=float), np.asarray(qy, dtype=float)
+                    gx, gy = project(qx.ravel(), qy.ravel(), crs, src)
+                    return native(gx.reshape(qx.shape), gy.reshape(qy.shape))
+                print(f"[Pipeline] Topography is in {grid.crs}: sampled in its own coordinates")
         else:
             if fmt == "csv":
                 points = read_station_table(path)
@@ -1577,8 +1746,25 @@ def _load_topography(params: dict, data_dir: str) -> tuple:
             xyz = xyz[np.isfinite(xyz).all(axis=1)]
             if len(xyz) == 0:
                 raise ValueError(f"Topography '{fname}' has no valid x, y, z rows")
+            if looks_geographic(xyz[:, 0], xyz[:, 1]):
+                if not crs:
+                    raise ValueError(f"Topography '{fname}' is in longitude/latitude; give the "
+                                     "job's 'crs'")
+                xyz[:, 0], xyz[:, 1] = project(xyz[:, 0], xyz[:, 1], GEOGRAPHIC, crs)
             surface = _point_surface(xyz)
         return surface, {"source": "dem", "file": fname}, True
+
+    if topo.get("from_data"):
+        pts = [ds.locations for ds in (datasets or []) if ds.extent_points is None
+               and np.isfinite(ds.locations[:, 2]).any()]
+        xyz = np.vstack(pts) if pts else np.empty((0, 3))
+        xyz = xyz[np.isfinite(xyz).all(axis=1)]
+        if len(xyz) < 3:
+            raise ValueError("topography from_data: none of the data files gives station "
+                             "elevations (a z / elevation column)")
+        print(f"[Pipeline] Topography from the elevations of {len(xyz)} stations "
+              f"({xyz[:, 2].min():.0f}–{xyz[:, 2].max():.0f} m)")
+        return _point_surface(xyz), {"source": "stations", "n_points": int(len(xyz))}, True
 
     elevation = float(topo.get("flat_elevation", params.get("flat_elevation", 0.0)))
 
@@ -1650,6 +1836,57 @@ def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels
     tree.refine_surface(ground, padding_cells_by_level=list(levels), finalize=False)
     tree.finalize()
     return DiscretizeMesh(tree, name="octree")
+
+
+# The property geology constraints describe for each method's model
+GEOLOGY_PROPERTY = {"gravity": "density", "magnetics": "susceptibility",
+                    "mt": "resistivity", "dc_resistivity": "resistivity"}
+
+
+def _face_breaks(term, labels, factor: float) -> np.ndarray:
+    """Face weights of a first-order smoothness term: ``factor`` on the faces between cells
+    of different labels, 1 elsewhere."""
+    grad = getattr(term.regularization_mesh, f"cell_gradient_{term.orientation}").tocoo()
+    n_faces = grad.shape[0]
+    lo = np.full(n_faces, np.iinfo(np.int64).max)
+    hi = np.full(n_faces, np.iinfo(np.int64).min)
+    lab = np.asarray(labels, dtype=np.int64)[grad.col]
+    np.minimum.at(lo, grad.row, lab)
+    np.maximum.at(hi, grad.row, lab)
+    return np.where(hi > lo, float(factor), 1.0)
+
+
+def _apply_geology(spec: dict, task: InversionTask, dmesh, active, surface, data_dir: str, crs):
+    """Geology constraints (methods/geology.py) on the task: reference model, per-cell
+    bounds and smallness weights, and the start at the reference."""
+    from ..methods.geology import build_constraints
+
+    method = canonical_method(task.method_type)
+    prop = GEOLOGY_PROPERTY[method]
+    if spec.get("property", "density") != prop:
+        raise ValueError(f"The geology constraints are for {spec.get('property', 'density')}, "
+                         f"the {method} data for {prop}")
+    act = active if active is not None else np.ones(dmesh.n_cells, dtype=bool)
+    # cells no unit covers keep the method's background (0, or log sigma for MT / DC)
+    geo = build_constraints(spec, dmesh.cell_centers[act], dmesh.h_gridded[act] / 2.0, surface,
+                            data_dir, crs, (task.bounds_lower, task.bounds_upper),
+                            default_reference=float(_get_method(task).default_model_value))
+    task.reference_model = geo.reference
+    task.cell_lower, task.cell_upper = geo.lower, geo.upper
+    task.smallness_weights = geo.weights
+    task.smoothness_labels = geo.smoothness_labels()
+    task.smoothness_break_factor = float(spec.get("sharp_factor", 0.01))
+    span = geo.upper - geo.lower
+    nudge = np.where(np.isfinite(span), 1e-4 * span, 1e-4)
+    # the start at the reference: for MT / DC (non-linear) this is the starting model proper
+    task.initial_model = np.clip(geo.reference, geo.lower + nudge, geo.upper - nudge)
+    s = geo.summary()
+    show = (lambda u: f"{u['value_ohm_m']:.3g} ohm m [{u['lower_ohm_m']:.3g}, {u['upper_ohm_m']:.3g}]")         if prop == "resistivity" else         (lambda u: f"{u['value']:+.3g} [{u['lower']:+.3g}, {u['upper']:+.3g}]")
+    print(f"[Pipeline] Geology: {s['n_constrained']} of {s['n_cells']} cells constrained, "
+          f"{s['n_partial']} partly — "
+          + ", ".join(f"{u['name']} {show(u)} x{u['weight']:g} on {u['n_cells']}"
+                      + (" (sharp)" if u["sharp"] else "") for u in s["units"]))
+    return geo
 
 
 def _active_below_surface(dmesh, surface) -> np.ndarray:
@@ -1810,10 +2047,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     if mode == "joint" and len(specs) < 2:
         raise ValueError("Joint inversion needs at least two datasets")
 
-    datasets = [_load_dataset(s, params, data_dir, single=(mode == "single")) for s in specs]
+    crs = _job_crs(params, data_dir, specs, topo_file)
+    datasets = [_load_dataset(s, params, data_dir, single=(mode == "single"), crs=crs)
+                for s in specs]
 
     # ── Topography and station elevations ──
-    surface, topo_info, has_dem = _load_topography(params, data_dir)
+    surface, topo_info, has_dem = _load_topography(params, data_dir, crs, datasets)
     station_height = float(params.get("station_height", 0.0))
     for ds in datasets:
         if ds.extent_points is not None:   # MT / DC: elevations are part of the data
@@ -1865,6 +2104,13 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     print(f"[Pipeline] {mesh_type} mesh: {mesh.n_cells} cells "
           f"({n_params} active), {n_data} observations, "
           f"topography: {topo_info['source']}")
+    # The ground over the survey, for the record and for the viewer's 3D view
+    gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 101),
+                         np.linspace(extent[2], extent[3], 101))
+    ground = surface(gx, gy)
+    topo_info.update(elevation_min=round(float(np.min(ground)), 1),
+                     elevation_max=round(float(np.max(ground)), 1))
+    topography_grid = {"x": gx[0], "y": gy[:, 0], "z": ground} if has_dem else None
 
     # ── Inversion settings ──
     task_kwargs = {k: params[k] for k in _REG_PARAM_KEYS if params.get(k) is not None}
@@ -1891,13 +2137,23 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             raise ValueError(
                 f"joint_weights has {len(weights)} entries for {len(datasets)} datasets"
             )
-        xgrad = float(params.get("cross_gradient_weight", 1.0))
+        from ..methods.coupling import resolve
+        # the coupling: its own key, else as before (regularization_type "group_lasso", or
+        # the cross-gradient at cross_gradient_weight, 1 by default)
+        coupling = resolve(params.get("coupling"), common["regularization_type"],
+                           float(params.get("cross_gradient_weight", 1.0)))
+        if coupling == "group_lasso":
+            common["regularization_type"] = "group_lasso"
+        weight = params.get("coupling_weight", params.get("cross_gradient_weight", 1.0))
         task = InversionTask(
             method_type="joint",
             joint_methods=[ds.method for ds in datasets],
             joint_kwargs_list=[ds.method_kwargs for ds in datasets],
             joint_weights=weights,
-            cross_gradient_weight=xgrad,
+            joint_coupling=coupling,
+            coupling_weight=float(weight),
+            coupling_options=dict(params.get("coupling_options") or {}),
+            cross_gradient_weight=float(weight) if coupling == "cross_gradient" else 0.0,
             joint_models=[ds.model for ds in datasets] if any(ds.model for ds in datasets)
             else None,
             joint_regularizations=[ds.regularization for ds in datasets]
@@ -1908,7 +2164,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             ],
             **common,
         )
-        if task.regularization_type == "group_lasso":
+        if task.coupling == "group_lasso":
             if any(w != 1.0 for w in weights):
                 notes.append("The group lasso balances the two datasets by its data scaling "
                              f"(gl_data_scaling='{task.gl_data_scaling}'); joint_weights are not "
@@ -1926,7 +2182,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                              "single-method")
             notes.append("L1–L2 regularizes the model values only (no smoothness "
                          "term); norms and alpha_x/y/z are not used")
-        if task.regularization_type != "group_lasso":
+        if task.coupling == "pgi":
+            notes.append("PGI regularizes the models by its rock units and their smoothness; "
+                         f"regularization_type='{task.regularization_type}' and the coupling "
+                         "weight are not used")
+        if task.coupling != "group_lasso":
             if task.bounds_lower is not None or task.bounds_upper is not None:
                 notes.append("The bounds apply to every model of the joint inversion "
                              "(joint_regularizations sets them per dataset)")
@@ -1950,10 +2210,18 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         if task.regularization_type == "l1l2":
             notes.append("L1–L2 regularizes the model values only (no smoothness "
                          "term); norms and alpha_x/y/z are not used")
+    geology = None
+    if params.get("geology"):
+        if mode != "single":
+            notes.append("Geology constraints apply to single inversions in this version; "
+                         "they were not applied")
+        else:
+            geology = _apply_geology(params["geology"], task, dmesh, active, surface, data_dir, crs)
+            notes += geology.notes
     for note in notes:
         print(f"[Pipeline] Note: {note}")
 
-    group_lasso = task.regularization_type == "group_lasso"
+    group_lasso = mode == "joint" and task.coupling == "group_lasso"
     report("inverting", max_iter=task.gl_n_lambda1 if group_lasso else task.max_iter,
            phi_d_target=n_data, n_data=n_data, n_cells=n_params,
            regularization=task.regularization_type)
@@ -1979,18 +2247,25 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         "cell_centers_x": extent[:2],
         "cell_centers_y": extent[2:],
         "topography": topo_info,
+        "crs": crs,
         "datasets": [
             {"method": ds.method, "component": ds.component, "files": ds.files,
              "n_data": int(ds.observed.size), "noise_pct": ds.noise_pct,
              "noise_floor": ds.noise_floor, "regional": ds.regional,
              "gz_convention": ("positive_down" if ds.sign < 0 else "simpeg")
              if ds.method == "gravity" and ds.component == "gz" else None,
-             "decimation": ds.decimation}
+             "decimation": ds.decimation,
+             **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {})}
             for ds in datasets
         ],
     })
     if active is not None:
         result["active_cells"] = active
+    if topography_grid is not None:
+        result["topography_grid"] = topography_grid
+    if geology is not None:   # what was assumed, and the reference model itself (shown in 3D)
+        result["geology"] = geology.summary()
+        result["reference_model"] = geology.reference
     if mode != "joint":
         ds = datasets[0]
         result["data"] = {"locations": ds.data_locations, "observed": ds.observed,
@@ -2012,6 +2287,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     if group_lasso:
         result["settings"] = {"regularization_type": "group_lasso",
                               **{k: getattr(task, k) for k in GROUP_LASSO_KEYS}}
+        # the hybrid with a cross-gradient is a coupling of its own (not Utsugi's method)
+        result["settings"]["coupling"] = _group_lasso_coupling(task, [])["kind"]
     else:
         result["settings"] = {k: getattr(task, k) for k in (
             "regularization_type", "max_iter", "max_irls_iterations", "beta_selection",
@@ -2022,6 +2299,14 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             task, length_scales=task.regularization_type in ("l2", "sparse", "l1l2", "mgs", "tv")
             or mode == "joint")
         result["settings"]["norms"] = list(task.norms)
+        if mode == "joint":   # the first column of the workflow tree
+            result["settings"]["coupling"] = task.coupling
+            if task.coupling == "pgi":
+                result["settings"]["regularization_type"] = "pgi"
+            elif task.coupling != "none":
+                result["settings"]["coupling_weight"] = task.effective_coupling_weight
+    if geology is not None:   # a column of the workflow tree: runs with and without it
+        result["settings"]["geology"] = str(params["geology"].get("name") or "constrained")
 
     # How much of the recovered anomaly sits outside the core (in padding)?
     gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),
@@ -2059,7 +2344,7 @@ def result_metadata_json(result: dict) -> str:
     """result.json: everything in a result except the model arrays."""
     meta = {k: v for k, v in result.items()
             if k not in ("recovered_model", "recovered_models", "active_cells", "data",
-                         "joint_data", "predicted")}
+                         "joint_data", "predicted", "topography_grid", "reference_model")}
     return json.dumps(_jsonable(meta), indent=2, default=str)
 
 
@@ -2181,6 +2466,18 @@ def pack_result(result: dict, output_path: str) -> str:
             buf = io.BytesIO()
             np.savez(buf, **{k: np.asarray(v, dtype=float) for k, v in result["data"].items()})
             zf.writestr("data.npz", buf.getvalue())
+
+        if result.get("reference_model") is not None:   # geology constraints (active cells)
+            buf = io.BytesIO()
+            np.save(buf, np.asarray(result["reference_model"], dtype=float))
+            zf.writestr("reference_model.npy", buf.getvalue())
+
+        if result.get("topography_grid"):
+            # the ground over the survey (x, y axes and z on their grid), for the 3D view
+            buf = io.BytesIO()
+            np.savez(buf, **{k: np.asarray(v, dtype=float)
+                             for k, v in result["topography_grid"].items()})
+            zf.writestr("topography.npz", buf.getvalue())
 
         for name, data in (result.get("joint_data") or {}).items():
             # the same for each dataset of a joint run

@@ -38,13 +38,14 @@ def _round(a, digits=5):
 
 REG_LABELS = {"sparse": "sparse (IRLS)", "l1l2": "L1–L2", "l2": "smooth L2", "smooth": "smooth L2",
               "mgs": "MGS focusing", "tv": "total variation",
-              "group_lasso": "joint group lasso + L2"}
-REG_ORDER = ["sparse", "l1l2", "l2", "smooth", "mgs", "tv", "group_lasso"]
+              "group_lasso": "joint group lasso + L2", "pgi": "PGI (rock units + smoothness)"}
+REG_ORDER = ["sparse", "l1l2", "l2", "smooth", "mgs", "tv", "group_lasso", "pgi"]
 # how other settings are named in the tree
 SETTING_LABELS = {"gl_lambda1_selection": "λ1 by", "gl_lambda1": "λ1", "gl_lambda1_ratio": "λ1/λ1max",
                   "gl_mu": "μ", "gl_data_scaling": "data scaling", "gl_gamma": "γ",
                   "gl_n_lambda1": "λ1 points", "gl_lambda1_decades": "λ1 decades",
-                  "gl_max_iter": "ADMM max it", "gl_tol": "ADMM tol"}
+                  "gl_max_iter": "ADMM max it", "gl_tol": "ADMM tol", "geology": "geology",
+                  "coupling_weight": "coupling weight", "gl_cross_gradient": "λ3"}
 
 
 def _g(v) -> str:
@@ -73,6 +74,17 @@ def _norms(p):
 
 
 # Each level maps a run's settings to (sort key, node label, short form for the result card).
+def _coupling_level(s):
+    """How a joint run's models are coupled (methods/coupling.py); single runs: none."""
+    from ..methods.coupling import coupling_label
+    c = s.get("coupling")
+    if not c:
+        return (0, ""), "single inversion", "single"
+    label, w = coupling_label(c), s.get("coupling_weight")
+    weight = f" · w = {_g(w)}" if w is not None else ""   # the weight, where the coupling has one
+    return (1, c, w if w is not None else 0), f"coupling: {label}{weight}", f"{label}{weight}"
+
+
 def _reg_level(s):
     rt = s.get("regularization_type")
     label = REG_LABELS.get(rt, str(rt))
@@ -109,7 +121,8 @@ def _setting_level(key):
 
     def level(s):
         v = s.get(key)
-        return v, f"{name} = {_g(v)}", f"{name}={_g(v)}"
+        shown = "none" if v is None else _g(v)
+        return v, f"{name} = {shown}", f"{name}={shown}"
     return level
 
 
@@ -124,15 +137,19 @@ BRANCH_LEVELS = [
 ]
 # settings the levels above cover, and settings a regularization ignores (still recorded)
 COVERED = {"regularization_type", "alpha_s", "l1_ratio", "depth_weighting", "depth_weighting_exponent", "norms",
-           "gl_lambda2"}
+           "gl_lambda2", "coupling", "coupling_weight"}
 IGNORED = {"l1l2": {"alpha_s", "norms", "alpha_x", "alpha_y", "alpha_z", "max_irls_iterations"},
-           "l2": {"norms", "max_irls_iterations"}, "smooth": {"norms", "max_irls_iterations"}}
+           "l2": {"norms", "max_irls_iterations"}, "smooth": {"norms", "max_irls_iterations"},
+           # PGI regularizes by its rock units: none of the per-model settings apply
+           "pgi": {"alpha_s", "norms", "l1_ratio", "max_irls_iterations", "depth_weighting",
+                   "depth_weighting_exponent", "coupling_weight"}}
 
 
 def _levels(rt, extra_keys):
     """The levels of runs with regularization ``rt`` (after the regularization itself):
     the fixed ones, then the other settings that differ within the study."""
-    levels = [(name, fn) for name, types, fn in BRANCH_LEVELS[1:] if types is None or rt in types]
+    levels = [] if rt == "pgi" else [(name, fn) for name, types, fn in BRANCH_LEVELS[1:]
+                                     if types is None or rt in types]
     ignored = IGNORED.get(rt, set())
     return levels + [(k, _setting_level(k)) for k in extra_keys if k not in ignored]
 
@@ -180,6 +197,10 @@ def load_result(path) -> dict:
             meta["_models"] = models
         if datas:
             meta["_datas"] = datas
+        if "topography.npz" in names:
+            meta["_topography"] = read_npz("topography.npz")
+        if "reference_model.npy" in names:   # geology constraints, on the active cells
+            meta["_reference"] = read("reference_model.npy")
     meta["_name"] = path.name if path.is_dir() else path.stem.replace("_result", "")
     return meta
 
@@ -245,8 +266,11 @@ def full_model(meta, mesh) -> np.ndarray:
 class ViewerGrid:
     """The regular grid the viewer's 3D tab shows: the core of the mesh.
 
-    Tensor meshes keep their core cells (padding dropped); octree meshes are
-    sampled at the centres of a grid of core-sized cells.
+    Tensor meshes keep their core cells (padding dropped): below a DEM these
+    include the layers the relief adds on top of the core depth, all of the core
+    thickness.  Octree meshes are sampled at the centres of a grid of core-sized
+    cells from the top of the mesh down to the core depth below the lowest ground.
+    Cells above the ground are air (0 in the model).
     """
 
     def __init__(self, meta, mesh):
@@ -259,8 +283,12 @@ class ViewerGrid:
         if isinstance(mesh, TensorMesh):
             n_pad = padding_cells(h, used["pad_distance_m"])
             nx, ny, nz = mesh.shape_cells
+            hz = np.asarray(mesh.h[2])
+            uniform = np.abs(hz - dz) <= 1e-6 * dz
+            n_top = int(np.argmin(uniform[::-1])) if not uniform.all() else nz
+            n_z = max(n_core_z, n_top)   # the core plus the relief layers
             self.sl = (slice(n_pad, nx - n_pad), slice(n_pad, ny - n_pad),
-                       slice(max(nz - n_core_z, 0), nz))
+                       slice(max(nz - n_z, 0), nz))
             self.x_edges = mesh.nodes_x[self.sl[0].start:self.sl[0].stop + 1]
             self.y_edges = mesh.nodes_y[self.sl[1].start:self.sl[1].stop + 1]
             self.z_edges = mesh.nodes_z[self.sl[2].start:self.sl[2].stop + 1]
@@ -270,7 +298,10 @@ class ViewerGrid:
             self.x_edges = np.arange(ext[0], ext[1] + h, h)
             self.y_edges = np.arange(ext[2], ext[3] + h, h)
             top = float(mesh.cell_centers[:, 2].max())
-            self.z_edges = top - dz * np.arange(n_core_z + 1)[::-1]
+            low = (meta.get("topography") or {}).get("elevation_min")
+            n_z = n_core_z if low is None else max(
+                n_core_z, int(np.ceil((top - (float(low) - used["depth_core_m"])) / dz - 1e-9)))
+            self.z_edges = top - dz * np.arange(n_z + 1)[::-1]
             xc = 0.5 * (self.x_edges[1:] + self.x_edges[:-1])
             yc = 0.5 * (self.y_edges[1:] + self.y_edges[:-1])
             zc = 0.5 * (self.z_edges[1:] + self.z_edges[:-1])
@@ -305,14 +336,14 @@ def _data_key(run) -> tuple:
             round(float(np.sum(d["observed"])), 6))
 
 
-def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
-                   true_label: str = "True model") -> dict:
+def build_workflow(runs: list[dict], true_model=None, true_label: str = "True model") -> dict:
     """A viewer workflow from loaded results (see :func:`load_result`).
 
     Runs on the same mesh share one Mesh node, runs on the same data one
     Survey node; runs may differ in both (e.g. a coarse parameter study next
     to a full-resolution run).  ``true_model``, if given, holds a value for
-    every cell of the first run's mesh.  Each run needs ``_data`` with
+    every cell of the first run's mesh; a dict {method: model} (e.g. "gravity",
+    "magnetics") gives each property of a joint study its own true model.  Each run needs ``_data`` with
     stations, observed, std and predicted data; ``_backend`` (default "ec2")
     labels where it ran.  A joint run with per-dataset data shows as one run per
     property model (see :func:`split_joint_runs`); one without is left out and
@@ -378,15 +409,26 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
 
     first_mesh_id, first_mesh, first_grid = mesh_node(first)
     survey_node(first)
-    true_grid = None
-    if true_model is not None:
-        true_grid = _round(first_grid.values(true_model), 4)
-        nodes.append({"id": 3, "type": "ModelFromArrayNode", "name": true_label,
-                      "inputs": [first_mesh_id], "params": {"prop": prop},
-                      "output": {"type": "PhysicalModel", "prop": prop,
+    # the true model(s): one for every run, or one per method (a joint study's properties)
+    truths = true_model if isinstance(true_model, dict) else (
+        {None: true_model} if true_model is not None else {})
+    true_grids, true_ids = {}, {}
+    for k, (key, tm) in enumerate(truths.items()):
+        tm = np.asarray(tm, dtype=float)
+        tprop = UNITS.get(key, (prop,))[0] if key is not None else prop
+        true_grids[key] = _round(first_grid.values(tm), 4)
+        true_ids[key] = 3 if k == 0 else next(extra_ids)
+        nodes.append({"id": true_ids[key], "type": "ModelFromArrayNode",
+                      "name": true_label if key is None else f"{true_label} · {tprop}",
+                      "inputs": [first_mesh_id], "params": {"prop": tprop},
+                      "output": {"type": "PhysicalModel", "prop": tprop,
                                  "n_cells": int(first_mesh.n_cells),
-                                 "min": float(true_model.min()), "max": float(true_model.max()),
-                                 "mean": float(true_model.mean())}})
+                                 "min": float(tm.min()), "max": float(tm.max()),
+                                 "mean": float(tm.mean())}})
+
+    def truth_key(run):
+        method = run["datasets"][0]["method"]
+        return method if method in truths else (None if None in truths else "")
 
     order = iter(range(10 ** 6))   # depth-first position, for the viewer's layout
 
@@ -403,12 +445,14 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
             buckets.setdefault(json.dumps(_sortable(key)), (_sortable(key), label, short, []))[3].append((i, run))
         return [b[1:] for b in sorted(buckets.values(), key=lambda b: b[0])]
 
-    def grow(group, inputs, levels, path, shorts, extra_keys):
+    def grow(group, inputs, levels, path, shorts, extra_keys, names=()):
         """One node per value of the first of ``levels``, then the next level below it;
-        the runs hang from the last level."""
+        the runs hang from the last level (named by their levels, the regularization,
+        the tree's own first split, left out — but a joint run's coupling kept)."""
         if not levels:
             for i, run in group:
-                inversion_node(i, run, inputs, " · ".join(shorts[1:]) or shorts[0], path)
+                label = " · ".join(sh for n, sh in zip(names, shorts) if n != "regularization")
+                inversion_node(i, run, inputs, label or shorts[0], path)
             return
         (name, fn), rest = levels[0], levels[1:]
         for label, short, sub in split(group, fn):
@@ -419,7 +463,7 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
                 "name": label, "inputs": inputs, "params": {},
                 "branch": {"level": name, "label": label, "path": path + [label], "n_runs": len(sub)}})
             below = _levels(settings_of(sub[0][1])["regularization_type"], extra_keys) if name == "regularization" else rest
-            grow(sub, [node_id], below, path + [label], shorts + [short], extra_keys)
+            grow(sub, [node_id], below, path + [label], shorts + [short], extra_keys, names + (name,))
 
     def inversion_node(i, run, inputs, name, path=None):
         mesh_id, mesh, grid = mesh_node(run)
@@ -438,8 +482,20 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
                             "mean": float(run["_model"].mean())},
             "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4)},
         }
+        true_grid = true_grids.get(truth_key(run))
         if true_grid is not None and mesh_id == first_mesh_id:
             out["model_3d"]["true_values"] = true_grid
+        elif run.get("_reference") is not None:   # the geology constraints, to compare with
+            ref_full = full_model({**run, "_model": run["_reference"]}, mesh)
+            out["model_3d"]["true_values"] = _round(grid.values(ref_full), 4)
+            out["model_3d"]["true_label"] = "Geology reference"
+        topo = run.get("_topography")
+        if topo is not None:   # the ground, drawn over the model in the 3D view
+            out["model_3d"]["surface"] = {"x": _round(topo["x"], 7), "y": _round(topo["y"], 7),
+                                          "z": [_round(row, 5) for row in np.asarray(topo["z"])]}
+        if np.isfinite(locs[:, 2]).all():   # the stations at their heights
+            out["model_3d"]["stations"] = {"x": _round(locs[:, 0], 7), "y": _round(locs[:, 1], 7),
+                                           "z": _round(locs[:, 2], 6)}
         if pred is not None:
             resid = observed - pred
             out["data_fit"] = {
@@ -479,12 +535,16 @@ def build_workflow(runs: list[dict], true_model: Optional[np.ndarray] = None,
         groups.setdefault((mesh_id, survey_node(run)), []).append((i, run))
     extra_keys = _extra_keys(runs)
     for (mesh_id, survey_id), group in groups.items():
-        inputs = [mesh_id, survey_id] + ([3] if true_grid is not None and mesh_id == first_mesh_id else [])
+        tid = true_ids.get(truth_key(group[0][1]))
+        inputs = [mesh_id, survey_id] + ([tid] if tid is not None and mesh_id == first_mesh_id else [])
         if len(runs) == 1:   # a single job: no tree
             i, run = group[0]
             inversion_node(i, run, inputs, f"{settings_of(run)['regularization_type']} · {run.get('_name')}")
             continue
-        grow(group, inputs, [("regularization", _reg_level)], [], [], extra_keys)
+        # joint runs: the coupling first (a column of its own, before the regularization)
+        joint = any(settings_of(run).get("coupling") for _, run in group)
+        grow(group, inputs, ([("coupling", _coupling_level)] if joint else [])
+             + [("regularization", _reg_level)], [], [], extra_keys)
     nodes.sort(key=lambda n: n["id"])
     workflow = {"version": 1, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "nodes": nodes}
     if skipped:

@@ -1,5 +1,11 @@
 # Joint gravity–magnetic inversion with L2 + group lasso (Utsugi 2025)
 
+The group lasso is one of the joint inversion's couplings (`coupling="group_lasso"`;
+`regularization_type="group_lasso"` still means it): see `docs/joint_couplings.md` for
+the others. Its optional cross-gradient (`gl_cross_gradient`, λ3) is our extension, not
+the paper's method: such runs are recorded as the coupling `group_lasso+cross_gradient`
+("hybrid").
+
 Code: `geoinv3d/methods/group_lasso.py` (solver), `geoinv3d/cloud/worker.py`
 (`run_group_lasso_joint`, the data pipeline), tests: `tests/test_group_lasso.py`.
 
@@ -217,9 +223,9 @@ the objective; the cross-gradient matches SimPEG, lowers C monotonically in
 ## Not in this version
 
 Bounds / non-negativity, spatial smoothness, adaptive μ or over-relaxation,
-uncertainty estimates; the upload page has no controls for model labels or
-`gl_cross_gradient` yet (the pipeline accepts them), and MT / DC files are not
-read by the pipeline (Python and `JointRegularizedInversionNode` only).
+uncertainty estimates; the upload page has no controls for model labels (the pipeline
+accepts them) and offers the group lasso for gravity + magnetics; its λ3 is a manual
+setting of the Inversion step.
 
 ## Using it from Python
 

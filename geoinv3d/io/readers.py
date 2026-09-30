@@ -500,7 +500,12 @@ _STD_NAMES = ("std", "stdev", "stddev", "sd", "sigma", "uncert", "uncertainty", 
               "err", "unc")
 _VALUE_NAMES = ("value", "data", "obs", "observed", "d", "anomaly", "gz", "gzz", "tmi",
                 "bz", "grav", "gravity", "mag", "magnetic", "magnetics", "bouguer", "cba",
+                "bouguer_an", "bouguer_anomaly", "ba", "sba", "boug", "bouguer_mgal",
                 "tf", "tfa", "residual", "mgal", "nt")
+# Never the data column, even as the fallback (absolute gravity, reductions, labels)
+_NOT_VALUE_NAMES = ("observed_g", "observed_gravity", "obs_g", "gobs", "g_obs", "theoretical_g",
+                    "theoretical_gravity", "normal_g", "normal_gravity", "gamma", "id", "station",
+                    "stn", "line", "toposheet", "time", "date")
 
 
 def _is_number(token: str) -> bool:
@@ -517,7 +522,9 @@ def read_station_table(path: str, value_name: str | None = None) -> PointData:
     Columns are matched by header name when a header is present (a header
     may also be the last ``/`` or ``#`` comment line, as in Geosoft XYZ).
     Without a header: 3 columns are ``x y value``; 4 or more are
-    ``x y z value``.
+    ``x y z value``.  Text fields (e.g. a map-sheet column) read as NaN, and a
+    column of text only is dropped; rows with fewer than three numbers (e.g.
+    Geosoft "Line 10" separators) are skipped.
 
     Args:
         path: .csv / .txt / .dat / .xyz file.
@@ -545,13 +552,15 @@ def read_station_table(path: str, value_name: str | None = None) -> PointData:
             if delimiter is None:
                 delimiter = "," if "," in line else (";" if ";" in line else None)
             tokens = [t.strip().strip('"').strip("'") for t in line.split(delimiter)]
-            tokens = [t for t in tokens if t]
+            if delimiter is None:
+                tokens = [t for t in tokens if t]
             if not rows and header is None and not _is_number(tokens[0]):
-                header = tokens
+                header = [t for t in tokens if t] if delimiter is None else tokens
                 continue
-            if not all(_is_number(t) for t in tokens):
+            values = [float(t) if _is_number(t) else np.nan for t in tokens]
+            if sum(np.isfinite(v) for v in values) < 3:
                 continue  # e.g. Geosoft "Line 10" separators
-            rows.append([float(t) for t in tokens])
+            rows.append(values)
 
     if not rows:
         raise ValueError(f"No numeric rows found in '{p.name}'")
@@ -563,6 +572,14 @@ def read_station_table(path: str, value_name: str | None = None) -> PointData:
     if header is None and last_comment and len(last_comment) >= width:
         header = last_comment
     names = [h.lower() for h in header[:width]] if header and len(header) >= width else None
+    if names is not None:   # drop text-only columns (their names go with them)
+        keep = ~np.all(np.isnan(table), axis=0)
+        table = table[:, keep]
+        header = [h for h, k in zip(header[:width], keep) if k]
+        names = [n for n, k in zip(names, keep) if k]
+        width = table.shape[1]
+        if width < 3:
+            raise ValueError(f"'{p.name}' needs at least 3 numeric columns (x, y, value)")
 
     def find(cands, exclude=()):
         if names is None:
@@ -582,7 +599,8 @@ def read_station_table(path: str, value_name: str | None = None) -> PointData:
         prefs = ((value_name.lower(),) if value_name else ()) + _VALUE_NAMES
         vi = find(prefs, exclude=used | ({si} if si is not None else set()))
         if vi is None:
-            rest = [i for i in range(width) if i not in used and i != si]
+            rest = [i for i in range(width) if i not in used and i != si
+                    and names[i] not in _NOT_VALUE_NAMES]
             vi = rest[0] if rest else None
         col_names = header[:width]
     else:

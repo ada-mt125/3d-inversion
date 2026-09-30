@@ -8,7 +8,7 @@ A Python framework for 3D geophysical joint inversion that uses a Directed Acycl
 
 - **DAG-based workflow tracking** — Every step (mesh creation, model setup, forward modeling, inversion, parameter tuning) is a node in a DAG. Every parameter change is recorded automatically.
 - **SimPEG backend** — Uses [SimPEG](https://simpeg.xyz/) for forward modeling and inversion, supporting gravity, magnetics, DC resistivity, and joint inversion.
-- **Joint inversion** — Any regularization per model (smooth L2, sparse lp, L1–L2, MGS, TV) with bounds and a cross-gradient, or L2 + group lasso (Utsugi 2025) for any number of models, MT/DC by Gauss–Newton, with a unit-free cross-gradient; several datasets may share one model.  See [docs/group_lasso_joint.md](docs/group_lasso_joint.md).
+- **Joint inversion** — The coupling is a choice of its own, separate from each model's regularization: cross-gradient, joint total variation, linear correspondence, petrophysically guided (PGI, rock units), group lasso (Utsugi 2025) or none, with a unit-free coupling weight; each model regularized as smooth L2, sparse lp, L1–L2, MGS or TV with bounds; several datasets may share one model.  See [docs/joint_couplings.md](docs/joint_couplings.md) and [docs/group_lasso_joint.md](docs/group_lasso_joint.md).
 - **Workflow serialization** — Save/load entire inversion workflows as JSON. Every exported result carries a provenance sidecar recording exactly how it was produced.
 - **Visualization** — 2D slices (matplotlib), 3D models (PyVista/VTK), DAG graph rendering (networkx), and Mermaid diagram export.
 - **Immutable data model** — All data payloads are frozen dataclasses with read-only arrays. Transformations produce new objects, never mutate.
@@ -116,16 +116,45 @@ path, falling back to χ² = N when the curve has no corner; χ² = N otherwise)
 L-curve, χ²/N and GCV curves with each criterion's pick.
 See `examples/l1l2_paper_synthetic_report.md` for a comparison on a magnetic synthetic.
 
+### How joint models are coupled
+
+`coupling` in a joint job (the upload page: Inversion step, *How the models are
+coupled*): `cross_gradient` (structural), `joint_total_variation` (structural, convex),
+`linear_correspondence` (a linear rock-physics relation), `pgi` (rock units as a
+Gaussian mixture; the result also classifies the cells), `group_lasso` (joint sparsity,
+below) or `none`. `coupling_weight` is unit-free (1 = as strong as the regularization):
+the former raw cross-gradient weight of 1 coupled nothing. See `docs/joint_couplings.md`.
+
 ### Joint gravity–magnetic inversion with a group lasso (Utsugi 2025)
 
-`regularization_type="group_lasso"` on a joint job with one gravity and one
-magnetic dataset (the upload page: *Joint — Gravity + Magnetic (group lasso,
-Utsugi 2025)*) minimizes ½‖b − Zζ‖² + λ1 Σₖ √(βₖ² + ρₖ²) + ½λ2‖ζ‖² by ADMM, so
+`coupling="group_lasso"` (formerly `regularization_type="group_lasso"`, still accepted)
+on a joint job with one gravity and one magnetic dataset minimizes ½‖b − Zζ‖² + λ1 Σₖ √(βₖ² + ρₖ²) + ½λ2‖ζ‖² by ADMM, so
 that the density and magnetic models share their support without either being
 forced non-zero. The solver, `geoinv3d/methods/group_lasso.py`, takes any
 sensitivity operators (`joint_group_lasso_admm`, `JointGroupLassoProblem`, or
 `from_simulations` for two SimPEG simulations). What follows the paper and what
 is engineering, the parameters and the validation: `docs/group_lasso_joint.md`.
+
+### Geology constraints, topography and coordinates
+
+- **Geology constraints** (`params["geology"]`, or the upload page's *Starting &
+  reference model*): rock units from sample densities or given values, placed by samples,
+  boreholes, interpreted bodies or map polygons, become the reference model, per-cell
+  bounds and smallness weights of a single gravity, magnetic, DC or MT inversion. On the
+  page, bodies and layer stacks can be drawn on the data map or typed in (outline, depths
+  or elevations, dip or tilted interfaces, a density, susceptibility and/or resistivity per
+  part; layer tables can be pasted), checked on a section coloured by value, and
+  saved/loaded as JSON. Cells hold the volume average of what they contain, so layers
+  thinner than the cells are not lost; "sharp" parts relax the smoothing across their
+  boundaries (like ModEM's covariance tears). See `docs/geology_constraints.md`.
+- **Topography**: a DEM (any CRS), x/y/z points, or the data's own station elevations
+  (`topography: {"from_data": true}`); the mesh follows the ground and the viewer's 3D
+  view draws the terrain and the stations.
+- **Coordinates**: tables in longitude/latitude are projected to the job's CRS (the
+  GeoTIFF's, else the UTM zone of the data, or `crs`).
+- **Bouguer check**: for a gravity station table with elevation, observed and normal
+  gravity, the page and the worker report the reduction density and whether a terrain
+  correction was applied (`geoinv3d/methods/bouguer.py`).
 
 ## Examples and the Viewer
 

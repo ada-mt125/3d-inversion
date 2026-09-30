@@ -666,15 +666,24 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
     Runs :func:`geoinv3d.cloud.worker.execute_task` on a joint task, so it
     offers the same choices as cloud jobs:
 
-    * ``regularization_type`` "l2", "sparse", "l1l2" (by IRLS), "mgs" or
-      "tv": :class:`~geoinv3d.methods.joint.JointInversion`, one
-      regularization per model with depth weighting and bounds, the models
-      balanced against their data (``balance``) and an optional
-      cross-gradient (``cross_gradient_weight``);
-    * "group_lasso": L2 + group lasso (Utsugi 2025) by ADMM for any number
-      of models, nonlinear methods (MT, DC) by Gauss–Newton, and a
-      normalized cross-gradient; its settings (the task's ``gl_*`` keys, e.g.
-      ``{"gl_lambda2": 0.3, "gl_cross_gradient": 0.1}``) in ``group_lasso``.
+    Two separate choices (see :mod:`geoinv3d.methods.coupling`):
+
+    * ``coupling`` — how the models are tied together: "cross_gradient",
+      "joint_total_variation", "linear_correspondence" (two models;
+      ``coupling_options`` slope / intercept), "pgi" (``coupling_options``
+      units), "group_lasso" or "none", with the unit-free ``coupling_weight``
+      (1 = as strong as the models' regularization; not used by PGI or the
+      group lasso);
+    * ``regularization_type`` — how each model is regularized by the
+      Gauss–Newton couplings: "l2", "sparse", "l1l2" (by IRLS), "mgs" or "tv"
+      (:class:`~geoinv3d.methods.joint.JointInversion`), with depth weighting,
+      bounds and the models balanced against their data (``balance``).
+
+    The group lasso (Utsugi 2025) is a coupling with its own solver (ADMM; any
+    number of models, MT / DC by Gauss–Newton) and its own settings (the task's
+    ``gl_*`` keys in ``group_lasso``, e.g. ``{"gl_lambda2": 0.3}``);
+    ``gl_cross_gradient`` > 0 adds a cross-gradient, a hybrid that is not
+    Utsugi's method.  ``regularization_type="group_lasso"`` still means it.
 
     Per dataset: ``models`` labels (datasets with the same label share one
     model, e.g. gz and gzz of one density model) and ``regularizations``
@@ -718,10 +727,14 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
         use_preconditioner: bool = True,
         group_lasso: dict | None = None,
         name: str = "JointRegularizedInversion",
+        coupling: str | None = None,
+        coupling_weight: float | None = None,
+        coupling_options: dict | None = None,
         *,
         inputs: list[Node] | None = None,
     ) -> None:
         from ..cloud.task import GROUP_LASSO_KEYS, JOINT_REG_KEYS
+        from ..methods.coupling import resolve
 
         super().__init__(name, inputs=inputs or [])
         n = len(method_types)
@@ -764,6 +777,12 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
         self.cooling_factor = cooling_factor
         self.use_preconditioner = use_preconditioner
         self.group_lasso = dict(group_lasso or {})
+        weight = coupling_weight if coupling_weight is not None else cross_gradient_weight
+        self.coupling = resolve(coupling, regularization_type, weight)
+        if self.coupling == "group_lasso":
+            self.regularization_type = "group_lasso"
+        self.coupling_weight = coupling_weight
+        self.coupling_options = dict(coupling_options or {})
 
     def _task(self, models, surveys, regs):
         from ..cloud.task import InversionTask
@@ -781,6 +800,8 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
             joint_weights=self.weights, joint_models=self.models,
             joint_regularizations=overrides, joint_balance=self.balance,
             cross_gradient_weight=self.cross_gradient_weight,
+            joint_coupling=self.coupling, coupling_weight=self.coupling_weight,
+            coupling_options=self.coupling_options,
             # datasets are labelled by method ("gravity", "gravity_2", ...), as in cloud jobs
             joint_surveys=[{"locations": sv.locations, "observed": sv.observed, "std": sv.std}
                            for sv in surveys],
@@ -840,6 +861,10 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
             result.extras["models"] = _jsonable(out["models"])
         if out.get("group_lasso") is not None:
             result.extras["group_lasso"] = _jsonable(out["group_lasso"])
+        if out.get("coupling") is not None:
+            result.extras["coupling"] = _jsonable(out["coupling"])
+        if out.get("pgi") is not None:
+            result.extras["pgi"] = _jsonable(out["pgi"])
         if out.get("stopped_early"):
             result.extras["stopped_early"] = _jsonable(out["stopped_early"])
         selection = selection_summary(out, sum(len(sv.observed) for sv in surveys))
@@ -870,6 +895,9 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
             "cooling_factor": self.cooling_factor,
             "use_preconditioner": self.use_preconditioner,
             "group_lasso": self.group_lasso,
+            "coupling": self.coupling,
+            "coupling_weight": self.coupling_weight,
+            "coupling_options": self.coupling_options,
             "name": self.name,
         }
 
@@ -899,5 +927,8 @@ class JointRegularizedInversionNode(Node[JointInversionResult]):
             use_preconditioner=p.get("use_preconditioner", True),
             group_lasso=p.get("group_lasso"),
             name=p.get("name", "JointRegularizedInversion"),
+            coupling=p.get("coupling"),
+            coupling_weight=p.get("coupling_weight"),
+            coupling_options=p.get("coupling_options"),
             inputs=inputs,
         )

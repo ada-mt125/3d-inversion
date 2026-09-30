@@ -267,7 +267,8 @@ class TestPipelinePlumbing:
         assert 0 < t.active_cells.sum() < mesh.n_cells
         top = mesh.origin[2] + mesh.hz.sum()
         assert top >= _dem_values(XS[-1], 0) - 1e-6  # mesh reaches the highest ground
-        assert result["topography"] == {"source": "dem", "file": "dem.asc"}
+        assert result["topography"] == {"source": "dem", "file": "dem.asc",
+                                         "elevation_min": 50.0, "elevation_max": 110.0}
         assert result["n_active_cells"] == int(t.active_cells.sum())
 
     def test_point_dem_and_station_elevations_kept(self, tmp_path, capture):

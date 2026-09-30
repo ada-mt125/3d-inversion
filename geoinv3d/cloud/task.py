@@ -108,6 +108,19 @@ class InversionTask:
     joint_methods: Optional[list[str]] = None
     joint_kwargs_list: Optional[list[dict]] = None
     joint_weights: Optional[list[float]] = None
+    # How the models are coupled (geoinv3d/methods/coupling.py): "cross_gradient",
+    # "joint_total_variation", "linear_correspondence", "pgi", "group_lasso" or
+    # "none".  None: as before couplings were a choice of their own —
+    # regularization_type "group_lasso" meant the group lasso, a positive
+    # cross_gradient_weight the cross-gradient (see the ``coupling`` property).
+    joint_coupling: Optional[str] = None
+    # Unit-free weight of the coupling term(s): 1 weighs them like the models'
+    # regularization (CouplingScale); None: cross_gradient_weight, the former name
+    coupling_weight: Optional[float] = None
+    # The coupling's own settings: slope / intercept of the linear correspondence,
+    # units / learn of PGI, eps of the joint total variation, scale ("raw": the weight
+    # as a plain multiplier)
+    coupling_options: Optional[dict] = None
     cross_gradient_weight: float = 0.0
     # Model label of each dataset: datasets with the same label share one model
     # (e.g. gz and gzz data of one density model, MT and DC data of one
@@ -154,6 +167,10 @@ class InversionTask:
     gl_max_iter: int = 3000
     gl_tol: float = 1e-4
     gl_cross_gradient: float = 0.0
+    # "group" (the group lasso) or "none": the same solver, L2 and lambda1 choice, but each
+    # model soft-thresholded on its own (lambda1 (|beta| + |rho|)): a control that separates
+    # what the coupling does from what the solver and its sparsity do
+    gl_coupling: str = "group"
     gl_gn_max_iter: int = 20
     gl_gn_tol: float = 1e-5
 
@@ -163,6 +180,18 @@ class InversionTask:
     data_std: Optional[NDArray] = None
     station_locations: Optional[NDArray] = None
     active_cells: Optional[NDArray] = None
+    # Per active cell (e.g. from geology constraints, methods/geology.py): the reference
+    # model of the smallness term, bounds overriding bounds_lower/upper, and a multiplier
+    # of the smallness term's weights
+    reference_model: Optional[NDArray] = None
+    cell_lower: Optional[NDArray] = None
+    cell_upper: Optional[NDArray] = None
+    smallness_weights: Optional[NDArray] = None
+    # Sharp boundaries (geology units marked "sharp"; like ModEM's covariance "tears"): a
+    # label per active cell; the smoothness terms weigh the faces between cells of different
+    # labels by smoothness_break_factor
+    smoothness_labels: Optional[NDArray] = None
+    smoothness_break_factor: float = 0.01
     hx: Optional[NDArray] = None
     hy: Optional[NDArray] = None
     hz: Optional[NDArray] = None
@@ -170,6 +199,21 @@ class InversionTask:
     # For joint: list of (observed, std, locations) per method
     joint_surveys: Optional[list[dict]] = None
     joint_initial_models: Optional[list[NDArray]] = None
+
+    @property
+    def coupling(self) -> str:
+        """The coupling of a joint task (see :func:`geoinv3d.methods.coupling.resolve`)."""
+        from ..methods.coupling import resolve
+        weight = self.coupling_weight if self.coupling_weight is not None else self.cross_gradient_weight
+        return resolve(self.joint_coupling, self.regularization_type, weight)
+
+    @property
+    def effective_coupling_weight(self) -> float:
+        if self.coupling_weight is not None:
+            return float(self.coupling_weight)
+        if self.cross_gradient_weight:
+            return float(self.cross_gradient_weight)
+        return 1.0 if self.joint_coupling else 0.0
 
     def to_meta(self) -> dict:
         """Serializable metadata (no large arrays)."""
@@ -217,13 +261,20 @@ class InversionTask:
             d["joint_kwargs_list"] = self.joint_kwargs_list or []
             d["joint_weights"] = self.joint_weights or []
             d["cross_gradient_weight"] = self.cross_gradient_weight
+            d["joint_coupling"] = self.coupling
+            if self.coupling_weight is not None:
+                d["coupling_weight"] = self.coupling_weight
+            if self.coupling_options:
+                d["coupling_options"] = self.coupling_options
             d["joint_balance"] = self.joint_balance
             if self.joint_models is not None:
                 d["joint_models"] = list(self.joint_models)
             if self.joint_regularizations is not None:
                 d["joint_regularizations"] = [dict(r or {}) for r in self.joint_regularizations]
-        if self.regularization_type == "group_lasso":
+        if self.regularization_type == "group_lasso" or self.joint_coupling == "group_lasso":
             d.update({k: getattr(self, k) for k in GROUP_LASSO_KEYS})
+        if self.smoothness_labels is not None:
+            d["smoothness_break_factor"] = self.smoothness_break_factor
         return d
 
 
@@ -236,10 +287,13 @@ JOINT_REG_KEYS = (
 )
 
 
+CELL_ARRAYS = ("reference_model", "cell_lower", "cell_upper", "smallness_weights",
+               "smoothness_labels")
+
 GROUP_LASSO_KEYS = (
     "gl_lambda1_selection", "gl_lambda1", "gl_lambda1_ratio", "gl_lambda2", "gl_mu",
     "gl_data_scaling", "gl_gamma", "gl_n_lambda1", "gl_lambda1_decades", "gl_max_iter",
-    "gl_tol", "gl_cross_gradient", "gl_gn_max_iter", "gl_gn_tol",
+    "gl_tol", "gl_cross_gradient", "gl_gn_max_iter", "gl_gn_tol", "gl_coupling",
 )
 
 
@@ -280,6 +334,9 @@ def pack_task(task: InversionTask, output_path: str) -> str:
             _write_npy(zf, "locations.npy", task.station_locations)
         if task.active_cells is not None:
             _write_npy(zf, "active_cells.npy", task.active_cells)
+        for key in CELL_ARRAYS:
+            if getattr(task, key) is not None:
+                _write_npy(zf, f"{key}.npy", getattr(task, key))
         if task.hx is not None:
             _write_npy(zf, "hx.npy", task.hx)
         if task.hy is not None:
@@ -345,6 +402,9 @@ def unpack_task(archive_path: str) -> InversionTask:
             joint_kwargs_list=meta.get("joint_kwargs_list"),
             joint_weights=meta.get("joint_weights"),
             cross_gradient_weight=meta.get("cross_gradient_weight", 0.0),
+            joint_coupling=meta.get("joint_coupling"),
+            coupling_weight=meta.get("coupling_weight"),
+            coupling_options=meta.get("coupling_options"),
             joint_models=meta.get("joint_models"),
             joint_regularizations=meta.get("joint_regularizations"),
             joint_balance=meta.get("joint_balance", True),
@@ -362,6 +422,10 @@ def unpack_task(archive_path: str) -> InversionTask:
             task.station_locations = _read_npy(zf, "locations.npy")
         if "active_cells.npy" in names:
             task.active_cells = _read_npy(zf, "active_cells.npy")
+        for key in CELL_ARRAYS:
+            if f"{key}.npy" in names:
+                setattr(task, key, _read_npy(zf, f"{key}.npy"))
+        task.smoothness_break_factor = float(meta.get("smoothness_break_factor", 0.01))
         if "hx.npy" in names:
             task.hx = _read_npy(zf, "hx.npy")
         if "hy.npy" in names:

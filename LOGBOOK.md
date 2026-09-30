@@ -850,3 +850,232 @@ the group lasso needed ~27 min per λ1 point.  Speed-ups not done: pydiso (Pardi
 for Linux x86_64 / Python 3.13) or python-mumps on the instances, and reusing the accepted trial's
 forward run at the next Gauss–Newton linearization (one of ~3 forward runs per step is repeated).
 Scope from here: joint gravity + magnetics only.
+
+
+## 2026-09-29 (evening) — Bouguer check, topography in the pipeline and the 3D view (finished in the next entry)
+
+**Karnataka data (Desktop/karnataka_ap_gravity).**  The NGPM station table (ASCII/combined_NGPM_gravity.csv:
+X/Y lon-lat, bouguer_an, elevation, observed_g, theoretical_g, toposheet; 22,816 stations, 1,941 in the
+study window, 386–1,019 m) reproduces the Bouguer anomaly exactly as free-air minus a 2.67 g/cc slab with
+GRS80 normal gravity (residual 0.63 mGal = the 1 mGal rounding; +0.74 mGal in both the roughest and the
+flattest tenth of stations).  So: simple Bouguer anomaly, 2.67, NO terrain correction.  Rock samples
+(Physical_properties_rock_samples.csv, 31 in the window): BIF 3.39 g/cc (+0.72 vs 2.67), amphibolite +0.25,
+dolerite +0.31, gabbro +0.36, granites -0.03…-0.05 — above our +0.5 upper bound for BIF.  Drill/ is a
+collar-only shapefile (448 holes, WGS84; 16 in the window, all iron ore at Kumaraswamy / Ramanadurga South,
+12–125 m): no lithology or density.  No geology map is available.
+
+**Done and tested (uncommitted).**  methods/bouguer.py: reduction density by least squares and a terrain-
+correction verdict from the residual against the local relief (spread of station heights within 3 km);
+rho refitted on the flatter half when a correction is found.  tests/test_bouguer.py (9 pass).  The upload
+page runs the same check (bouguerCheck / bouguerTable / checkGravity in dag_interactive.html) under the
+gravity card: amber "no terrain correction", green "applied", neutral for grids; verified headless on the
+NGPM table, a synthetic corrected table and the NGPM GeoTIFF (JS numbers = Python).  The worker records
+bouguer_check per gravity table in the result's datasets.
+
+**Written but NOT yet tested (run the full suite first).**
+- io/crs.py (new): looks_geographic, utm_crs, project (rasterio), working_crs.
+- io/readers.read_station_table: text columns read as NaN, text-only columns dropped (the NGPM table's
+  toposheet column used to make every row unreadable); Bouguer column names; _NOT_VALUE_NAMES.
+- worker: _job_crs (params crs > first GeoTIFF CRS > UTM of lon/lat tables); _read_observations projects
+  lon/lat tables before cropping and rejects grids in another CRS; _load_dataset(crs=);
+  _load_topography(params, data_dir, crs, datasets): DEM in another CRS sampled in its own CRS, lon/lat
+  point files projected, topography {"from_data": true} = surface from the data's station elevations;
+  result["crs"], topography elevation_min/max, result["topography_grid"] -> topography.npz.
+- viz/result_workflow: load topography.npz; ViewerGrid shows the relief layers (tensor: all top dz layers;
+  octree: down to core depth below the lowest ground); model_3d.surface and model_3d.stations.
+- dag_interactive.html: 3D "Terrain" (translucent surface with contours) and "Stations" layers with
+  toggles, z axis "Elevation (m)" covering the ground; topography checkbox "Use the station elevations"
+  (params topography {from_data: true}); the gravity note mentions it.
+
+**Next.**
+1. Page: project lon/lat tables to UTM in the browser too (GeoMesh parseTable/inspectFile and GeoPreview
+   table(): the Area/Mesh steps still treat degrees as metres and warn); zone from a GeoTIFF's GeoKey 3072
+   if present, else from the median longitude.
+2. Tests: crs helpers, reader with text columns, projection + from_data topography through the pipeline,
+   ViewerGrid relief layers, surface/stations in the workflow; headless check of the 3D terrain.
+3. A local low-resolution Karnataka run: NGPM_BA.tiff as data + station elevations as topography, to see
+   the stations at 386–1,019 m and the model under the terrain.
+4. Then the geology-constrained model (agreed direction: a JSON spec, semi-automatic): units from the rock
+   samples (editable), boreholes (iron -> BIF along the trace), manual interpreted bodies (polygon, depths,
+   dip), no map for now; applied as reference model + per-cell bounds + smallness weights (a starting model
+   alone does not change a linear, convex inversion); CDA by shifting data/bounds; raise the BIF bound.
+5. Slack reply to the team: point 2 must say "no terrain correction" (the version in the chat is correct).
+Git: pulled 7dcbe97 and 6ab5f41 (fast-forward); everything above is uncommitted.
+
+
+## 2026-09-30 — Topography and CRS in the pipeline, terrain in 3D, geology constraints
+
+**Coordinates and topography (tested).**  Each job works in one CRS: params `crs`, else the
+first projected GeoTIFF's, else the UTM zone of its longitude/latitude tables (a geographic DEM
+never becomes it; metre data with only a lon/lat DEM take the DEM centre's zone).  Lon/lat tables
+are projected before cropping; the page does the same in the browser (GeoCRS: Snyder TM, the
+zone from a GeoTIFF's GeoKey 3072) — the NGPM stations then share the grid's metre frame to
+~100 m.  Both table readers keep rows with text fields (the NGPM toposheet column made them
+unreadable).  Topography: a DEM in another CRS is sampled in its own; `{"from_data": true}` (page:
+"Use the station elevations") builds the ground from the stations' elevations.  Results carry
+`crs`, the ground's elevation range and topography.npz; the viewer keeps the relief layers
+(tensor: all top dz layers; octree: to the core depth below the lowest ground), and the 3D view
+has Terrain (translucent surface with contours) and Stations layers, an Elevation axis, the depth
+slice starting under the lowest ground, and no render while the plot is a few pixels high
+(Plotly's "axis scaling" error).  tests/test_topography.py (9).  Local Karnataka run at 2 km with
+the NGPM grid + station-elevation terrain: EPSG:32643, stations at 392–994 m, 30,381 of 32,400
+cells below the ground, 15 s.
+
+**Geology constraints (methods/geology.py, io/vector.py, docs/geology_constraints.md).**  A JSON
+spec: units (value = mean sample density − background, range = min…max ± margin, or given;
+a smallness weight), placed by rock samples (column to a depth), boreholes (along the trace;
+GSI field names by default), interpreted bodies (polygon/box between depths, dipping) and map
+polygons (shapefile/GeoJSON, no GIS libraries needed).  Applied as reference model + per-cell
+bounds + smallness weights (on SimPEG Smallness terms only) and the start at the reference;
+the L1–L2 coordinate descent inverts d − G m_ref for the deviation (weights unused).  Single
+gravity/magnetic inversions only.  Results: `geology` summary, reference_model.npy (viewer:
+"Geology reference" layer), setting `geology` (its own branch in the tree).  Page: Inversion step
+→ Geology constraints (drop the spec and its files; missing files block the submit; Review row).
+tests/test_geology.py (13).  Karnataka at 2 km (examples/output/karnataka_gravity/geology/,
+samples + iron holes, 68 constrained cells): χ²/N 1.131 vs 1.134, RMS 0.532 mGal both; the
+constrained cells average +0.103 (reference +0.113) against −0.003 unconstrained — the data accept
+density at the surface under the outcrops; the empty top kilometre was a regularization choice.
+## 2026-09-30 (later) — Model builder on the upload page; constraint files optional
+
+**Model builder (viz/dag_interactive.html, "Starting & reference model").**  The user asked for a
+MARE2DEM-style way to build the starting model by hand, in 3D.  On the Inversion step: a map (the
+data behind it) to draw polygons on (click vertices; double-click or the first vertex closes; Esc
+cancels) or add boxes/cylinders; per body an outline, top/bottom below the ground, dip and dip
+direction, a density (g/cc, sent as the contrast with the reduction density) or susceptibility (SI),
+optional range (default ± 0.05 g/cc / ± 0.005 SI), weight and "Fixed" (tenth of the range, weight
+≥ 100); a W–E/S–N section (Shift-click moves it; depth to 1.4 × the deepest body, mesh core bottom
+marked); "Everywhere else" (reduction density, bounds).  The bodies become units + `body` sources of
+the same spec (no backend change), merged after a dropped file spec.  Save model = the spec with a
+`builder` field; dropping it back restores the bodies exactly.  Joint inversions show a note that
+they do not use it yet.  Checked in the in-app browser on the NGPM grid: a drawn polygon (200–3000 m,
+45° E, 3.1 g/cc) reaches the submitted job as Δρ +0.43 ± 0.05 in EPSG:32643 metres, and
+`build_constraints` puts 2,979 cells per 500 m layer shifting 0.5 km east per layer; save → delete →
+load restores it; the Karnataka file spec + a drawn body submit together (units BIF, mafic,
+granitoid + the body; sources samples → boreholes → body).
+
+**Constraint files optional.**  A spec whose samples or borehole files are missing no longer blocks
+the submit: `build_constraints` skips a missing samples file (the units needing it are left out,
+with bodies of those units), and a source whose file is missing (report `skipped: file not found`);
+unknown units still raise.  tests/test_geology.py (15, incl. the builder's spec format).
+
+**GitHub branch.**  `claude/cool-hawking-9zd59t` at 6ab5f41 (joint inversion with any
+regularization, MT/DC in the pipeline, multiphysics example): every file of those two commits is
+identical in this working copy, or has only this copy's later additions (CRS, topography, geology) —
+nothing left to merge.
+
+## 2026-09-30 (night) — Thin layers, resistivity and sharp boundaries in the starting model
+
+The user asked to polish the model builder for thin layers with resistivity modelling (MT/DC)
+in mind, and to borrow from ModEM and mtpy-v2.
+
+**Backend (methods/geology.py).**  Bodies, maps and the new `layers` source give each cell the
+share of its volume they cover (depths analytic; footprints sampled 4 x 4 where an outline
+crosses them; tilted interfaces sampled where they cut a cell), and a later source takes its
+share from what was there: a cell's reference, bounds and weight are volume averages, so layers
+thinner than the cells are mixed in instead of lost (ten 30 m layers in 100 m cells: before,
+7 of 10 vanished; now every one is kept and contrast x thickness is conserved down each column).
+Samples and boreholes still mark whole cells.  `layers`: a stack everywhere or in an outline,
+below the ground or by elevation, interfaces tilted about a pivot, the last layer optionally to
+the bottom, `unit: null` = a free layer.  `property: "resistivity"` (ohm m in, log conductivity
+inside, bounds swapped, samples geometric), with `mixing` log / conductance (MT) / resistance (DC).
+`sharp` units: labels whose boundaries get face weights `sharp_factor` (0.01) on SimPEG's
+first-order smoothness terms (ModEM's covariance "tears").  `"crs": "job"` marks metre
+coordinates.  Worker: geology for single MT and DC jobs too (the method's background as the
+free cells' reference), `smoothness_labels` packed with the task.  Tests: test_geology.py 26
+(thin layers, half-space and outline, tilt, elevation, resistivity units/mixing/samples, face
+weights, a DC pipeline run with a layered prior).  The DC Jacobian test's rtol 1e-5 -> 5e-5 (the
+central difference's own error was 1.2e-5).
+
+**Page.**  Parts are bodies or layer stacks; each body and layer holds a value (and range) per
+property of the loaded data — density, susceptibility, resistivity — and each job gets the spec
+of its own property (checked: gravity + DC "separate" gave the gravity job the box only and the
+DC job the five-layer stack + the box).  Layer table with computed tops, reorder, weight, fixed,
+sharp; "Paste a table" (`[name] thickness value [lowest highest]`, `-` = to the bottom).  Section
+coloured by value (density contrast diverging, resistivity log, conductive red), free parts dark,
+the mesh's vertical cells dotted, log-depth option, zoom; thin-layer warnings against the mesh's
+dz.  Everywhere else per property (resistivity: background and mixing).  Save = the first
+property's spec + `other_properties` + `builder` (version 2); save -> delete -> load restores the
+stack and the body exactly.  The page's DC spec through build_constraints on 10 m cells: the 8 m
+graphite layer mixed into its cell (2.15 ohm m with sand), the 0.05 degree tilt moving the stack
+81 m down at the east edge — as drawn.
+
+**From the repositories.**  mtpy-v2: log-increasing vertical cells (`z1_layer`,
+`make_log_increasing_array`) — thin shallow cells are what resolve thin layers; the core cells
+here are uniform (next step, not done); `assign_resistivity_from_surface_data` (surfaces from
+grids; here planes, by volume).  ModEM: covariance mask codes (0 air, 9 ocean fixed, 1–8 free)
+and tear rules — here `fixed` and `sharp`.
+
+**Model step (later the same night).**  At the user's request the builder is its own wizard step:
+Data → Area → Mesh → **Model** → Inversion → Review → Jobs (it needs the Area window for its map and
+the Mesh step's vertical cell for the thin-layer checks, and comes before the regularization).  The
+page widens to 1560 px for it: map 500 px high with the section under it on the left, the list and
+form on the right (380 px), the layer table full width, then "Everywhere else" beside the file inputs.
+Checked in the in-app browser: Area → Mesh → Model → Inversion → Review → mock submit → Back to Model;
+the Review row and the submitted job carry the model.  Vertical grading of the mesh: not needed for
+gravity/magnetics (a thin layer only counts as contrast x thickness, which the volume averaging
+keeps); worth adding when MT/DC with thin shallow conductors is inverted for real.
+
+
+## 2026-09-30 — The coupling of a joint inversion as a layer of its own
+
+The user asked whether merging the group lasso and the cross-gradient into one method was
+sound.  Literature (Colombo & Rovetta 2018; Haber & Holtzman Gazit 2013; Zhdanov et al. 2012;
+Vatankhah et al. 2020; Utsugi 2025): a joint objective has data terms, a regularization per
+model and a coupling, and the coupling is its own choice with its own assumption; the group
+lasso is a coupling (joint sparsity, co-located support), not a per-model regularization, and
+Utsugi's method has no cross-gradient.  So: split, and add SimPEG's couplings.
+
+**Coupling layer (methods/coupling.py).**  `coupling`: cross_gradient, joint_total_variation,
+linear_correspondence (two models; slope/intercept or coefficients), pgi (rock units), group_lasso
+(its own ADMM solver), none; `resolve` maps the former keys (regularization_type "group_lasso",
+cross_gradient_weight > 0).  JointInversion(coupling, coupling_weight, coupling_options); a generic
+pair wrapper for two-model SimPEG terms (>2 models: every pair).  The group lasso's λ3 is kept as a
+named hybrid, `group_lasso+cross_gradient`.
+
+**Finding: the cross-gradient weight coupled nothing.**  For g/cc and SI models the cross-gradient
+is ~1e-10 at the inverted models (quartic in the amplitudes); raw weights 1, 1e3, 1e6, 1e9 all gave
+the uncoupled models (correlation 0.897–0.899 on the block synthetic of test_joint_regularization) —
+the page's default weight 1 has been an uncoupled joint inversion.  `CouplingScale` (directive):
+coupling off in iteration 1, then after iterations 1 and 3 each term's multiplier = w × λmax(reg
+Hessian) / λmax(term Hessian); w = 1 weighs it like the regularization.  Correlation 0.90 → 0.93 /
+0.97 / 0.99 at w = 0.1 / 1 / 10, both χ² near N.  `coupling_options.scale = "raw"` keeps the old.
+JTV: each model scaled by 1 / rms(∇m_i) (unscaled, w = 10 left gravity at χ² 92 and magnetics at 0;
+scaled, both fit at 0.1–10).  Linear correspondence ρ = 6χ: correlation 1.00.
+
+**PGI (SimPEG PGI + its tutorial directives).**  Units {name, means, stds, proportion} per model
+label; a background at the references is added with a tight spread, 2.5 % of the largest unit
+contrast.  16x16x8 synthetic, 4x4x3 block (0.3 g/cc, 0.05 SI): L2 gives 0.045 in the block;
+PGI with a 10 % background found 0 block cells (the smear counts as background), 1.7 % → 47/48 and
+0.175, default 2.5 % → 46/48 and 0.246 (χ 0.041 of 0.05).  Learning the means (kappa 0) collapsed
+them onto the smear (0.035) — off by default.  Result: pgi.membership and the final units.
+
+**Plumbing.**  InversionTask joint_coupling / coupling_weight / coupling_options (packed; `coupling`
+property); pipeline params coupling / coupling_weight (manual; auto 1) / coupling_options; results
+`coupling` (+ multipliers), `pgi`, settings.coupling = first column of the workflow tree (PGI runs
+skip the per-model columns); JointRegularizedInversionNode(coupling, …); dag_view labels.  Page,
+Inversion step: "How the models are coupled" (coupling, weight in manual, the linear relation, PGI
+units typed or filled from the Model step, descriptions with references); one "Joint — A + B"
+entry per combination instead of a separate group-lasso entry; λ3 for the hybrid; coupling weight
+sweep.  Checked in the browser: each coupling's submitted params and the Review row.
+tests/test_coupling.py (13).  (pytest here needs stdin from /dev/null when run from Git Bash, or it
+waits.)
+
+**Coupling demonstration (2026-09-30).**  examples/output/coupling_comparison: three dense bodies (0.3 g/cc; χ 0.05 / 0.01 / 0),
+six couplings with L1–L2 per model, blocks and dipping intrusions; report and two workflow viewers published as artifacts.
+Fixes found on the way: JTV weighed by value once after iteration 1 with ε relative to the gradients (curvature matching gave
+it ~0 weight against sparse models); PGI units named by nearest means (SimPEG reorders the mixture; names were swapped);
+build_workflow takes a true model per property; runs in the tree are named by their coupling (weight in the coupling label).
+
+**Why the group lasso wins (same day).**  A control (gl_coupling="none": the group lasso's ADMM solver, weighting, L2 and
+L-curve, each model soft-thresholded alone) recovers 0.23-0.25 g/cc in the blocks against 0.25-0.27 coupled and 0.08-0.11 for
+L1-L2 alone: most of the gain is the solver.  The coupling gives shared support: B's weak χ in 95 % of its dense cells (40 %
+uncoupled; peak 0.027 vs 0.083 SI), a better magnetic fit (χ²/N 1.22 vs 1.36).  Cross-gradient: zero wherever either model
+is flat - 443 of 611 cells with density structure have no χ structure (B weak, C none) - and it aligns directions, not the
+amplitude/depth the separate inversions lose.  IRLS 20 -> 40 cycles: the uncoupled and JTV runs converge, densities +60-85 %;
+cross-gradient and linear correspondence still hit 40.  Report updated (why section, control, IRLS table).
+
+**Names and PDF (same day).**  The control is not a group lasso: nothing pairs the two values of a cell, so it is L1 + L2 per
+value solved by ADMM.  Report, figure rows, coupling label and workflow names now read 1. L1–L2, IRLS, no coupling; 2. L1 + L2,
+ADMM, no coupling; 3. group lasso, ADMM (the pairing is the coupling).  The report's cross-gradient section was dropped: with
+40 cycles the cross-gradient gains 20–90 %.  make_report_pdf.py prints the report to report/coupling_comparison_report.pdf
+(A4, headless Chrome/Edge; block layout in print, since Chrome overlapped grid rows across page breaks).

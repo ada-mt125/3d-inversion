@@ -246,38 +246,12 @@ def assign_models(setups: list[MethodSetup]) -> tuple[list[str], list[str]]:
 
 
 def _pair_cross_gradient(mesh, projection, **kwargs):
-    """CrossGradient between two slices of a longer joint model vector.
-
-    ``projection`` (2n x n_total) extracts [m_i | m_j] from the full model;
-    the value, gradient and Hessian are mapped back with its transpose.
-    """
-    from simpeg import maps
+    """CrossGradient between two slices of a longer joint model vector (see
+    :func:`geoinv3d.methods.coupling._pair_term`)."""
     from simpeg.regularization import CrossGradient
 
-    class PairCrossGradient(CrossGradient):
-        def __init__(self, mesh, projection, **kwargs):
-            n = projection.shape[0] // 2
-            super().__init__(mesh, wire_map=maps.Wires(("m1", n), ("m2", n)),
-                             approx_hessian=True, **kwargs)
-            self._projection = projection
-
-        @property
-        def nP(self):
-            return self._projection.shape[1]
-
-        def __call__(self, model):
-            return super().__call__(self._projection @ model)
-
-        def deriv(self, model):
-            return self._projection.T @ super().deriv(self._projection @ model)
-
-        def deriv2(self, model, v=None):
-            P = self._projection
-            if v is None:
-                return P.T @ super().deriv2(P @ model) @ P
-            return P.T @ super().deriv2(P @ model, P @ v)
-
-    return PairCrossGradient(mesh, projection, **kwargs)
+    from .coupling import _pair_term
+    return _pair_term(CrossGradient, mesh, projection, approx_hessian=True, **kwargs)
 
 
 def depth_weights(dmesh, locations, active_cells, exponent: float) -> NDArray:
@@ -302,8 +276,16 @@ class JointInversion:
 
     Args:
         setups: the datasets (see :class:`MethodSetup`).
-        cross_gradient_weight: weight of the cross-gradient term between every
-            pair of models (times beta, like the regularizations); 0 = off.
+        coupling: how the models are coupled (see :mod:`geoinv3d.methods.coupling`):
+            "cross_gradient", "joint_total_variation", "linear_correspondence",
+            "pgi" or "none".  None: "cross_gradient" when ``cross_gradient_weight``
+            > 0, else "none" (as before couplings were a choice of their own).
+        coupling_weight: weight of the coupling term(s) (times beta, like the
+            regularizations); None: ``cross_gradient_weight``.  Not used by PGI.
+        coupling_options: the coupling's own settings: ``slope`` / ``intercept``
+            (or ``coefficients``) of the linear correspondence, ``eps`` of the
+            joint total variation, ``units`` / ``learn`` of PGI.
+        cross_gradient_weight: the coupling weight under its former name.
         reg_kwargs: keyword arguments of the WeightedLeastSquares of models
             without a ModelRegularization (e.g. ``alpha_s``,
             ``length_scale_x``).  None keeps SimPEG's defaults.
@@ -330,14 +312,32 @@ class JointInversion:
         irls_cooling_factor: float = 1.1,
         use_preconditioner: bool = True,
         balance: bool = True,
+        coupling: Optional[str] = None,
+        coupling_weight: Optional[float] = None,
+        coupling_options: Optional[dict] = None,
     ) -> None:
+        from .coupling import COUPLINGS, resolve
+
         if not setups:
             raise ValueError("A joint inversion needs at least one dataset")
         self.setups = setups
         self.max_iter = max_iter
         self.beta0_ratio = beta0_ratio
         self.cooling_factor = cooling_factor
-        self.cross_gradient_weight = cross_gradient_weight
+        if coupling_weight is not None:
+            weight = float(coupling_weight)
+        elif cross_gradient_weight:
+            weight = float(cross_gradient_weight)
+        else:
+            weight = 1.0 if coupling is not None else 0.0   # a coupling asked for: weight 1
+        self.coupling = resolve(coupling, None, weight)
+        if COUPLINGS[self.coupling].solver == "admm":
+            raise ValueError("The group lasso has its own solver: "
+                             "geoinv3d.methods.group_lasso.GroupLassoProblem")
+        self.coupling_weight = 0.0 if self.coupling == "none" else weight
+        self.coupling_options = dict(coupling_options or {})
+        # the former name, for callers that read it
+        self.cross_gradient_weight = self.coupling_weight if self.coupling == "cross_gradient" else 0.0
         self.reg_kwargs = dict(reg_kwargs or {})
         self.regularization = regularization
         self.max_irls_iterations = max_irls_iterations
@@ -464,43 +464,40 @@ class JointInversion:
 
         combo_dmis = objective_function.ComboObjectiveFunction(
             objfcts=dmis_list, multipliers=[float(s.weight) for s in self.setups])
+        if self.coupling == "pgi":
+            return self._build_pgi(wires, wire_of, simulations, dmis_list, combo_dmis)
 
-        # Cross-gradient coupling between each pair of models.  It compares
-        # models cell by cell, so all models share the first model's mesh and
-        # active cells.
-        cross_grad_list = []
+        # The coupling term(s) (cross-gradient between each pair of models, one joint total
+        # variation over all, or the linear correspondence of two).  They compare models
+        # cell by cell, so all models share the first model's mesh and active cells.
+        from .coupling import check, coupling_terms
         n_models = len(self.models)
-        if self.cross_gradient_weight > 0 and n_models >= 2:
+        coupling_list = []
+        if self.coupling != "none" and self.coupling_weight > 0:
             first = self._first(self.models[0])
-            if len({m.n_params for m in self.models}) > 1:
-                raise ValueError("The cross-gradient compares models cell by cell: all models "
-                                 "need the same mesh and active cells")
-            dmesh = first.mesh.to_discretize()
-            cg_kwargs = {} if first.active_cells is None else {"active_cells": first.active_cells}
-            if n_models == 2:
-                from simpeg.regularization import CrossGradient
-                cross_grad_list.append(CrossGradient(dmesh, wire_map=wires, approx_hessian=True,
-                                                     **cg_kwargs))
-            else:
-                # SimPEG's CrossGradient expects a model of exactly [m_i | m_j], so
-                # project the full joint model onto that pair first
-                import scipy.sparse as sp
-                from itertools import combinations
-                for i, j in combinations(range(n_models), 2):
-                    projection = sp.vstack([wires.maps[i][1].P, wires.maps[j][1].P]).tocsr()
-                    cross_grad_list.append(_pair_cross_gradient(dmesh, projection, **cg_kwargs))
+            coupling_list = coupling_terms(
+                self.coupling, first.mesh.to_discretize(), wires,
+                [m.n_params for m in self.models], first.active_cells, self.coupling_options)
+        elif self.coupling != "none":
+            check(self.coupling, n_models)
         combo_reg = objective_function.ComboObjectiveFunction(
-            objfcts=reg_list + cross_grad_list,
-            multipliers=[1.0] * len(reg_list) + [float(self.cross_gradient_weight)]
-            * len(cross_grad_list))
+            objfcts=reg_list + coupling_list,
+            multipliers=[1.0] * len(reg_list) + [self.coupling_weight] * len(coupling_list))
 
         lo, hi = self.bounds()
         collector = IterationCollector()
         balance = None
+        # the coupling weight: unit-free (against the regularization's curvature) unless
+        # coupling_options["scale"] == "raw" (the multiplier as given, as before)
+        from .directives import CouplingScale
+        scale = (CouplingScale(len(reg_list), self.coupling_weight)
+                 if coupling_list and self.coupling_options.get("scale", "curvature") != "raw"
+                 else None)
         if self.legacy:
             opt = optimization.InexactGaussNewton(maxIter=self.max_iter, cg_maxiter=20)
             directive_list = [
                 collector,
+                *([scale] if scale else []),
                 directives.BetaEstimate_ByEig(beta0_ratio=self.beta0_ratio),
                 directives.BetaSchedule(coolingFactor=self.cooling_factor, coolingRate=1),
                 directives.TargetMisfit(chifact=1.0),
@@ -530,6 +527,8 @@ class JointInversion:
                     slices=[wire_of[m.name] for m in self.models],
                     model_of_dmis=model_of_dmis, names=[m.name for m in self.models])
                 directive_list.append(balance)
+            if scale:
+                directive_list.append(scale)
             directive_list += [
                 directives.BetaEstimate_ByEig(beta0_ratio=self.beta0_ratio, random_seed=42),
                 directives.TargetMisfit(chifact=1.0),
@@ -553,7 +552,9 @@ class JointInversion:
             "simulations": simulations,
             "dmis_list": dmis_list,
             "reg_list": reg_list,
-            "cross_grad_list": cross_grad_list,
+            "coupling_list": coupling_list,
+            "coupling_scale": scale,
+            "cross_grad_list": coupling_list if self.coupling == "cross_gradient" else [],
             "combo_dmis": combo_dmis,
             "combo_reg": combo_reg,
             "opt": opt,
@@ -564,6 +565,88 @@ class JointInversion:
             "balance": balance,
             "bounds": (lo, hi),
         }
+
+    def _build_pgi(self, wires, wire_of, simulations, dmis_list, combo_dmis) -> dict[str, Any]:
+        """SimPEG's petrophysically guided inversion of all models together: a Gaussian-mixture
+        smallness over the rock units' property pairs plus each model's smoothness (the PGI
+        regularization) with the directives of SimPEG's joint PGI tutorials.  The per-model
+        regularizations and the coupling weight are not used: PGI is both."""
+        from simpeg import (directives, inverse_problem, inversion, maps, optimization,
+                            regularization, utils)
+
+        from .coupling import check, gaussian_mixture, pgi_settings
+
+        check("pgi", len(self.models))
+        if len({m.n_params for m in self.models}) > 1:
+            raise ValueError("PGI classifies every cell by all its properties: all models need "
+                             "the same mesh and active cells")
+        first = self._first(self.models[0])
+        dmesh = first.mesh.to_discretize()
+        active = first.active_cells if first.active_cells is not None \
+            else np.ones(dmesh.n_cells, dtype=bool)
+        n = self.models[0].n_params
+        refs = [float(np.median(self.reference_model(m))) for m in self.models]
+        settings = pgi_settings(self.coupling_options, [m.name for m in self.models], refs)
+        gmm = gaussian_mixture(settings, dmesh, active, n)
+        m0 = self.starting_model()
+        cells = np.column_stack([wire_of[m.name] * m0 for m in self.models])   # cell x property
+        reg = regularization.PGI(
+            mesh=dmesh, gmmref=gmm, wiresmap=wires,
+            maplist=[maps.IdentityMap(nP=n) for _ in self.models], active_cells=active,
+            alpha_pgi=1.0, alpha_x=1.0, alpha_y=1.0, alpha_z=1.0,
+            alpha_xx=0.0, alpha_yy=0.0, alpha_zz=0.0,
+            reference_model=utils.mkvc(gmm.means_[gmm.predict(cells)]),
+            weights_list=self._pgi_weights(simulations, dmis_list, m0, dmesh, active, wire_of))
+        lo, hi = self.bounds()
+        opt = optimization.ProjectedGNCG(
+            maxIter=self.max_iter, lower=-np.inf if lo is None else lo,
+            upper=np.inf if hi is None else hi, maxIterLS=20, cg_maxiter=100, cg_rtol=1e-3)
+        n_units = len(settings.units)
+        # learn: the units' means move with the models (kappa 0), the background's stays
+        kappa = np.vstack([np.full(len(self.models), 1e10)] +
+                          [np.zeros(len(self.models))] * (n_units - 1)) if settings.learn else 1e10
+        several = len(dmis_list) > 1
+        collector = IterationCollector()
+        directive_list = [directives.AlphasSmoothEstimate_ByEig(
+            alpha0_ratio=settings.alpha_smooth_ratio, random_seed=42)]
+        if several:
+            directive_list.append(directives.ScalingMultipleDataMisfits_ByEig(
+                chi0_ratio=[float(s.weight) for s in self.setups], random_seed=42))
+        directive_list += [
+            directives.BetaEstimate_ByEig(beta0_ratio=settings.beta0_ratio, random_seed=42),
+            directives.PGI_UpdateParameters(update_gmm=settings.learn, kappa=kappa),
+            directives.MultiTargetMisfits(chiSmall=settings.chi_small, verbose=False),
+        ]
+        if several:
+            directive_list.append(directives.JointScalingSchedule())
+        directive_list += [
+            directives.PGI_BetaAlphaSchedule(coolingFactor=self.cooling_factor, tolerance=0.2,
+                                             progress=0.2),
+            directives.PGI_AddMrefInSmooth(wait_till_stable=True),
+            directives.UpdatePreconditioner(),
+            collector,
+        ]
+        inv_prob = inverse_problem.BaseInvProblem(combo_dmis, reg, opt)
+        inv = inversion.BaseInversion(inv_prob, directiveList=directive_list)
+        return {"simulations": simulations, "dmis_list": dmis_list, "reg_list": [reg] * len(self.models),
+                "coupling_list": [reg], "cross_grad_list": [], "combo_dmis": combo_dmis,
+                "combo_reg": reg, "opt": opt, "inv_prob": inv_prob, "inv": inv,
+                "collector": collector, "wires": wires, "balance": None, "bounds": (lo, hi),
+                "pgi": {"regularization": reg, "settings": settings}}
+
+    def _pgi_weights(self, simulations, dmis_list, m0, dmesh, active, wire_of) -> list:
+        """Each model's rms sensitivity per unit volume from its own datasets, normalized
+        to a maximum of 1 (as JointSensitivityWeights), clipped at 1e-12 (potential
+        fields) or 1e-2 (MT / DC) of it."""
+        vol = dmesh.cell_volumes[active]
+        out = []
+        for m in self.models:
+            jtj = sum(simulations[i].getJtJdiag(m0, W=dmis_list[i].W) for i in m.setups)
+            w = np.sqrt(np.asarray(wire_of[m.name] * jtj, dtype=float) / vol)
+            linear = all(getattr(self.setups[i].method, "linear", True) for i in m.setups)
+            w = np.maximum(w / w.max(), 1e-12 if linear else 1e-2) if w.max() > 0 else np.ones_like(w)
+            out.append(w)
+        return out
 
     def run(self, starting_model: NDArray | None = None) -> JointInversionResult:
         """Build and run the joint inversion, returning full results.
@@ -604,15 +687,16 @@ class JointInversion:
 
         wires = components["wires"]
         balance = components["balance"]
+        pgi = components.get("pgi")
         models_info = {}
         for k, (m, reg) in enumerate(zip(self.models, components["reg_list"])):
             result.recovered_models[m.name] = np.array(
                 getattr(wires, m.name) * m_recovered, copy=True)
             info = {"datasets": [self.dataset_labels[i] for i in m.setups],
                     "methods": [method_names[i] for i in m.setups],
-                    "regularization": "joint_L2" if m.regularization is None
+                    "regularization": "pgi" if pgi else "joint_L2" if m.regularization is None
                     else m.regularization.label}
-            if m.regularization is not None:
+            if m.regularization is not None and not pgi:
                 r = m.regularization
                 info["kind"] = r.kind
                 if r.bounded:
@@ -643,5 +727,39 @@ class JointInversion:
             except Exception as e:   # the result is still useful without it
                 print(f"[JointInversion] Could not compute the predicted data of {label}: {e}")
             datasets_info[label] = entry
-        result.extras = {"models": models_info, "datasets": datasets_info}
+        result.extras = {"models": models_info, "datasets": datasets_info,
+                         "coupling": self.coupling_info()}
+        scale = components.get("coupling_scale")
+        if scale is not None and scale.scales is not None:
+            result.extras["coupling"]["scaling"] = "curvature"
+            result.extras["coupling"]["multipliers"] = [float(scale.weight * v) for v in scale.scales]
+        if pgi:   # which unit each cell ended in, and the units (their means may have moved)
+            reg, settings = pgi["regularization"], pgi["settings"]
+            gmm = reg.objfcts[0].gmm
+            # SimPEG reorders the mixture's components (by weight; ties in any order), so
+            # name each by the unit whose given means are nearest (in its spreads), not by
+            # position: by position, units of equal share came back under each other's names
+            given = np.array([u.means for u in settings.units], dtype=float)
+            spread = np.array([u.stds for u in settings.units], dtype=float)
+            names = [settings.units[int(np.argmin(np.sum(((mu - given) / spread) ** 2, axis=1)))].name
+                     for mu in np.asarray(gmm.means_, dtype=float)]
+            result.extras["pgi"] = {
+                "membership": np.asarray(reg.objfcts[0].membership(m_recovered), dtype=int),
+                "units": [{"name": names[k], "means": [float(v) for v in gmm.means_[k]],
+                           "stds": [float(np.sqrt(v)) for v in np.asarray(gmm.covariances_[k]).ravel()],
+                           "proportion": float(np.ravel(gmm.weights_)[k])}
+                          for k in range(len(names))],
+                "learn": settings.learn}
         return result
+
+    def coupling_info(self) -> dict:
+        """The coupling as recorded with the results."""
+        from .coupling import COUPLINGS
+        c = COUPLINGS[self.coupling]
+        info = {"kind": self.coupling, "label": c.label, "family": c.family,
+                "reference": c.reference, "models": [m.name for m in self.models]}
+        if self.coupling not in ("none", "pgi"):
+            info["weight"] = self.coupling_weight
+        if self.coupling_options:
+            info["options"] = {k: v for k, v in self.coupling_options.items() if k != "units"}
+        return info

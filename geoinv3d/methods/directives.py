@@ -181,6 +181,95 @@ def _slice_eigenvalue(apply, n_total, projection, rng, n_iter: int = 4) -> float
     return float(x @ (projection @ apply(projection.T @ x)))
 
 
+class CouplingScale(InversionDirective):
+    """A unit-free weight for the coupling terms of a joint inversion.
+
+    The coupling terms (cross-gradient, joint total variation, linear
+    correspondence) come in the units of the models' products.  The cross-gradient
+    is quartic in the model amplitudes: coupling a density in g/cc with a
+    susceptibility in SI it is ~1e-10 at the inverted models, and a raw weight of
+    1e9 changed nothing (the block synthetic of tests/test_joint_regularization.py).
+    So the weight is set against the regularization: after the first iteration (the
+    coupling is off in it, as the starting model gives the cross-gradient no
+    curvature) and again after ``at_iterations``, each coupling term's multiplier
+    becomes ``weight`` × λmax(regularization Hessian) / λmax(term Hessian), both at
+    the current model.  ``weight`` 1 then weighs the coupling like the models'
+    regularization; the group lasso's cross-gradient is normalized the same way
+    against its data term (methods/group_lasso.py).
+
+    Args:
+        n_reg: the number of leading regularization terms in the combination; the
+            terms after them are the coupling's.
+        weight: the unit-free weight.
+        at_iterations: after which iterations the multipliers are set (1-based).
+    """
+
+    def __init__(self, n_reg: int, weight: float, at_iterations=(1, 3), n_pw_iter: int = 6,
+                 seed: int = 42, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.n_reg = int(n_reg)
+        self.weight = float(weight)
+        self.at_iterations = tuple(at_iterations)
+        self.n_pw_iter = n_pw_iter
+        self.seed = seed
+        self.scales = None
+        self._iteration = 0
+
+    def initialize(self) -> None:
+        reg = self.reg
+        multipliers = list(reg.multipliers)
+        for j in range(self.n_reg, len(multipliers)):
+            multipliers[j] = 0.0
+        reg.multipliers = multipliers
+
+    def endIter(self) -> None:
+        import scipy.sparse as sp
+
+        self._iteration += 1
+        if self._iteration not in self.at_iterations:
+            return
+        reg, m = self.reg, self.invProb.model
+        rng = np.random.default_rng(self.seed)
+        eye = sp.identity(len(m), format="csr")
+        multipliers = list(reg.multipliers)
+
+        def reg_hessian(v):
+            return sum(multipliers[k] * reg.objfcts[k].deriv2(m, v) for k in range(self.n_reg))
+        eig_r = _slice_eigenvalue(reg_hessian, len(m), eye, rng, self.n_pw_iter)
+        scales = []
+        phi_r = None
+        for j in range(self.n_reg, len(multipliers)):
+            term = reg.objfcts[j]
+            if hasattr(term, "rescale"):   # the joint total variation's model scales
+                term.rescale(m)
+            if getattr(term, "scale_by", "curvature") == "value":
+                # a total variation's curvature is set by its flattest cells (and so is that
+                # of an IRLS L1 regularization): compare the terms' values instead, once,
+                # after the first iteration (later, as the IRLS weights shrink the
+                # regularization's value, the ratio would keep strengthening the coupling:
+                # 7x by iteration 3, and the data were no longer fitted)
+                if self._iteration != self.at_iterations[0]:
+                    scales.append(multipliers[j] / self.weight if self.weight else 0.0)
+                    continue
+                if phi_r is None:
+                    phi_r = float(sum(multipliers[k] * reg.objfcts[k](m) for k in range(self.n_reg)))
+                phi_c = float(term(m))
+                scale = phi_r / phi_c if phi_c > 0 and phi_r > 0 else 0.0
+                scales.append(scale)
+                multipliers[j] = self.weight * scale
+                continue
+            eig_c = _slice_eigenvalue(lambda v, j=j: reg.objfcts[j].deriv2(m, v), len(m), eye, rng,
+                                      self.n_pw_iter)
+            scale = eig_r / eig_c if eig_c > 0 and eig_r > 0 else 0.0
+            multipliers[j] = self.weight * scale
+            scales.append(scale)
+        reg.multipliers = multipliers
+        self.scales = scales
+        print(f"[CouplingScale] after iteration {self._iteration}: coupling multiplier(s) "
+              + ", ".join(f"{self.weight * s:.3g}" for s in scales)
+              + f" (weight {self.weight:g} x regularization / coupling, by curvature or value)")
+
+
 class JointRegularizationBalance(InversionDirective):
     """Balance each model's regularization against its data, for one beta.
 
