@@ -1262,3 +1262,23 @@ Page (Inversion step, group lasso, manual): cell weighting, its depth exponent a
 the paper's settings remain selectable.  The pipeline's auto mode uses GROUP_LASSO_AUTO (depth
 weighting beta = 1, errors as data scaling, chi^2 = N, balance).  docs/group_lasso_joint.md
 "Field data", docs/joint_couplings.md (PGI weights), docs/magnetization_vector.md.  454 tests.
+
+---
+
+## 2026-09-30 (night) — Group lasso at full resolution: faster
+
+The coupled full-resolution run of the second series took 124 min on c5.18xlarge (control 66):
+py-spy on the instance showed the exact bounded shrink, single-threaded numpy bisecting all
+2 x 335,518 values at every ADMM iteration once the balance had made the weights unequal
+(about 0.7 s per iteration against 0.25 s).  Now: a numba kernel per cell in parallel
+(NUMBA_SHRINK_MIN; the numpy path below it; they agree to 1e-14; 6.5 against 28 ms for the
+Karnataka size on 15 cores); gl_data_weights to start the balance from a 2 km run's weights
+(0.595 / 1.682 at 2 km, 0.625 / 1.600 at full resolution); gl_lambda1_selection "search": a
+descent to lambda1_max / 10 and a secant search for chi^2 = N from gl_lambda1_ratio, no sweep
+(the ratio carries over less well, 8.8e-4 against 2.0e-3).  2 km: sweep + balance 5,223 ADMM
+iterations, 93 s; sweep from the weights 6,869, 115 s; search from the weights 2,711, 54 s, the
+same models (82 / 62 % in the core, 74 % of the magnetic cells anomalous in density), chi^2 / N
+0.85 / 1.08.  Expected at full resolution: about 40 min (20 of them the sensitivities).  The
+problem counts ADMM iterations over all its solves (group_lasso.admm_iterations_total).
+Page: the search among the lambda1 choices (with the ratio field).  joint_params:
+group_lasso_fast (the 2 km start).  tests: TestSpeed.

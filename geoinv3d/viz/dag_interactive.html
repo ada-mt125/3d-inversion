@@ -725,6 +725,7 @@ svg#dag:active{cursor:grabbing;}
                     <select id="up-gl-sel" class="up-in">
                       <option value="discrepancy">χ² = N on a λ₁ sweep</option>
                       <option value="lcurve">L-curve corner of a λ₁ sweep (paper)</option>
+                      <option value="search">χ² = N by a direct search from λ₁ / λ₁,max (e.g. a 2 km run's)</option>
                       <option value="fixed">Fixed fraction of λ₁,max</option>
                     </select></div>
                   <div class="up-col"><label class="up-lbl" for="up-gl-ratio">λ<sub>1</sub> / λ<sub>1,max</sub></label><input id="up-gl-ratio" type="number" class="up-in" min="0" max="1" step="any" value="0.02" disabled></div>
@@ -4363,7 +4364,7 @@ window.GeoPreview=GeoPreview;
     $u('up-gl-beta').disabled=$u('up-gl-weighting').value!=='depth';
   });
   $u('up-gl-sel').addEventListener('change',()=>{
-    const fixed=$u('up-gl-sel').value==='fixed';
+    const sel=$u('up-gl-sel').value, fixed=sel==='fixed'||sel==='search';   // a start, no sweep
     $u('up-gl-ratio').disabled=!fixed; $u('up-gl-n').disabled=fixed; $u('up-gl-decades').disabled=fixed;
   });
   $u('up-norm-preset').addEventListener('change',()=>{
@@ -5550,7 +5551,7 @@ window.GeoPreview=GeoPreview;
       gl_weighting:$u('up-gl-weighting').value, gl_balance:$u('up-gl-balance').checked};
     if(p.gl_weighting==='depth')p.depth_weighting_exponent=num('up-gl-beta','depth exponent β',{min:0});
     if(p.gl_balance&&sel==='fixed')throw new Error('The balance of the datasets needs a λ₁ sweep: choose χ² = N or the L-curve, or untick the balance');
-    if(sel==='fixed'){
+    if(sel==='fixed'||sel==='search'){
       p.gl_lambda1_ratio=num('up-gl-ratio','λ1 / λ1,max',{min:0});
       if(!(p.gl_lambda1_ratio>0&&p.gl_lambda1_ratio<1))throw new Error('λ1 / λ1,max must be between 0 and 1');
     }else{

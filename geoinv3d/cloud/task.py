@@ -144,7 +144,9 @@ class InversionTask:
     # gl_lambda1_decades decades below lambda1_max, by gl_lambda1_selection
     # "lcurve" (log misfit vs log group penalty, falling back to chi^2 = N) or
     # "discrepancy", or fixed ("fixed": gl_lambda1, else gl_lambda1_ratio x
-    # lambda1_max).  gl_lambda2 is plain L2 damping of the unit-column
+    # lambda1_max), or "search": no sweep, a secant search for chi^2 = N from
+    # gl_lambda1_ratio x lambda1_max (e.g. the ratio of a 2 km run), warm-started from a
+    # short descent (lambda1_max / 10, then halfway in log to the start).  gl_lambda2 is plain L2 damping of the unit-column
     # variables (X^T X has a unit diagonal); gl_mu the ADMM penalty (None:
     # mean eigenvalue of X^T X).  On the 16 x 16 x 8 synthetic, lambda2 = 0.3
     # gave the true amplitudes; 0.01 inflated them ~6x, 1 spread the body and
@@ -189,6 +191,9 @@ class InversionTask:
     # gl_balance_rounds times, until each model's chi^2 / N is within 1/1.2 .. 1.2
     gl_balance: bool = False
     gl_balance_rounds: int = 6
+    # Data weights of the models to start from (one per model, in model order, or
+    # {model: weight}), e.g. those a 2 km run balanced to: the balance then starts near its end
+    gl_data_weights: Optional[object] = None
 
     # Arrays stored separately in the archive
     initial_model: Optional[NDArray] = None
@@ -310,7 +315,7 @@ GROUP_LASSO_KEYS = (
     "gl_lambda1_selection", "gl_lambda1", "gl_lambda1_ratio", "gl_lambda2", "gl_mu",
     "gl_data_scaling", "gl_gamma", "gl_n_lambda1", "gl_lambda1_decades", "gl_max_iter",
     "gl_tol", "gl_cross_gradient", "gl_gn_max_iter", "gl_gn_tol", "gl_coupling",
-    "gl_weighting", "gl_relaxation", "gl_balance", "gl_balance_rounds",
+    "gl_weighting", "gl_relaxation", "gl_balance", "gl_balance_rounds", "gl_data_weights",
 )
 
 

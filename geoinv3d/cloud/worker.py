@@ -983,7 +983,7 @@ def run_joint_inversion(task: InversionTask, mesh=None) -> dict:
     }
 
 
-GROUP_LASSO_SELECTIONS = ("lcurve", "discrepancy", "fixed")
+GROUP_LASSO_SELECTIONS = ("lcurve", "discrepancy", "fixed", "search")
 
 
 def _group_lasso_problem(task: InversionTask, mesh):
@@ -1212,6 +1212,22 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
         mesh = _build_mesh(task)
     problem, setups, model_labels, dataset_labels = _group_lasso_problem(task, mesh)
     n_data = sum(len(s.survey.observed) for s in setups)
+    weights0 = None
+    if task.gl_data_weights is not None:   # start the balance from given weights
+        w0 = task.gl_data_weights
+        if isinstance(w0, dict):
+            unknown = set(w0) - set(problem.model_names)
+            if unknown:
+                raise ValueError(f"gl_data_weights names unknown models {sorted(unknown)} "
+                                 f"(models: {problem.model_names})")
+            w0 = [float(w0.get(n, 1.0)) for n in problem.model_names]
+        weights0 = [float(x) for x in w0]
+        if len(weights0) != problem.n_models:
+            raise ValueError(f"gl_data_weights has {len(weights0)} values for "
+                             f"{problem.n_models} models {problem.model_names}")
+        problem.scale_models(weights0)
+        print("[Group lasso] data weights to start from: " + ", ".join(
+            f"{n} {w:g}" for n, w in zip(problem.model_names, weights0)))
     lam_max = problem.lambda1_max()
     lam2 = float(task.gl_lambda2)
     lam3 = float(task.gl_cross_gradient)
@@ -1245,6 +1261,22 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
             else float(task.gl_lambda1_ratio) * lam_max
         result = problem.solve(lam1, lam2, should_stop=stop_requested, **solve_kw)
         criterion = "fixed"
+    elif selection == "search":
+        # no sweep: a short descent for a warm start, then a secant search for chi^2 = N
+        start = float(task.gl_lambda1_ratio) * lam_max
+        state = None
+        steps = [lam_max / 10.0, np.sqrt(lam_max / 10.0 * start)] if start < lam_max / 10.0 else []
+        for i, lam in enumerate(steps):
+            res = problem.solve(lam, lam2, state=state, should_stop=stop_requested, **solve_kw)
+            state = res.state
+            chi = problem.chi2_of(res)
+            report(i + 1, len(steps) + 1, lam, chi["total"] if chi else None,
+                   {"admm_iterations": res.n_iterations})
+            print(f"[Group lasso] descent lambda1 = {lam:.4g}: chi2 = "
+                  f"{chi['total'] if chi else float('nan'):.4g}, {res.n_iterations} ADMM iterations")
+        result, lam1 = _discrepancy_solve(problem, start, lam2, state, n_data, solve_kw,
+                                          should_stop=stop_requested, max_solves=8)
+        criterion = "chi^2 = N (search)"
     else:
         def on_point(i, n, p):
             report(i + 1, n, p["lambda1"], p["chi2"], {"admm_iterations": p["n_iterations"]})
@@ -1355,6 +1387,7 @@ def run_group_lasso_joint(task: InversionTask, mesh=None) -> dict:
                     if b is not None and (b[0] is not None or b[1] is not None)}
                    if problem.bounds is not None else {}),
         "balance": balance, "data_weights": [float(w) for w in problem.data_weights],
+        "data_weights_start": weights0, "admm_iterations_total": int(problem.admm_iterations_total),
         "gamma": task.gl_gamma, "weighting": task.gl_weighting,
         "relaxation": problem.relaxation, "solver": problem.solver_name,
         "admm_iterations": result.n_iterations, "admm_converged": result.converged,

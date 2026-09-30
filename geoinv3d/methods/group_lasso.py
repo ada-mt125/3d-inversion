@@ -524,8 +524,75 @@ def _box_arrays(qs, lower, upper):
     return lo, hi
 
 
+# The bounded group shrink runs per cell in parallel with numba above this many values
+# (P x cells); below it, or without numba, vectorized numpy.  On the Karnataka mesh
+# (2 x 335,518 values) the numpy bisection made one ADMM iteration about 1 s, most of it
+# single-threaded shrink.
+NUMBA_SHRINK_MIN = 50_000
+_NUMBA_KERNEL = None
+
+
+def _numba_shrink_kernel():
+    """The per-cell bounded group shrink, compiled on first use (None without numba)."""
+    global _NUMBA_KERNEL
+    if _NUMBA_KERNEL is None:
+        try:
+            import math
+
+            import numba
+        except ImportError:
+            _NUMBA_KERNEL = False
+            return None
+
+        @numba.njit(parallel=True, cache=False)
+        def kernel(mq, lo, hi, a, g, lambda1, n_bisect, out):   # pragma: no cover (compiled)
+            P, m = mq.shape
+            for k in numba.prange(m):
+                zero_ok = True
+                free = 0.0
+                for p in range(P):
+                    lk, hk, q = lo[p, k], hi[p, k], mq[p, k]
+                    if lk > 0.0 or hk < 0.0:
+                        zero_ok = False
+                    if not ((lk == 0.0 and q < 0.0) or (hk == 0.0 and q > 0.0)):
+                        free += (q / g[p]) ** 2
+                if zero_ok and math.sqrt(free) <= lambda1:
+                    for p in range(P):
+                        out[p, k] = 0.0
+                    continue
+                top = 0.0
+                for p in range(P):
+                    v = min(max(mq[p, k] / a[p], lo[p, k]), hi[p, k])
+                    z = min(max(0.0, lo[p, k]), hi[p, k])
+                    top += g[p] ** 2 * max(v * v, z * z)
+                top = math.sqrt(top)
+                r_lo, r_hi = 0.0, top
+                for _ in range(n_bisect):
+                    r = 0.5 * (r_lo + r_hi)
+                    norm = 0.0
+                    for p in range(P):
+                        sp_ = mq[p, k] * r / (a[p] * r + lambda1 * g[p] ** 2) if lambda1 > 0.0 \
+                            else mq[p, k] / a[p]
+                        sp_ = min(max(sp_, lo[p, k]), hi[p, k])
+                        norm += (g[p] * sp_) ** 2
+                    if math.sqrt(norm) > r:
+                        r_lo = r
+                    else:
+                        r_hi = r
+                    if r_hi - r_lo <= 1e-15 * top:
+                        break
+                r = 0.5 * (r_lo + r_hi)
+                for p in range(P):
+                    sp_ = mq[p, k] * r / (a[p] * r + lambda1 * g[p] ** 2) if lambda1 > 0.0 \
+                        else mq[p, k] / a[p]
+                    out[p, k] = min(max(sp_, lo[p, k]), hi[p, k])
+        _NUMBA_KERNEL = kernel
+    return _NUMBA_KERNEL or None
+
+
 def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
-                      n_bisect: int = 45, l2_factors=None, group_weights=None):
+                      n_bisect: int = 45, l2_factors=None, group_weights=None,
+                      use_numba: bool | None = None):
     """The shrink of :func:`group_shrink_many` within per-component bounds, exactly.
 
     Per cell it minimizes mu/2 ||s - q||^2 + lambda1 ||(g_p s_p)|| + sum_p
@@ -545,14 +612,30 @@ def _group_shrink_box(qs, lambda1, lambda2, mu, lower, upper, out, coupling,
     weights the cells whose unconstrained group shrink lies inside the box take it
     directly (it is then the constrained minimizer), so only the cells a bound cuts are
     bisected (the bisection over all cells made the Karnataka ADMM iterations single-thread
-    bound).  ``coupling="none"``: per component, the clipped soft threshold of
-    lambda1 g_p |s_p| (exact in one dimension).
+    bound).  Large problems run the same per-cell root search in parallel with numba
+    (``use_numba``; default: numba when available and P x cells >= NUMBA_SHRINK_MIN),
+    stopping each cell's bisection at a relative width of 1e-15.  ``coupling="none"``:
+    per component, the clipped soft threshold of lambda1 g_p |s_p| (exact in one
+    dimension).
     """
     P = len(qs)
     lo, hi = _box_arrays(qs, lower, upper)
     f = [1.0] * P if l2_factors is None else [float(x) for x in l2_factors]
     g = [1.0] * P if group_weights is None else [float(x) for x in group_weights]
     a = [mu + lambda2 * fp for fp in f]
+    if coupling == "group":
+        size = P * np.asarray(qs[0]).size
+        kernel = _numba_shrink_kernel() if (use_numba if use_numba is not None
+                                            else size >= NUMBA_SHRINK_MIN) else None
+        if kernel is not None:
+            buf = np.empty((P, np.asarray(qs[0]).size))
+            kernel(mu * np.stack([np.asarray(q, dtype=float) for q in qs]),
+                   np.ascontiguousarray(np.stack(lo)), np.ascontiguousarray(np.stack(hi)),
+                   np.asarray(a, dtype=float), np.asarray(g, dtype=float), float(lambda1),
+                   60, buf)
+            for p, o in enumerate(out):
+                o[:] = buf[p]
+            return out
     mq = [mu * np.asarray(q, dtype=float) for q in qs]
     if coupling == "none":
         for q, ap, gp, l, h, o in zip(mq, a, g, lo, hi, out):
@@ -1003,6 +1086,7 @@ class GroupLassoProblem:
         for n in notes:
             warnings.warn(n)
         self.data_weights = [1.0] * self.n_models   # further factors of scale_models
+        self.admm_iterations_total = 0
         self.model_factors = []
         for ds in self.model_datasets:
             s0 = self.scales[ds[0]]
@@ -1605,6 +1689,7 @@ class GroupLassoProblem:
             it, converged, stopped = self._gauss_newton(
                 lambda1, lambda2, cross_gradient, st, args, gn_max_iter, gn_tol, gn_kkt_tol, gn,
                 gn_callback)
+        self.admm_iterations_total += it     # every solve of this problem (sweeps, searches, balance)
         return self._result(st, lambda1, lambda2, cross_gradient, hist, it, converged, stopped,
                             time.time() - t0, gn)
 

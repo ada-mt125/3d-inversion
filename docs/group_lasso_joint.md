@@ -123,6 +123,7 @@ Pipeline keys (`InversionTask`, `params_json`): `gl_lambda1_selection`
 `gl_mu`, `gl_data_scaling`, `gl_gamma`, `gl_n_lambda1` (13), `gl_lambda1_decades`
 (3), `gl_max_iter`, `gl_tol`, `gl_cross_gradient`, `gl_gn_max_iter`, `gl_gn_tol`,
 `gl_weighting` (`sensitivity`/`sensitivity_volume`/`depth`), `gl_relaxation` (1.6), `gl_balance` (False),
+`gl_data_weights` (None), `gl_lambda1_selection="search"` (with `gl_lambda1_ratio` as the start),
 `gl_balance_rounds` (6).  The pipeline's auto mode uses `GROUP_LASSO_AUTO`: `depth`
 weighting with β = 1, `std` data scaling, λ1 for χ² = N, and the balance.
 
@@ -313,6 +314,20 @@ again by a secant in log λ1, warm-started from the same physical models; it sto
 χ²_p / N_p is within 1/1.2…1.2 or a round does not narrow the spread.  On the 2 km mesh: two
 rounds, data weights 0.60 (gravity) and 1.68 (magnetics).  Checked against FISTA on the
 weighted objective (`test_scale_models_weighs_the_data_only`).
+
+**Cost at full resolution.**  The coupled run with the balance took 124 min on c5.18xlarge
+(the control 66): about 0.7 s per ADMM iteration against 0.25 s, because the exact bounded
+shrink bisected every cell in single-threaded numpy (with the balance's unequal weights there
+is no closed form).  The shrink now runs per cell in parallel with numba (`NUMBA_SHRINK_MIN`;
+numpy below it or without numba; the two agree to 1e-14), 6.5 against 28 ms for 2 × 335,518
+values on 15 cores.  Two shortcuts carry a 2 km run over: `gl_data_weights` starts the balance
+from its weights (0.595 / 1.682 at 2 km, 0.625 / 1.600 at full resolution), and
+`gl_lambda1_selection="search"` replaces the sweep by a descent to λ1,max / 10 and a secant
+search for χ² = N from `gl_lambda1_ratio` × λ1,max (the ratio does not carry over as well: 8.8e-4
+at 2 km, 2.0e-3 at full resolution, which the secant absorbs).  On the 2 km mesh: sweep and
+balance 5,223 ADMM iterations in 93 s; the sweep from the weights 6,869 in 115 s (the sweep is
+the cost); the search from the weights 2,711 in 54 s, the same models (82 % / 62 % in the core,
+74 % of the magnetic cells anomalous in density), χ²/N 0.85 / 1.08 within the balance tolerance.
 
 **Cost.**  Over-relaxation (`relaxation`, α = 1.6; Boyd et al. 2011, 3.4.3: the s and u updates
 use α ζ + (1 − α) s_old) took 4,438 instead of 6,458 ADMM iterations over the 13-point sweep

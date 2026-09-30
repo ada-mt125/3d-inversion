@@ -1297,3 +1297,50 @@ class TestWeightingAndBalance:
         assert spread[-1] <= np.log(BALANCE_TOLERANCE) or spread[-1] < spread[0]
         assert info["data_weights"] == rounds[-1]["data_weights"]
         assert info["criterion"].startswith("chi^2 = N for each model")
+
+
+class TestSpeed:
+    """The parallel shrink and the shortcuts for full-resolution runs."""
+
+    def test_numba_shrink_matches_numpy(self):
+        pytest.importorskip("numba")
+        rng = np.random.default_rng(11)
+        m = 4000
+        q = [rng.normal(size=m) * 2, rng.normal(size=m) * 2]
+        boxes = [(None, None), ([0.0, None], [None, None]), ([-1.0, 0.0], [0.8, 0.5]),
+                 ([0.2, -0.5], [1.0, 0.5])]            # the last one does not hold 0
+        for lower, upper in boxes:
+            for weights in ({}, {"l2_factors": [2.5, 0.4], "group_weights": [1.6, 0.625]}):
+                a = [np.empty(m), np.empty(m)]
+                b = [np.empty(m), np.empty(m)]
+                lo = None if lower is None else [None if v is None else np.full(m, v) for v in lower]
+                hi = None if upper is None else [None if v is None else np.full(m, v) for v in upper]
+                gl._group_shrink_box(q, 1.3, 0.3, 2.0, lo, hi, a, "group", use_numba=True, **weights)
+                gl._group_shrink_box(q, 1.3, 0.3, 2.0, lo, hi, b, "group", use_numba=False, **weights)
+                for x, y in zip(a, b):
+                    np.testing.assert_allclose(x, y, rtol=0, atol=1e-12 * max(abs(y).max(), 1.0))
+
+    def test_search_from_a_ratio_and_start_weights(self, tmp_path):
+        """No sweep: a secant search for chi^2 = N from lambda1_ratio x lambda1_max, starting
+        from given data weights; the balance then needs fewer rounds."""
+        from tests.test_data_pipeline import _joint_params
+        from geoinv3d.cloud.worker import BALANCE_TOLERANCE, run_data_pipeline
+        _pipeline_files(tmp_path)
+        common = dict(param_mode="manual", regularization_type="group_lasso", gl_data_scaling="std",
+                      gl_lambda2=0.03, gl_weighting="depth", depth_weighting_exponent=1.0,
+                      gl_balance=True, bounds_lower=0.0, gl_max_iter=3000)
+        first = run_data_pipeline(_joint_params(["g.csv"], ["m.csv"], gl_lambda1_selection="discrepancy",
+                                                gl_n_lambda1=8, **common), str(tmp_path))["group_lasso"]
+        ratio = first["lambda1"] / first["lambda1_max"]
+        again = run_data_pipeline(_joint_params(
+            ["g.csv"], ["m.csv"], gl_lambda1_selection="search", gl_lambda1_ratio=ratio,
+            gl_data_weights=first["data_weights"], **common), str(tmp_path))["group_lasso"]
+        assert again["criterion"].startswith("chi^2 = N")
+        assert again["data_weights_start"] == pytest.approx(first["data_weights"])
+        assert len(again["balance"]) <= len(first["balance"])
+        last = again["balance"][-1]["chi2_per_datum"]
+        assert all(abs(np.log(v)) <= np.log(BALANCE_TOLERANCE) for v in last.values())
+        assert 0 < again["admm_iterations_total"]
+        with pytest.raises(ValueError, match="gl_data_weights"):
+            run_data_pipeline(_joint_params(["g.csv"], ["m.csv"], gl_data_weights=[1.0], **common),
+                              str(tmp_path))
