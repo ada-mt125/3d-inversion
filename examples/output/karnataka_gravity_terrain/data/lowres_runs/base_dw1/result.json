@@ -1,0 +1,401 @@
+{
+  "task_id": "karnataka-terrain-2km-base_dw1",
+  "method": "gravity",
+  "regularization": "sparse_IRLS",
+  "converged": true,
+  "n_iterations": 10,
+  "iterations": [
+    {
+      "iteration": 1,
+      "phi_d": 824.0260066399453,
+      "phi_m": 900178660.2982395,
+      "phi_total": 2406.7628317555855,
+      "beta": 1.7582474401151227e-06,
+      "model_min": -0.2,
+      "model_max": 0.3553977362113351,
+      "model_mean": 0.0008868893861403661
+    },
+    {
+      "iteration": 2,
+      "phi_d": 686.5173766029634,
+      "phi_m": 895803624.653244,
+      "phi_total": 3748.237636349207,
+      "beta": 3.4178475901249037e-06,
+      "model_min": -0.2,
+      "model_max": 0.3127357798418362,
+      "model_mean": 0.0010961247538454155
+    },
+    {
+      "iteration": 3,
+      "phi_d": 1143.9812791018066,
+      "phi_m": 690879699.6271926,
+      "phi_total": 4842.85645188237,
+      "beta": 5.35386287189582e-06,
+      "model_min": -0.19987661761786596,
+      "model_max": 0.25958055461312707,
+      "model_mean": 0.00121843256814152
+    },
+    {
+      "iteration": 4,
+      "phi_d": 1583.694078199529,
+      "phi_m": 583113507.2978365,
+      "phi_total": 4348.25037489723,
+      "beta": 4.741025995965569e-06,
+      "model_min": -0.1736942148209933,
+      "model_max": 0.237418677702636,
+      "model_mean": 0.0014560156776225923
+    },
+    {
+      "iteration": 5,
+      "phi_d": 1434.5476108695493,
+      "phi_m": 609597597.7041147,
+      "phi_total": 4062.34738095497,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.17970772814228558,
+      "model_max": 0.26003614356833404,
+      "model_mean": 0.0015780354134632205
+    },
+    {
+      "iteration": 6,
+      "phi_d": 1332.0687573285654,
+      "phi_m": 631707153.5999781,
+      "phi_total": 4055.176458610987,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.18117100832760635,
+      "model_max": 0.26102955189858246,
+      "model_mean": 0.0017217951835824916
+    },
+    {
+      "iteration": 7,
+      "phi_d": 1343.7144121587553,
+      "phi_m": 628856627.5370274,
+      "phi_total": 4054.5343161121586,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.18146410967820856,
+      "model_max": 0.26543775265761044,
+      "model_mean": 0.0018063384140947771
+    },
+    {
+      "iteration": 8,
+      "phi_d": 1343.0317128292322,
+      "phi_m": 629129542.1377603,
+      "phi_total": 4055.0280730675026,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.180281016351289,
+      "model_max": 0.2622945193150614,
+      "model_mean": 0.00189372426536631
+    },
+    {
+      "iteration": 9,
+      "phi_d": 1341.2133223029714,
+      "phi_m": 629746140.9539887,
+      "phi_total": 4055.867662549074,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.1808651269897575,
+      "model_max": 0.2656855430462059,
+      "model_mean": 0.001958297431488339
+    },
+    {
+      "iteration": 10,
+      "phi_d": 1342.4792464047146,
+      "phi_m": 629788545.1585066,
+      "phi_total": 4057.3163789703776,
+      "beta": 4.310712148444025e-06,
+      "model_min": -0.18013175806411863,
+      "model_max": 0.2630371385906784,
+      "model_mean": 0.0020292243422445006
+    }
+  ],
+  "norms": [
+    0.0,
+    2.0,
+    2.0,
+    1.0
+  ],
+  "depth_weighting": "depth",
+  "depth_weighting_exponent": 1.0,
+  "inversion_mode": "single",
+  "param_mode": "manual",
+  "regularization_type": "sparse",
+  "mesh_type": "tensor",
+  "mesh_design": {
+    "source": "user",
+    "data_spacing": [
+      {
+        "method": "gravity",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      }
+    ],
+    "recommended": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 1000.0,
+      "depth_core_m": 35000.0,
+      "pad_distance_m": 25000.0,
+      "shape": [
+        47,
+        47,
+        41
+      ],
+      "n_cells": 90569,
+      "sensitivity_bytes": 469509696.0,
+      "data_spacing_m": 1985.664325036346,
+      "survey_width_m": 70000.0,
+      "coarsened_from": null
+    },
+    "used": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 500.0,
+      "depth_core_m": 10000.0,
+      "pad_distance_m": 20000.0
+    },
+    "client": null
+  },
+  "mesh_shape": [
+    45,
+    45,
+    27
+  ],
+  "mesh": {
+    "__module__": "discretize.tensor_mesh",
+    "__class__": "TensorMesh",
+    "origin": [
+      617487.94,
+      1611487.94,
+      -15493.254147233374
+    ],
+    "orientation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "shape_cells": [
+      45,
+      45,
+      27
+    ],
+    "h": [
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        1856.4650000000001,
+        1428.0500000000002,
+        1098.5,
+        845.0000000000001,
+        650.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0
+      ]
+    ],
+    "reference_system": "cartesian"
+  },
+  "n_cells": 54675,
+  "n_active_cells": 50959,
+  "n_data": 1296,
+  "cell_centers_x": [
+    641000.0,
+    711000.0
+  ],
+  "cell_centers_y": [
+    1635000.0,
+    1704000.0
+  ],
+  "topography": {
+    "source": "dem",
+    "file": "dem_utm43n_450m.tif",
+    "stations_lifted": {
+      "gravity": {
+        "n": 264,
+        "max_m": 347.5,
+        "mean_m": 199.1
+      }
+    },
+    "elevation_min": 385.3,
+    "elevation_max": 1057.3
+  },
+  "crs": "EPSG:32643",
+  "datasets": [
+    {
+      "method": "gravity",
+      "component": "gz",
+      "files": [
+        "gravity_complete_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.0,
+      "noise_floor": 0.5,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -94.97324566451456,
+        "trend_max": -75.30437758544088,
+        "data_std_before": 10.32423144569337,
+        "data_std_after": 9.610398656556216,
+        "residual_min": -16.393925713552093,
+        "residual_max": 32.181023466748535
+      },
+      "gz_convention": "positive_down",
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "gravity_complete_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5040
+          }
+        }
+      }
+    }
+  ],
+  "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 30,
+    "max_irls_iterations": 30,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 0.0001,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": -0.2,
+    "bounds_upper": 0.5,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+      0.0,
+      2.0,
+      2.0,
+      1.0
+    ]
+  },
+  "outside_core_share": {
+    "gravity": 0.5389307065797663
+  },
+  "notes": [
+    "54% of the recovered gravity anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1\u2013L2), property bounds, or a larger core (depth_core_m)."
+  ]
+}

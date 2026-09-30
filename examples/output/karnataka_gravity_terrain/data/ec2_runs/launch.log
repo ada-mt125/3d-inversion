@@ -1,0 +1,148 @@
+13:06:04 karnataka-gravity-terrain: ['original_sparse', 'l1l2_irls', 'as1_beta0.5', 'as1_beta1', 'as1_beta1.5', 'as0.1_beta1', 'as1_beta1_no_tc', 'as1_beta1_flat']; owner miaozhou, region ap-south-1
+13:06:08 [as1_beta1] launched i-0bc21be00859ea3ae (c5.4xlarge)
+13:06:08 [as1_beta1] launching launching
+13:06:09 [as1_beta0.5] launched i-0038e5a00ce32bd87 (c5.4xlarge)
+13:06:09 [as1_beta0.5] launching launching
+13:06:11 [original_sparse] launched i-06fd0490257ad7a5c (c5.4xlarge)
+13:06:11 [original_sparse] failed 
+13:06:11 [original_sparse] failed after 0.0 min: The instance was terminated outside GeoInv3D
+13:06:12 [l1l2_irls] launched i-05a3a1f966b8aca1b (c5.4xlarge)
+13:06:12 [l1l2_irls] failed 
+13:06:12 [l1l2_irls] failed after 0.0 min: The instance was terminated outside GeoInv3D
+13:06:15 [as1_beta1.5] launched i-0ca9e1e8b1b8c2dd8 (c5.4xlarge)
+13:06:16 [as1_beta1.5] launching launching
+13:06:18 [as0.1_beta1] launched i-0d859e4c6ae58d248 (c5.4xlarge)
+13:06:18 [as0.1_beta1] launching launching
+13:06:23 [as1_beta1] bootstrapping bootstrapping
+13:06:24 [as1_beta0.5] bootstrapping bootstrapping
+13:06:31 [as1_beta1.5] bootstrapping bootstrapping
+13:06:33 [as0.1_beta1] bootstrapping bootstrapping
+13:07:09 [as1_beta1] uploading sending_data
+13:07:11 [as1_beta0.5] uploading sending_data
+13:07:17 [as1_beta1.5] uploading sending_data
+13:07:19 [as0.1_beta1] uploading sending_data
+13:07:28 [as1_beta1] running inverting
+13:07:29 [as1_beta0.5] running inverting
+13:07:35 [as1_beta1.5] running inverting
+13:07:38 [as0.1_beta1] running inverting
+13:09:38 [as1_beta1] running inverting it 1/30 phi_d 1874 (target 5040)
+13:09:40 [as1_beta0.5] running inverting it 1/30 phi_d 3667 (target 5040)
+13:09:45 [as1_beta1.5] running inverting it 1/30 phi_d 2759 (target 5040)
+13:09:48 [as0.1_beta1] running inverting it 1/30 phi_d 1223 (target 5040)
+13:09:57 [as1_beta1] running inverting it 3/30 phi_d 9753 (target 5040)
+13:09:58 [as1_beta0.5] running inverting it 3/30 phi_d 6627 (target 5040)
+13:10:04 [as1_beta1.5] running inverting it 3/30 phi_d 4627 (target 5040)
+13:10:07 [as0.1_beta1] running inverting it 3/30 phi_d 2725 (target 5040)
+13:10:16 [as1_beta1] running inverting it 5/30 phi_d 1.097e+04 (target 5040)
+13:10:17 [as1_beta0.5] running inverting it 5/30 phi_d 5957 (target 5040)
+13:10:23 [as1_beta1.5] running inverting it 5/30 phi_d 7064 (target 5040)
+13:10:26 [as0.1_beta1] running inverting it 5/30 phi_d 6120 (target 5040)
+13:10:35 [as1_beta1] running inverting it 7/30 phi_d 7315 (target 5040)
+13:10:36 [as1_beta0.5] running inverting it 7/30 phi_d 4716 (target 5040)
+13:10:42 [as1_beta1.5] running inverting it 7/30 phi_d 6340 (target 5040)
+13:10:44 [as0.1_beta1] running inverting it 7/30 phi_d 6504 (target 5040)
+13:10:54 [as1_beta1] running inverting it 11/30 phi_d 5534 (target 5040)
+13:10:55 [as1_beta0.5] running inverting it 9/30 phi_d 5075 (target 5040)
+13:11:01 [as1_beta1.5] running inverting it 9/30 phi_d 5533 (target 5040)
+13:11:03 [as0.1_beta1] running inverting it 9/30 phi_d 6990 (target 5040)
+13:11:13 [as1_beta1] running inverting it 13/30 phi_d 5544 (target 5040)
+13:11:14 [as1_beta0.5] running inverting it 11/30 phi_d 5424 (target 5040)
+13:11:20 [as1_beta1.5] running inverting it 11/30 phi_d 5515 (target 5040)
+13:11:22 [as0.1_beta1] running inverting it 11/30 phi_d 5648 (target 5040)
+13:11:32 [as1_beta1] running inverting it 15/30 phi_d 5193 (target 5040)
+13:11:33 [as1_beta0.5] running inverting it 15/30 phi_d 5684 (target 5040)
+13:11:39 [as1_beta1.5] running inverting it 13/30 phi_d 5388 (target 5040)
+13:11:41 [as0.1_beta1] running inverting it 13/30 phi_d 5307 (target 5040)
+13:11:51 [as1_beta0.5] running inverting it 17/30 phi_d 5512 (target 5040)
+13:11:51 [as1_beta1] running inverting it 17/30 phi_d 5392 (target 5040)
+13:11:57 [as1_beta1.5] running inverting it 15/30 phi_d 5304 (target 5040)
+13:12:00 [as0.1_beta1] running inverting it 15/30 phi_d 5624 (target 5040)
+13:12:10 [as1_beta0.5] running inverting it 19/30 phi_d 5415 (target 5040)
+13:12:13 [as1_beta1] running inverting it 19/30 phi_d 5233 (target 5040)
+13:12:16 [as1_beta1.5] running inverting it 17/30 phi_d 5322 (target 5040)
+13:12:18 [as0.1_beta1] running inverting it 19/30 phi_d 5440 (target 5040)
+13:12:29 [as1_beta0.5] running inverting it 21/30 phi_d 5383 (target 5040)
+13:12:32 [as1_beta1] running inverting it 21/30 phi_d 5463 (target 5040)
+13:12:35 [as1_beta1.5] running inverting it 20/30 phi_d 5816 (target 5040)
+13:12:37 [as0.1_beta1] running inverting it 21/30 phi_d 5571 (target 5040)
+13:12:48 [as1_beta0.5] running inverting it 23/30 phi_d 5412 (target 5040)
+13:12:51 [as1_beta1] running inverting it 23/30 phi_d 6288 (target 5040)
+13:12:54 [as1_beta1.5] running inverting it 21/30 phi_d 5943 (target 5040)
+13:12:56 [as0.1_beta1] running inverting it 23/30 phi_d 5077 (target 5040)
+13:13:06 [as1_beta0.5] running inverting it 25/30 phi_d 5370 (target 5040)
+13:13:09 [as1_beta1] running inverting it 25/30 phi_d 5094 (target 5040)
+13:13:13 [as1_beta1.5] running inverting it 23/30 phi_d 5158 (target 5040)
+13:13:15 [as0.1_beta1] running inverting it 25/30 phi_d 5047 (target 5040)
+13:13:25 [as1_beta0.5] running inverting it 27/30 phi_d 5155 (target 5040)
+13:13:29 [as1_beta1] running inverting it 27/30 phi_d 5353 (target 5040)
+13:13:32 [as1_beta1.5] running inverting it 25/30 phi_d 5031 (target 5040)
+13:13:34 [as0.1_beta1] running inverting it 27/30 phi_d 5000 (target 5040)
+13:13:45 [as1_beta0.5] finishing collecting it 30/30 phi_d 4787 (target 5040)
+13:13:49 [as1_beta1] finishing collecting it 30/30 phi_d 4663 (target 5040)
+13:13:51 [as1_beta1.5] running inverting it 27/30 phi_d 5097 (target 5040)
+13:13:54 [as0.1_beta1] running inverting it 29/30 phi_d 4908 (target 5040)
+13:14:00 [as1_beta0.5] finishing collecting
+13:14:04 [as1_beta1] finishing collecting
+13:14:09 [as1_beta1.5] running inverting it 28/30 phi_d 5135 (target 5040)
+13:14:13 [as0.1_beta1] finishing collecting it 30/30 phi_d 4858 (target 5040)
+13:14:15 [as1_beta0.5] succeeded 
+13:14:15 [as1_beta0.5] succeeded after 8.1 min
+13:14:19 [as1_beta1_no_tc] launched i-0bc0829dd3626362a (c5.4xlarge)
+13:14:19 [as1_beta1] succeeded 
+13:14:19 [as1_beta1] succeeded after 8.2 min
+13:14:19 [as1_beta1_no_tc] launching launching
+13:14:22 [as1_beta1_flat] launched i-07cc27d76acb8b1db (c5.4xlarge)
+13:14:22 [as1_beta1_flat] launching launching
+13:14:28 [as0.1_beta1] succeeded 
+13:14:28 [as0.1_beta1] succeeded after 8.2 min
+13:14:29 [as1_beta1.5] finishing collecting it 30/30 phi_d 5710 (target 5040)
+13:14:34 [as1_beta1_no_tc] bootstrapping bootstrapping
+13:14:38 [as1_beta1_flat] bootstrapping bootstrapping
+13:14:44 [as1_beta1.5] succeeded 
+13:14:44 [as1_beta1.5] succeeded after 8.5 min
+13:15:20 [as1_beta1_no_tc] uploading sending_data
+13:15:24 [as1_beta1_flat] uploading sending_data
+13:15:39 [as1_beta1_no_tc] running inverting
+13:15:42 [as1_beta1_flat] running inverting
+13:17:35 [as1_beta1_flat] running inverting it 1/30 phi_d 1720 (target 5040)
+13:17:50 [as1_beta1_no_tc] running inverting it 1/30 phi_d 1772 (target 5040)
+13:17:56 [as1_beta1_flat] running inverting it 3/30 phi_d 9965 (target 5040)
+13:18:09 [as1_beta1_no_tc] running inverting it 3/30 phi_d 9508 (target 5040)
+13:18:15 [as1_beta1_flat] running inverting it 7/30 phi_d 7547 (target 5040)
+13:18:27 [as1_beta1_no_tc] running inverting it 5/30 phi_d 1.043e+04 (target 5040)
+13:18:34 [as1_beta1_flat] running inverting it 9/30 phi_d 5463 (target 5040)
+13:18:46 [as1_beta1_no_tc] running inverting it 7/30 phi_d 7157 (target 5040)
+13:18:52 [as1_beta1_flat] running inverting it 11/30 phi_d 5665 (target 5040)
+13:19:05 [as1_beta1_no_tc] running inverting it 9/30 phi_d 5577 (target 5040)
+13:19:11 [as1_beta1_flat] running inverting it 13/30 phi_d 5152 (target 5040)
+13:19:24 [as1_beta1_no_tc] running inverting it 13/30 phi_d 5117 (target 5040)
+13:19:30 [as1_beta1_flat] running inverting it 15/30 phi_d 5380 (target 5040)
+13:19:43 [as1_beta1_no_tc] running inverting it 15/30 phi_d 5337 (target 5040)
+13:19:49 [as1_beta1_flat] running inverting it 17/30 phi_d 5607 (target 5040)
+13:20:01 [as1_beta1_no_tc] running inverting it 17/30 phi_d 5581 (target 5040)
+13:20:07 [as1_beta1_flat] running inverting it 21/30 phi_d 5256 (target 5040)
+13:20:20 [as1_beta1_no_tc] running inverting it 19/30 phi_d 5379 (target 5040)
+13:20:26 [as1_beta1_flat] running inverting it 23/30 phi_d 5392 (target 5040)
+13:20:39 [as1_beta1_no_tc] running inverting it 21/30 phi_d 5734 (target 5040)
+13:20:45 [as1_beta1_flat] running inverting it 25/30 phi_d 5277 (target 5040)
+13:20:57 [as1_beta1_no_tc] running inverting it 23/30 phi_d 5015 (target 5040)
+13:21:04 [as1_beta1_flat] running inverting it 27/30 phi_d 4964 (target 5040)
+13:21:16 [as1_beta1_no_tc] running inverting it 25/30 phi_d 5440 (target 5040)
+13:21:23 [as1_beta1_flat] finishing collecting it 30/30 phi_d 4491 (target 5040)
+13:21:35 [as1_beta1_no_tc] running inverting it 27/30 phi_d 5445 (target 5040)
+13:21:38 [as1_beta1_flat] succeeded 
+13:21:38 [as1_beta1_flat] succeeded after 7.3 min
+13:21:54 [as1_beta1_no_tc] finishing collecting it 30/30 phi_d 4939 (target 5040)
+13:22:09 [as1_beta1_no_tc] succeeded 
+13:22:09 [as1_beta1_no_tc] succeeded after 7.8 min
+13:22:13 terminated ['i-0bc21be00859ea3ae', 'i-0038e5a00ce32bd87', 'i-06fd0490257ad7a5c', 'i-05a3a1f966b8aca1b', 'i-0ca9e1e8b1b8c2dd8', 'i-0d859e4c6ae58d248', 'i-0bc0829dd3626362a', 'i-07cc27d76acb8b1db'] (safety net; harmless if already terminated)
+13:22:13 summary:
+13:22:13   original_sparse failed      0.0 min ~$0.00 None it, chi2/N nan, regional None, notes None
+13:22:13   l1l2_irls failed      0.0 min ~$0.00 None it, chi2/N nan, regional None, notes None
+13:22:13   as1_beta0.5 succeeded   8.1 min ~$0.09 30 it, chi2/N 0.95, regional 2, notes None
+13:22:13   as1_beta1 succeeded   8.2 min ~$0.09 30 it, chi2/N 0.93, regional 2, notes None
+13:22:13   as1_beta1.5 succeeded   8.5 min ~$0.10 30 it, chi2/N 1.13, regional 2, notes None
+13:22:13   as0.1_beta1 succeeded   8.2 min ~$0.09 30 it, chi2/N 0.96, regional 2, notes None
+13:22:13   as1_beta1_no_tc succeeded   7.8 min ~$0.09 30 it, chi2/N 0.98, regional 2, notes None
+13:22:13   as1_beta1_flat succeeded   7.3 min ~$0.08 30 it, chi2/N 0.89, regional 2, notes None
+13:22:20 viewer: C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\ec2_runs\karnataka-gravity-terrain-1790769964.geoinv3d_viewer.html

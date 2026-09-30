@@ -1,0 +1,33 @@
+13:14:45 karnataka-gravity-terrain: ['original_sparse', 'l1l2_irls']; owner miaozhou, region ap-south-1
+13:14:53 [l1l2_irls] launched i-0fc3d4499b8c6bbc6 (c5.4xlarge)
+13:14:53 [l1l2_irls] launching launching
+13:14:57 [original_sparse] launched i-0121d704323a42c4b (c5.4xlarge)
+13:14:58 [original_sparse] launching launching
+13:15:08 [l1l2_irls] bootstrapping bootstrapping
+13:15:13 [original_sparse] bootstrapping bootstrapping
+13:15:54 [l1l2_irls] uploading sending_data
+13:15:59 [original_sparse] uploading sending_data
+13:16:13 [l1l2_irls] running inverting
+13:16:18 [original_sparse] running inverting
+13:18:10 [original_sparse] running inverting it 1/30 phi_d 4872 (target 5040)
+13:18:24 [l1l2_irls] running inverting it 3/30 phi_d 6644 (target 5040)
+13:18:28 [original_sparse] running inverting it 3/30 phi_d 5154 (target 5040)
+13:18:43 [l1l2_irls] running inverting it 5/30 phi_d 5037 (target 5040)
+13:18:47 [original_sparse] running inverting it 5/30 phi_d 5188 (target 5040)
+13:19:06 [l1l2_irls] running inverting it 9/30 phi_d 4940 (target 5040)
+13:19:10 [original_sparse] finishing collecting it 8/30 phi_d 5219 (target 5040)
+13:19:25 [l1l2_irls] running inverting it 13/30 phi_d 4746 (target 5040)
+13:19:25 [original_sparse] succeeded 
+13:19:25 [original_sparse] succeeded after 4.5 min
+13:19:44 [l1l2_irls] running inverting it 15/30 phi_d 5299 (target 5040)
+13:20:02 [l1l2_irls] running inverting it 19/30 phi_d 6168 (target 5040)
+13:20:21 [l1l2_irls] running inverting it 23/30 phi_d 5515 (target 5040)
+13:20:40 [l1l2_irls] running inverting it 25/30 phi_d 5450 (target 5040)
+13:20:59 [l1l2_irls] finishing collecting it 30/30 phi_d 5598 (target 5040)
+13:21:14 [l1l2_irls] succeeded 
+13:21:14 [l1l2_irls] succeeded after 6.4 min
+13:21:15 terminated ['i-0fc3d4499b8c6bbc6', 'i-0121d704323a42c4b'] (safety net; harmless if already terminated)
+13:21:15 summary:
+13:21:15   original_sparse succeeded   4.5 min ~$0.05 8 it, chi2/N 1.04, regional 2, notes ['70% of the recovered gravity anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+13:21:15   l1l2_irls succeeded   6.4 min ~$0.07 30 it, chi2/N 1.11, regional 2, notes ['L1–L2 regularizes the model values only (no smoothness term); norms and alpha_x/y/z are not used']
+13:21:22 viewer: C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\ec2_runs\karnataka-gravity-terrain-1790770485.geoinv3d_viewer.html

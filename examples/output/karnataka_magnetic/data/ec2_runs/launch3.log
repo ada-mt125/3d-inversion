@@ -1,0 +1,153 @@
+13:38:44 karnataka-magnetic: ['beta0.5', 'as0.1_beta1', 'beta1_h500', 'beta1_raw80', 'beta1_flat']; owner miaozhou, region ap-south-1
+13:38:48 [beta1_raw80] launched i-0c31af61bbc9abc26 (c5.4xlarge)
+13:38:48 [beta1_raw80] launching launching
+13:38:49 [beta0.5] launched i-09d60f36394c90c8c (c5.4xlarge)
+13:38:50 [beta0.5] launching launching
+13:38:51 [beta1_flat] launched i-0b7e25b5b26e7141b (c5.4xlarge)
+13:38:51 [beta1_flat] launching launching
+13:38:52 [as0.1_beta1] launched i-09bec6d0413e15d2f (c5.4xlarge)
+13:38:52 [as0.1_beta1] launching launching
+13:38:53 [beta1_h500] launched i-0da52956f23a2afe0 (c5.4xlarge)
+13:38:53 [beta1_h500] launching launching
+13:39:03 [beta1_raw80] bootstrapping bootstrapping
+13:39:05 [beta0.5] bootstrapping bootstrapping
+13:39:06 [beta1_flat] bootstrapping bootstrapping
+13:39:07 [as0.1_beta1] bootstrapping bootstrapping
+13:39:08 [beta1_h500] bootstrapping bootstrapping
+13:39:49 [beta1_raw80] uploading sending_data
+13:39:53 [beta0.5] running starting
+13:39:55 [beta1_flat] running starting
+13:39:56 [as0.1_beta1] running starting
+13:39:57 [beta1_h500] running starting
+13:40:08 [beta1_raw80] running inverting
+13:40:12 [beta0.5] running inverting
+13:40:14 [beta1_flat] running inverting
+13:40:15 [as0.1_beta1] running inverting
+13:40:15 [beta1_h500] running inverting
+13:46:27 [beta1_raw80] running inverting it 1/60 phi_d 2.761e+05 (target 5041)
+13:46:30 [beta0.5] running inverting it 1/60 phi_d 1.165e+05 (target 5041)
+13:46:34 [beta1_flat] running inverting it 1/60 phi_d 8.567e+04 (target 5041)
+13:46:37 [as0.1_beta1] running inverting it 1/60 phi_d 8.46e+04 (target 5041)
+13:46:39 [beta1_h500] running inverting it 1/60 phi_d 1.02e+05 (target 5041)
+13:46:46 [beta1_raw80] running inverting it 5/60 phi_d 9.622e+04 (target 5041)
+13:46:47 [beta0.5] running inverting it 3/60 phi_d 3.532e+04 (target 5041)
+13:46:52 [beta1_flat] running inverting it 3/60 phi_d 1.309e+04 (target 5041)
+13:46:55 [as0.1_beta1] running inverting it 3/60 phi_d 1.429e+04 (target 5041)
+13:46:57 [beta1_h500] running inverting it 3/60 phi_d 2.099e+04 (target 5041)
+13:47:04 [beta1_raw80] running inverting it 7/60 phi_d 4.889e+04 (target 5041)
+13:47:05 [beta0.5] running inverting it 5/60 phi_d 1.244e+04 (target 5041)
+13:47:10 [beta1_flat] running inverting it 5/60 phi_d 1.307e+04 (target 5041)
+13:47:13 [as0.1_beta1] running inverting it 5/60 phi_d 1.196e+04 (target 5041)
+13:47:15 [beta1_h500] running inverting it 5/60 phi_d 1.334e+04 (target 5041)
+13:47:22 [beta1_raw80] running inverting it 9/60 phi_d 2.632e+04 (target 5041)
+13:47:23 [beta0.5] running inverting it 7/60 phi_d 1.485e+04 (target 5041)
+13:47:28 [beta1_flat] running inverting it 7/60 phi_d 8445 (target 5041)
+13:47:30 [as0.1_beta1] running inverting it 7/60 phi_d 4877 (target 5041)
+13:47:33 [beta1_h500] running inverting it 7/60 phi_d 1.084e+04 (target 5041)
+13:47:40 [beta1_raw80] running inverting it 11/60 phi_d 1.801e+04 (target 5041)
+13:47:41 [beta0.5] running inverting it 9/60 phi_d 1.085e+04 (target 5041)
+13:47:46 [beta1_flat] running inverting it 9/60 phi_d 3840 (target 5041)
+13:47:48 [as0.1_beta1] running inverting it 9/60 phi_d 4255 (target 5041)
+13:47:51 [beta1_h500] running inverting it 9/60 phi_d 6514 (target 5041)
+13:47:57 [beta1_raw80] running inverting it 13/60 phi_d 1.678e+04 (target 5041)
+13:47:59 [beta0.5] running inverting it 11/60 phi_d 5437 (target 5041)
+13:48:03 [beta1_flat] running inverting it 13/60 phi_d 6984 (target 5041)
+13:48:06 [as0.1_beta1] running inverting it 11/60 phi_d 5581 (target 5041)
+13:48:08 [beta1_h500] running inverting it 11/60 phi_d 6127 (target 5041)
+13:48:15 [beta1_raw80] running inverting it 15/60 phi_d 1.308e+04 (target 5041)
+13:48:16 [beta0.5] running inverting it 13/60 phi_d 5084 (target 5041)
+13:48:21 [beta1_flat] running inverting it 15/60 phi_d 7029 (target 5041)
+13:48:24 [as0.1_beta1] running inverting it 13/60 phi_d 6785 (target 5041)
+13:48:26 [beta1_h500] running inverting it 13/60 phi_d 4352 (target 5041)
+13:48:33 [beta1_raw80] running inverting it 17/60 phi_d 1.228e+04 (target 5041)
+13:48:34 [beta0.5] running inverting it 17/60 phi_d 4868 (target 5041)
+13:48:39 [beta1_flat] running inverting it 17/60 phi_d 6287 (target 5041)
+13:48:42 [as0.1_beta1] running inverting it 15/60 phi_d 6758 (target 5041)
+13:48:44 [beta1_h500] running inverting it 15/60 phi_d 4594 (target 5041)
+13:48:51 [beta1_raw80] running inverting it 19/60 phi_d 1.139e+04 (target 5041)
+13:48:52 [beta0.5] running inverting it 19/60 phi_d 5081 (target 5041)
+13:48:57 [beta1_flat] running inverting it 19/60 phi_d 5562 (target 5041)
+13:49:00 [as0.1_beta1] running inverting it 17/60 phi_d 5737 (target 5041)
+13:49:02 [beta1_h500] running inverting it 19/60 phi_d 5089 (target 5041)
+13:49:08 [beta1_raw80] running inverting it 23/60 phi_d 1.02e+04 (target 5041)
+13:49:10 [beta0.5] running inverting it 21/60 phi_d 5444 (target 5041)
+13:49:15 [beta1_flat] running inverting it 21/60 phi_d 5672 (target 5041)
+13:49:17 [as0.1_beta1] running inverting it 21/60 phi_d 5668 (target 5041)
+13:49:20 [beta1_h500] running inverting it 21/60 phi_d 5289 (target 5041)
+13:49:26 [beta1_raw80] running inverting it 25/60 phi_d 9570 (target 5041)
+13:49:28 [beta0.5] running inverting it 23/60 phi_d 5520 (target 5041)
+13:49:33 [beta1_flat] running inverting it 23/60 phi_d 5518 (target 5041)
+13:49:35 [as0.1_beta1] running inverting it 23/60 phi_d 5282 (target 5041)
+13:49:37 [beta1_h500] running inverting it 23/60 phi_d 5543 (target 5041)
+13:49:44 [beta1_raw80] running inverting it 27/60 phi_d 9476 (target 5041)
+13:49:45 [beta0.5] running inverting it 25/60 phi_d 5498 (target 5041)
+13:49:51 [beta1_flat] running inverting it 25/60 phi_d 5556 (target 5041)
+13:49:53 [as0.1_beta1] running inverting it 25/60 phi_d 5401 (target 5041)
+13:49:55 [beta1_h500] running inverting it 25/60 phi_d 5376 (target 5041)
+13:50:02 [beta1_raw80] running inverting it 29/60 phi_d 9303 (target 5041)
+13:50:03 [beta0.5] running inverting it 27/60 phi_d 5587 (target 5041)
+13:50:09 [beta1_flat] running inverting it 27/60 phi_d 5286 (target 5041)
+13:50:11 [as0.1_beta1] running inverting it 27/60 phi_d 5442 (target 5041)
+13:50:13 [beta1_h500] running inverting it 27/60 phi_d 5463 (target 5041)
+13:50:20 [beta1_raw80] running inverting it 31/60 phi_d 8959 (target 5041)
+13:50:21 [beta0.5] running inverting it 29/60 phi_d 5352 (target 5041)
+13:50:26 [beta1_flat] running inverting it 29/60 phi_d 5508 (target 5041)
+13:50:28 [as0.1_beta1] running inverting it 29/60 phi_d 5489 (target 5041)
+13:50:34 [beta1_h500] running inverting it 29/60 phi_d 5604 (target 5041)
+13:50:38 [beta1_raw80] running inverting it 33/60 phi_d 8924 (target 5041)
+13:50:39 [beta0.5] running inverting it 31/60 phi_d 5291 (target 5041)
+13:50:44 [beta1_flat] running inverting it 31/60 phi_d 5638 (target 5041)
+13:50:46 [as0.1_beta1] running inverting it 31/60 phi_d 5542 (target 5041)
+13:50:52 [beta1_h500] running inverting it 31/60 phi_d 5629 (target 5041)
+13:50:56 [beta1_raw80] running inverting it 35/60 phi_d 8580 (target 5041)
+13:50:57 [beta0.5] running inverting it 33/60 phi_d 5353 (target 5041)
+13:51:02 [beta1_flat] running inverting it 33/60 phi_d 5369 (target 5041)
+13:51:04 [as0.1_beta1] running inverting it 33/60 phi_d 5495 (target 5041)
+13:51:09 [beta1_h500] running inverting it 33/60 phi_d 5661 (target 5041)
+13:51:14 [beta1_raw80] running inverting it 37/60 phi_d 8461 (target 5041)
+13:51:15 [beta0.5] running inverting it 35/60 phi_d 5306 (target 5041)
+13:51:20 [beta1_flat] running inverting it 35/60 phi_d 5487 (target 5041)
+13:51:22 [as0.1_beta1] running inverting it 35/60 phi_d 5467 (target 5041)
+13:51:28 [beta1_h500] running inverting it 35/60 phi_d 5409 (target 5041)
+13:51:32 [beta1_raw80] running inverting it 39/60 phi_d 8439 (target 5041)
+13:51:33 [beta0.5] running inverting it 39/60 phi_d 5395 (target 5041)
+13:51:38 [beta1_flat] running inverting it 39/60 phi_d 5388 (target 5041)
+13:51:40 [as0.1_beta1] running inverting it 37/60 phi_d 5456 (target 5041)
+13:51:46 [beta1_h500] running inverting it 37/60 phi_d 5478 (target 5041)
+13:51:50 [beta1_raw80] running inverting it 43/60 phi_d 8053 (target 5041)
+13:51:51 [beta0.5] running inverting it 41/60 phi_d 5179 (target 5041)
+13:51:56 [beta1_flat] running inverting it 41/60 phi_d 5220 (target 5041)
+13:51:58 [as0.1_beta1] running inverting it 39/60 phi_d 5441 (target 5041)
+13:52:04 [beta1_h500] running inverting it 41/60 phi_d 5134 (target 5041)
+13:52:08 [beta1_raw80] running inverting it 45/60 phi_d 7858 (target 5041)
+13:52:09 [beta0.5] running inverting it 43/60 phi_d 4874 (target 5041)
+13:52:16 [beta1_flat] finishing collecting it 43/60 phi_d 5128 (target 5041)
+13:52:18 [as0.1_beta1] finishing collecting it 43/60 phi_d 5024 (target 5041)
+13:52:24 [beta1_h500] running inverting it 43/60 phi_d 5290 (target 5041)
+13:52:27 [beta1_raw80] running inverting it 47/60 phi_d 7635 (target 5041)
+13:52:30 [beta0.5] finishing collecting it 45/60 phi_d 4574 (target 5041)
+13:52:31 [beta1_flat] succeeded 
+13:52:31 [beta1_flat] succeeded after 13.7 min
+13:52:33 [as0.1_beta1] finishing collecting
+13:52:43 [beta1_h500] finishing collecting it 44/60 phi_d 5048 (target 5041)
+13:52:45 [beta0.5] succeeded 
+13:52:45 [beta0.5] succeeded after 13.9 min
+13:52:45 [beta1_raw80] running inverting it 49/60 phi_d 7608 (target 5041)
+13:52:48 [as0.1_beta1] succeeded 
+13:52:48 [as0.1_beta1] succeeded after 13.9 min
+13:52:58 [beta1_h500] succeeded 
+13:52:58 [beta1_h500] succeeded after 14.1 min
+13:53:03 [beta1_raw80] running inverting it 51/60 phi_d 7374 (target 5041)
+13:53:23 [beta1_raw80] running inverting it 53/60 phi_d 7333 (target 5041)
+13:53:43 [beta1_raw80] finishing collecting it 55/60 phi_d 7287 (target 5041)
+13:53:59 [beta1_raw80] finishing collecting
+13:54:14 [beta1_raw80] succeeded 
+13:54:14 [beta1_raw80] succeeded after 15.4 min
+13:54:19 terminated ['i-0c31af61bbc9abc26', 'i-09d60f36394c90c8c', 'i-0b7e25b5b26e7141b', 'i-09bec6d0413e15d2f', 'i-0da52956f23a2afe0'] (safety net; harmless if already terminated)
+13:54:19 summary:
+13:54:19   beta0.5 succeeded  13.9 min ~$0.16 45 it, chi2/N 0.91, regional 2, notes None
+13:54:21   as0.1_beta1 succeeded  13.9 min ~$0.16 43 it, chi2/N 1.00, regional 2, notes None
+13:54:23   beta1_h500 succeeded  14.1 min ~$0.16 44 it, chi2/N 1.00, regional 2, notes None
+13:54:25   beta1_raw80 succeeded  15.4 min ~$0.18 55 it, chi2/N 1.45, regional 2, notes ['69% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+13:54:29   beta1_flat succeeded  13.7 min ~$0.15 43 it, chi2/N 1.02, regional 2, notes None
+13:59:34 viewer: C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\ec2_runs\karnataka-magnetic-1790771924.geoinv3d_viewer.html

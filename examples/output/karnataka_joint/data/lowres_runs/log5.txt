@@ -1,0 +1,64 @@
+[Pipeline] Working coordinate system: EPSG:32643
+[Pipeline] Loading gravity (gz) data from gravity_complete_1km.csv
+[Pipeline] gravity_complete_1km.csv: thinned to 1296 data ({'kind': 'points', 'cell_m': 2000.0, 'n_before': 5040})
+[Pipeline] gravity: removed regional field (polynomial, order 2): data std 10.32 -> 9.61
+[Pipeline] Loading magnetics (tmi) data from magnetic_1km.csv
+[Pipeline] magnetic_1km.csv: thinned to 1296 data ({'kind': 'points', 'cell_m': 2000.0, 'n_before': 5041})
+[Pipeline] magnetics: removed regional field (polynomial, order 2): data std 274.1 -> 271.8
+[Pipeline] Loading topography from dem_utm43n_450m.tif
+[Pipeline] Mesh design (user): 2000 m x 500 m cells, core 10000 m deep, padding 20000 m
+[Pipeline] gravity: 264 of 1296 stations were inside ground cells and moved up to the top of their column (by 199.1 m on average, at most 347.5 m)
+[Pipeline] tensor mesh: 54675 cells (50959 active), 2592 observations, topography: dem
+[Group lasso] gravity: computing the 1296 x 50959 sensitivity matrix
+[Group lasso] magnetics: computing the 1296 x 50959 sensitivity matrix
+[Group lasso] bounds: gravity -0.2..0.5, magnetics 0.0..1.0
+[Group lasso] 2 models ['gravity', 'magnetics'], cholesky (data space), mu = 39.32, lambda1_max = 187.7, data scales max_ratio {'gravity': 1.0, 'magnetics': 0.013419709777980226} (set up in 8.1 s)
+[Group lasso] lambda1 1/13 = 110.3: chi2 = 4.499e+05 (target 2592), group penalty 88.52, 119 active cells, 932 ADMM iterations
+[Group lasso] lambda1 2/13 = 64.84: chi2 = 3.347e+05 (target 2592), group penalty 279.4, 566 active cells, 265 ADMM iterations
+[Group lasso] lambda1 3/13 = 38.11: chi2 = 2.138e+05 (target 2592), group penalty 596.8, 1369 active cells, 373 ADMM iterations
+[Group lasso] lambda1 4/13 = 22.4: chi2 = 1.357e+05 (target 2592), group penalty 937, 2239 active cells, 208 ADMM iterations
+[Group lasso] lambda1 5/13 = 13.17: chi2 = 8.421e+04 (target 2592), group penalty 1294, 3153 active cells, 293 ADMM iterations
+[Group lasso] lambda1 6/13 = 7.74: chi2 = 4.993e+04 (target 2592), group penalty 1651, 4109 active cells, 354 ADMM iterations
+[Group lasso] lambda1 7/13 = 4.55: chi2 = 2.981e+04 (target 2592), group penalty 1965, 5180 active cells, 416 ADMM iterations
+[Group lasso] lambda1 8/13 = 2.674: chi2 = 1.871e+04 (target 2592), group penalty 2235, 6465 active cells, 467 ADMM iterations
+[Group lasso] lambda1 9/13 = 1.572: chi2 = 1.281e+04 (target 2592), group penalty 2477, 8268 active cells, 518 ADMM iterations
+[Group lasso] lambda1 10/13 = 0.924: chi2 = 9071 (target 2592), group penalty 2716, 10634 active cells, 571 ADMM iterations
+[Group lasso] lambda1 11/13 = 0.5432: chi2 = 6682 (target 2592), group penalty 2952, 13658 active cells, 619 ADMM iterations
+[Group lasso] lambda1 12/13 = 0.3193: chi2 = 5160 (target 2592), group penalty 3197, 17334 active cells, 666 ADMM iterations
+[Group lasso] lambda1 13/13 = 0.1877: chi2 = 4229 (target 2592), group penalty 3451, 21575 active cells, 708 ADMM iterations
+[Group lasso] Warning: the L-curve has no corner (its curvature is never positive or peaks at the end of the range)
+[Group lasso] Warning: chi^2 = N is not reached on the lambda1 sweep (chi^2 from 4.499e+05 to 4229); the point closest to it is kept
+[Group lasso] Warning: chi^2 stays above N = 2592 down to the smallest lambda1 (min 4229): lambda2 = 0.3 may damp the model too much for these data errors; try a smaller lambda2
+group_lasso 566 s
+[Pipeline] Working coordinate system: EPSG:32643
+[Pipeline] Loading gravity (gz) data from gravity_complete_1km.csv
+[Pipeline] gravity_complete_1km.csv: thinned to 1296 data ({'kind': 'points', 'cell_m': 2000.0, 'n_before': 5040})
+[Pipeline] gravity: removed regional field (polynomial, order 2): data std 10.32 -> 9.61
+[Pipeline] Loading magnetics (tmi) data from magnetic_1km.csv
+[Pipeline] magnetic_1km.csv: thinned to 1296 data ({'kind': 'points', 'cell_m': 2000.0, 'n_before': 5041})
+[Pipeline] magnetics: removed regional field (polynomial, order 2): data std 274.1 -> 271.8
+[Pipeline] Loading topography from dem_utm43n_450m.tif
+[Pipeline] Mesh design (user): 2000 m x 500 m cells, core 10000 m deep, padding 20000 m
+[Pipeline] gravity: 264 of 1296 stations were inside ground cells and moved up to the top of their column (by 199.1 m on average, at most 347.5 m)
+[Pipeline] tensor mesh: 54675 cells (50959 active), 2592 observations, topography: dem
+[Group lasso] gravity: computing the 1296 x 50959 sensitivity matrix
+[Group lasso] magnetics: computing the 1296 x 50959 sensitivity matrix
+[Group lasso] bounds: gravity -0.2..0.5, magnetics 0.0..1.0
+[Group lasso] 2 models ['gravity', 'magnetics'], cholesky (data space), mu = 39.32, lambda1_max = 187.7, data scales max_ratio {'gravity': 1.0, 'magnetics': 0.013419709777980226} (set up in 11.6 s)
+[Group lasso] lambda1 1/13 = 110.3: chi2 = 4.608e+05 (target 2592), group penalty 74.67, 110 active cells, 948 ADMM iterations
+[Group lasso] lambda1 2/13 = 64.84: chi2 = 3.463e+05 (target 2592), group penalty 256.4, 544 active cells, 318 ADMM iterations
+[Group lasso] lambda1 3/13 = 38.11: chi2 = 2.228e+05 (target 2592), group penalty 572.6, 1356 active cells, 378 ADMM iterations
+[Group lasso] lambda1 4/13 = 22.4: chi2 = 1.482e+05 (target 2592), group penalty 913.4, 2252 active cells, 218 ADMM iterations
+[Group lasso] lambda1 5/13 = 13.17: chi2 = 9.38e+04 (target 2592), group penalty 1293, 3196 active cells, 289 ADMM iterations
+[Group lasso] lambda1 6/13 = 7.74: chi2 = 5.728e+04 (target 2592), group penalty 1676, 4189 active cells, 356 ADMM iterations
+[Group lasso] lambda1 7/13 = 4.55: chi2 = 3.574e+04 (target 2592), group penalty 2014, 5234 active cells, 409 ADMM iterations
+[Group lasso] lambda1 8/13 = 2.674: chi2 = 2.225e+04 (target 2592), group penalty 2309, 6540 active cells, 462 ADMM iterations
+[Group lasso] lambda1 9/13 = 1.572: chi2 = 1.527e+04 (target 2592), group penalty 2559, 8185 active cells, 521 ADMM iterations
+[Group lasso] lambda1 10/13 = 0.924: chi2 = 1.081e+04 (target 2592), group penalty 2793, 10363 active cells, 570 ADMM iterations
+[Group lasso] lambda1 11/13 = 0.5432: chi2 = 7905 (target 2592), group penalty 3027, 13159 active cells, 621 ADMM iterations
+[Group lasso] lambda1 12/13 = 0.3193: chi2 = 5951 (target 2592), group penalty 3265, 16701 active cells, 669 ADMM iterations
+[Group lasso] lambda1 13/13 = 0.1877: chi2 = 4721 (target 2592), group penalty 3506, 20794 active cells, 714 ADMM iterations
+[Group lasso] Warning: the L-curve has no corner (its curvature is never positive or peaks at the end of the range)
+[Group lasso] Warning: chi^2 = N is not reached on the lambda1 sweep (chi^2 from 4.608e+05 to 4721); the point closest to it is kept
+[Group lasso] Warning: chi^2 stays above N = 2592 down to the smallest lambda1 (min 4721): lambda2 = 0.3 may damp the model too much for these data errors; try a smaller lambda2
+group_lasso_uncoupled 540 s

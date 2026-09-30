@@ -1,0 +1,26 @@
+14:53:19 karnataka-joint: ['group_lasso_std', 'group_lasso_std_uncoupled']; owner miaozhou, region ap-south-1
+14:53:24 [group_lasso_std] launched i-02002f8530b3aaa5a (c5.18xlarge)
+14:53:24 [group_lasso_std] launching launching
+14:53:26 [group_lasso_std_uncoupled] launched i-0ae23a154108a196c (c5.18xlarge)
+14:53:26 [group_lasso_std_uncoupled] launching launching
+14:53:39 [group_lasso_std] bootstrapping bootstrapping
+14:53:41 [group_lasso_std_uncoupled] bootstrapping bootstrapping
+14:54:28 [group_lasso_std] running starting
+14:54:30 [group_lasso_std_uncoupled] running starting
+14:54:46 [group_lasso_std] running inverting
+14:54:48 [group_lasso_std_uncoupled] running inverting
+15:17:30 [group_lasso_std] running starting
+15:17:30 [group_lasso_std] ! SSH: No existing session
+15:19:04 [group_lasso_std] running inverting
+15:21:51 [group_lasso_std_uncoupled] running inverting it 1/13 phi_d 1.812e+06 (target 10081)
+15:22:10 [group_lasso_std] running inverting it 1/13 phi_d 1.791e+06 (target 10081)
+15:26:39 [group_lasso_std_uncoupled] running inverting it 2/13 phi_d 1.351e+06 (target 10081)
+15:27:06 [group_lasso_std] running inverting it 2/13 phi_d 1.31e+06 (target 10081)
+15:28:51 [group_lasso_std] failed starting
+15:28:51 [group_lasso_std] failed after 35.5 min: The instance was terminated outside GeoInv3D
+15:29:00 [group_lasso_std_uncoupled] failed starting
+15:29:00 [group_lasso_std_uncoupled] failed after 35.6 min: The instance was terminated outside GeoInv3D
+15:29:01 terminated ['i-02002f8530b3aaa5a', 'i-0ae23a154108a196c'] (safety net; harmless if already terminated)
+15:29:01 summary:
+15:29:01   group_lasso_std failed     35.5 min ~$1.81 None it, chi2/N nan, regional None, notes None
+15:29:01   group_lasso_std_uncoupled failed     35.6 min ~$1.81 None it, chi2/N nan, regional None, notes None

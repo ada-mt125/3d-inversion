@@ -1,0 +1,830 @@
+{
+  "task_id": "karnataka-joint-2km-none",
+  "methods": [
+    "gravity",
+    "magnetics"
+  ],
+  "regularization": "joint_sparse_IRLS",
+  "coupling": {
+    "kind": "none",
+    "label": "none (inverted together, uncoupled)",
+    "family": "none",
+    "reference": "",
+    "models": [
+      "gravity",
+      "magnetics"
+    ]
+  },
+  "cross_gradient_weight": 0.0,
+  "converged": true,
+  "n_iterations": 43,
+  "iterations": [
+    {
+      "iteration": 1,
+      "phi_d": 27454.3357919679,
+      "phi_m": 13195977933.502731,
+      "phi_total": 37203.568114571,
+      "beta": 7.388033211128041e-07,
+      "model_min": -0.17832686682396007,
+      "model_max": 0.2156631966898792,
+      "model_mean": 0.0021532028731910354
+    },
+    {
+      "iteration": 2,
+      "phi_d": 11404.34693360574,
+      "phi_m": 21016898174.544533,
+      "phi_total": 19168.024019027307,
+      "beta": 3.6940166055640207e-07,
+      "model_min": -0.2,
+      "model_max": 0.24130897799011364,
+      "model_mean": 0.00347749778006762
+    },
+    {
+      "iteration": 3,
+      "phi_d": 7167.548857984214,
+      "phi_m": 27261462995.15883,
+      "phi_total": 17237.978557592793,
+      "beta": 3.6940166055640207e-07,
+      "model_min": -0.2,
+      "model_max": 0.2775631419128011,
+      "model_mean": 0.004133907235884264
+    },
+    {
+      "iteration": 4,
+      "phi_d": 7137.568708528466,
+      "phi_m": 48308602983.14427,
+      "phi_total": 17069.79430466627,
+      "beta": 2.0559952022631105e-07,
+      "model_min": -0.19994413244688788,
+      "model_max": 0.40298731816938077,
+      "model_mean": 0.0042140453064483585
+    },
+    {
+      "iteration": 5,
+      "phi_d": 6500.206447539268,
+      "phi_m": 73632419795.81096,
+      "phi_total": 15195.598758090007,
+      "beta": 1.1809189939246613e-07,
+      "model_min": -0.2,
+      "model_max": 0.5273297024054171,
+      "model_mean": 0.0044999546452464245
+    },
+    {
+      "iteration": 6,
+      "phi_d": 5014.8905451987175,
+      "phi_m": 118207036091.0533,
+      "phi_total": 13857.13088389924,
+      "beta": 7.480299507627841e-08,
+      "model_min": -0.2,
+      "model_max": 0.8178162838556937,
+      "model_mean": 0.0056843726960274146
+    },
+    {
+      "iteration": 7,
+      "phi_d": 4451.668006752031,
+      "phi_m": 171382906253.48386,
+      "phi_total": 12991.38380124918,
+      "beta": 4.9828282068378996e-08,
+      "model_min": -0.2,
+      "model_max": 0.8843926394951341,
+      "model_mean": 0.005706236182769121
+    },
+    {
+      "iteration": 8,
+      "phi_d": 4115.789625289399,
+      "phi_m": 222537764584.2626,
+      "phi_total": 11765.698714667898,
+      "beta": 3.4375779336463624e-08,
+      "model_min": -0.2,
+      "model_max": 0.9312020100243501,
+      "model_mean": 0.006055048391634609
+    },
+    {
+      "iteration": 9,
+      "phi_d": 3889.0537548165616,
+      "phi_m": 290976222924.7618,
+      "phi_total": 10973.278901375703,
+      "beta": 2.4346405611261652e-08,
+      "model_min": -0.2,
+      "model_max": 0.9509285056575206,
+      "model_mean": 0.0065164188996812335
+    },
+    {
+      "iteration": 10,
+      "phi_d": 3606.8271242659916,
+      "phi_m": 385038133112.11993,
+      "phi_total": 10490.545795857575,
+      "beta": 1.7878017992537642e-08,
+      "model_min": -0.2,
+      "model_max": 0.9686930140584726,
+      "model_mean": 0.00717699574838393
+    },
+    {
+      "iteration": 11,
+      "phi_d": 3228.4390730828004,
+      "phi_m": 473854494060.08936,
+      "phi_total": 9806.047501310939,
+      "beta": 1.3881072165992868e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00817134981782136
+    },
+    {
+      "iteration": 12,
+      "phi_d": 3212.4423554397863,
+      "phi_m": 538580065154.319,
+      "phi_total": 9032.04874822973,
+      "beta": 1.0805461934656747e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.008302533750730777
+    },
+    {
+      "iteration": 13,
+      "phi_d": 2677.9660914917904,
+      "phi_m": 653969081409.2175,
+      "phi_total": 9744.404107101529,
+      "beta": 1.0805461934656747e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.008566831541285593
+    },
+    {
+      "iteration": 14,
+      "phi_d": 2599.975943035094,
+      "phi_m": 700000162491.2322,
+      "phi_total": 10163.801053087642,
+      "beta": 1.0805461934656747e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00864000554240701
+    },
+    {
+      "iteration": 15,
+      "phi_d": 2603.054738356904,
+      "phi_m": 714198751856.0237,
+      "phi_total": 10320.302165316527,
+      "beta": 1.0805461934656747e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.008577002017704366
+    },
+    {
+      "iteration": 16,
+      "phi_d": 2895.0315577040183,
+      "phi_m": 685786429022.6774,
+      "phi_total": 8991.164939131133,
+      "beta": 8.889259284577546e-09,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.008966426767406036
+    },
+    {
+      "iteration": 17,
+      "phi_d": 1767.3862728807078,
+      "phi_m": 657463111013.1841,
+      "phi_total": 9461.739268068299,
+      "beta": 1.1703094616715761e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.009313153493568675
+    },
+    {
+      "iteration": 18,
+      "phi_d": 1778.220981607172,
+      "phi_m": 500414282437.61584,
+      "phi_total": 9478.475650239521,
+      "beta": 1.538775958016806e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.009202097045009993
+    },
+    {
+      "iteration": 19,
+      "phi_d": 1801.4145484391124,
+      "phi_m": 402777939025.9232,
+      "phi_total": 9928.48269875985,
+      "beta": 2.01775404332601e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.009024678710629034
+    },
+    {
+      "iteration": 20,
+      "phi_d": 1974.385632985657,
+      "phi_m": 328057754376.2645,
+      "phi_total": 10493.648640627394,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00836724154759587
+    },
+    {
+      "iteration": 21,
+      "phi_d": 2764.9415029662123,
+      "phi_m": 259346359470.42682,
+      "phi_total": 9499.852709694938,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.006129004025465016
+    },
+    {
+      "iteration": 22,
+      "phi_d": 2694.993039920778,
+      "phi_m": 253600546883.9549,
+      "phi_total": 9280.692444874414,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005986783173436822
+    },
+    {
+      "iteration": 23,
+      "phi_d": 2695.3117454439584,
+      "phi_m": 249062148886.88504,
+      "phi_total": 9163.154444818712,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00584430395051632
+    },
+    {
+      "iteration": 24,
+      "phi_d": 2816.9132193198793,
+      "phi_m": 243430264744.60553,
+      "phi_total": 9138.502700788325,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005676174800239769
+    },
+    {
+      "iteration": 25,
+      "phi_d": 2834.798455991202,
+      "phi_m": 238021029713.51404,
+      "phi_total": 9015.916647617301,
+      "beta": 2.5968790232803348e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005776497414873103
+    },
+    {
+      "iteration": 26,
+      "phi_d": 2869.4279796340847,
+      "phi_m": 213653049003.19763,
+      "phi_total": 8159.873869183004,
+      "beta": 2.4761855326809495e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00567255091834459
+    },
+    {
+      "iteration": 27,
+      "phi_d": 2823.1106931191625,
+      "phi_m": 198108212627.07184,
+      "phi_total": 7728.637593243529,
+      "beta": 2.4761855326809495e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005561255967870743
+    },
+    {
+      "iteration": 28,
+      "phi_d": 2892.565489972504,
+      "phi_m": 188318790475.60355,
+      "phi_total": 7334.097084886385,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005351703787903336
+    },
+    {
+      "iteration": 29,
+      "phi_d": 2773.8503665193202,
+      "phi_m": 187194940200.92682,
+      "phi_total": 7188.8757562354995,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005423897067525696
+    },
+    {
+      "iteration": 30,
+      "phi_d": 2521.270727276066,
+      "phi_m": 182568720137.32358,
+      "phi_total": 6827.185908044827,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005723432419121801
+    },
+    {
+      "iteration": 31,
+      "phi_d": 2425.13434027489,
+      "phi_m": 158369035492.91882,
+      "phi_total": 6160.295728160723,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.0056346355690576775
+    },
+    {
+      "iteration": 32,
+      "phi_d": 2465.940036053844,
+      "phi_m": 144011682004.98138,
+      "phi_total": 5862.480732000376,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005493323696796953
+    },
+    {
+      "iteration": 33,
+      "phi_d": 2379.0721229527726,
+      "phi_m": 133426938184.06798,
+      "phi_total": 5525.969785477492,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005448293916241242
+    },
+    {
+      "iteration": 34,
+      "phi_d": 2415.8170113712176,
+      "phi_m": 126940843976.538,
+      "phi_total": 5409.739008124207,
+      "beta": 2.3585174818172356e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00558637503483239
+    },
+    {
+      "iteration": 35,
+      "phi_d": 2106.4560749076354,
+      "phi_m": 115013677433.5756,
+      "phi_total": 4986.629271234552,
+      "beta": 2.504200596481507e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005451458016605368
+    },
+    {
+      "iteration": 36,
+      "phi_d": 2128.780850352029,
+      "phi_m": 108135614867.9467,
+      "phi_total": 5002.541526035277,
+      "beta": 2.6575524439312926e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005396912044341
+    },
+    {
+      "iteration": 37,
+      "phi_d": 2145.6051528418825,
+      "phi_m": 102885147708.14029,
+      "phi_total": 5046.192405319127,
+      "beta": 2.819247789491923e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005377108868914512
+    },
+    {
+      "iteration": 38,
+      "phi_d": 2170.706196163951,
+      "phi_m": 101086023057.18271,
+      "phi_total": 5192.319320863309,
+      "beta": 2.989150263622579e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005422324657423753
+    },
+    {
+      "iteration": 39,
+      "phi_d": 2247.570424971007,
+      "phi_m": 94337288902.71487,
+      "phi_total": 5232.589485192917,
+      "beta": 3.164198478610302e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00549182112630498
+    },
+    {
+      "iteration": 40,
+      "phi_d": 2263.805105872655,
+      "phi_m": 86004008842.99272,
+      "phi_total": 5143.561895389836,
+      "beta": 3.348398322657738e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005415988734167887
+    },
+    {
+      "iteration": 41,
+      "phi_d": 2244.940765795837,
+      "phi_m": 78443778665.50755,
+      "phi_total": 5025.517235350335,
+      "beta": 3.5446743092414835e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.00535324391851277
+    },
+    {
+      "iteration": 42,
+      "phi_d": 2229.874874116413,
+      "phi_m": 74431774888.50331,
+      "phi_total": 5023.756574610583,
+      "beta": 3.753614238917889e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005398409069191105
+    },
+    {
+      "iteration": 43,
+      "phi_d": 2249.418211531146,
+      "phi_m": 71348696353.74155,
+      "phi_total": 4927.573037147477,
+      "beta": 3.753614238917889e-08,
+      "model_min": -0.2,
+      "model_max": 1.0,
+      "model_mean": 0.005408027670606766
+    }
+  ],
+  "models": {
+    "gravity": {
+      "datasets": [
+        "gravity"
+      ],
+      "methods": [
+        "gravity"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        -0.2,
+        0.5
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 2.4186834090562055
+    },
+    "magnetics": {
+      "datasets": [
+        "magnetics"
+      ],
+      "methods": [
+        "magnetics"
+      ],
+      "regularization": "sparse_IRLS",
+      "kind": "sparse",
+      "bounds": [
+        0.0,
+        1.0
+      ],
+      "depth_weighting": "depth",
+      "norms": [
+        0.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "balance": 0.4134480752031164
+    }
+  },
+  "dataset_models": [
+    "gravity",
+    "magnetics"
+  ],
+  "dataset_labels": [
+    "gravity",
+    "magnetics"
+  ],
+  "chi2": {
+    "gravity": 1200.051144772271,
+    "magnetics": 1049.3670667588751
+  },
+  "inversion_mode": "joint",
+  "param_mode": "manual",
+  "regularization_type": "sparse",
+  "mesh_type": "tensor",
+  "mesh_design": {
+    "source": "user",
+    "data_spacing": [
+      {
+        "method": "gravity",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      },
+      {
+        "method": "magnetics",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      }
+    ],
+    "recommended": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 1000.0,
+      "depth_core_m": 35000.0,
+      "pad_distance_m": 25000.0,
+      "shape": [
+        47,
+        47,
+        41
+      ],
+      "n_cells": 90569,
+      "sensitivity_bytes": 939019392.0,
+      "data_spacing_m": 1985.664325036346,
+      "survey_width_m": 70000.0,
+      "coarsened_from": null
+    },
+    "used": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 500.0,
+      "depth_core_m": 10000.0,
+      "pad_distance_m": 20000.0
+    },
+    "client": null
+  },
+  "mesh_shape": [
+    45,
+    45,
+    27
+  ],
+  "mesh": {
+    "__module__": "discretize.tensor_mesh",
+    "__class__": "TensorMesh",
+    "shape_cells": [
+      45,
+      45,
+      27
+    ],
+    "reference_system": "cartesian",
+    "origin": [
+      617487.94,
+      1611487.94,
+      -15493.254147233374
+    ],
+    "orientation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "h": [
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        1856.4650000000001,
+        1428.0500000000002,
+        1098.5,
+        845.0000000000001,
+        650.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0
+      ]
+    ]
+  },
+  "n_cells": 54675,
+  "n_active_cells": 50959,
+  "n_data": 2592,
+  "cell_centers_x": [
+    641000.0,
+    711000.0
+  ],
+  "cell_centers_y": [
+    1635000.0,
+    1704000.0
+  ],
+  "topography": {
+    "source": "dem",
+    "file": "dem_utm43n_450m.tif",
+    "stations_lifted": {
+      "gravity": {
+        "n": 264,
+        "max_m": 347.5,
+        "mean_m": 199.1
+      }
+    },
+    "elevation_min": 385.3,
+    "elevation_max": 1057.3
+  },
+  "crs": "EPSG:32643",
+  "datasets": [
+    {
+      "method": "gravity",
+      "component": "gz",
+      "files": [
+        "gravity_complete_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.0,
+      "noise_floor": 0.5,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -94.97324566451456,
+        "trend_max": -75.30437758544088,
+        "data_std_before": 10.32423144569337,
+        "data_std_after": 9.610398656556216,
+        "residual_min": -16.393925713552093,
+        "residual_max": 32.181023466748535
+      },
+      "gz_convention": "positive_down",
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "gravity_complete_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5040
+          }
+        }
+      }
+    },
+    {
+      "method": "magnetics",
+      "component": "tmi",
+      "files": [
+        "magnetic_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.05,
+      "noise_floor": 10.0,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -97.52266614679812,
+        "trend_max": 77.83299903974091,
+        "data_std_before": 274.1033445272048,
+        "data_std_after": 271.75223351109815,
+        "residual_min": -1513.2444968495738,
+        "residual_max": 2398.0416863822848
+      },
+      "gz_convention": null,
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "magnetic_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5041
+          }
+        }
+      }
+    }
+  ],
+  "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1.0,
+    "alpha_y": 1.0,
+    "alpha_z": 1.0,
+    "bounds_lower": null,
+    "bounds_upper": null,
+    "depth_weighting": "sensitivity",
+    "depth_weighting_exponent": 2.0,
+    "norms": [
+      0.0,
+      2.0,
+      2.0,
+      2.0
+    ],
+    "coupling": "none"
+  },
+  "outside_core_share": {
+    "gravity": 0.09001341012435747,
+    "magnetics": 0.35882498273205693
+  }
+}

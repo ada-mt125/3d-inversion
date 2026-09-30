@@ -1,0 +1,718 @@
+{
+  "task_id": "karnataka-joint-2km-group_lasso_std_uncoupled",
+  "methods": [
+    "gravity",
+    "magnetics"
+  ],
+  "regularization": "group_lasso_ADMM",
+  "converged": true,
+  "n_iterations": 13,
+  "iterations": [
+    {
+      "iteration": 0,
+      "phi_d": 456752.90777999355,
+      "phi_m": 158.69716349656943,
+      "phi_total": 262447.52693251026,
+      "beta": 214.47797036195837,
+      "admm_iterations": 961,
+      "n_active": 117
+    },
+    {
+      "iteration": 1,
+      "phi_d": 341210.18078284175,
+      "phi_m": 528.9156800056277,
+      "phi_total": 237391.79808594144,
+      "beta": 126.07049569364935,
+      "admm_iterations": 253,
+      "n_active": 590
+    },
+    {
+      "iteration": 2,
+      "phi_d": 223289.16698945034,
+      "phi_m": 1129.7494193946322,
+      "phi_total": 195584.74487473958,
+      "beta": 74.10443999269361,
+      "admm_iterations": 383,
+      "n_active": 1381
+    },
+    {
+      "iteration": 3,
+      "phi_d": 143115.25713613574,
+      "phi_m": 1816.5272580667652,
+      "phi_total": 151046.98659860683,
+      "beta": 43.55870893039848,
+      "admm_iterations": 203,
+      "n_active": 2329
+    },
+    {
+      "iteration": 4,
+      "phi_d": 85715.07093792764,
+      "phi_m": 2635.736507138714,
+      "phi_total": 110920.56812313736,
+      "beta": 25.603879118042702,
+      "admm_iterations": 306,
+      "n_active": 3346
+    },
+    {
+      "iteration": 5,
+      "phi_d": 48808.77458321837,
+      "phi_m": 3505.6532138530492,
+      "phi_total": 78020.18277834824,
+      "beta": 15.050001296843908,
+      "admm_iterations": 371,
+      "n_active": 4399
+    },
+    {
+      "iteration": 6,
+      "phi_d": 28770.458036442556,
+      "phi_m": 4281.886591833407,
+      "phi_total": 53357.77753033081,
+      "beta": 8.846414951060677,
+      "admm_iterations": 419,
+      "n_active": 5571
+    },
+    {
+      "iteration": 7,
+      "phi_d": 17886.344757451294,
+      "phi_m": 4973.440584046685,
+      "phi_total": 36102.2581270414,
+      "beta": 5.199936926434773,
+      "admm_iterations": 480,
+      "n_active": 7049
+    },
+    {
+      "iteration": 8,
+      "phi_d": 11860.539856097417,
+      "phi_m": 5607.1798413921115,
+      "phi_total": 24501.94853986599,
+      "beta": 3.0565312828399405,
+      "admm_iterations": 540,
+      "n_active": 9030
+    },
+    {
+      "iteration": 9,
+      "phi_d": 8336.156643302413,
+      "phi_m": 6212.506655629841,
+      "phi_total": 16859.4560620938,
+      "beta": 1.7966340005944221,
+      "admm_iterations": 596,
+      "n_active": 11534
+    },
+    {
+      "iteration": 10,
+      "phi_d": 6273.028047766624,
+      "phi_m": 6795.031876771579,
+      "phi_total": 11912.438963992545,
+      "beta": 1.0560643531489589,
+      "admm_iterations": 640,
+      "n_active": 14496
+    },
+    {
+      "iteration": 11,
+      "phi_d": 5003.290532771719,
+      "phi_m": 7382.433478060579,
+      "phi_total": 8734.168809460607,
+      "beta": 0.6207563241166194,
+      "admm_iterations": 676,
+      "n_active": 18182
+    },
+    {
+      "iteration": 12,
+      "phi_d": 4136.866420169,
+      "phi_m": 8040.9282970527365,
+      "phi_total": 6688.18366357366,
+      "beta": 0.3648815650123784,
+      "admm_iterations": 710,
+      "n_active": 22590
+    }
+  ],
+  "dataset_models": [
+    "gravity",
+    "magnetics"
+  ],
+  "dataset_labels": [
+    "gravity",
+    "magnetics"
+  ],
+  "group_lasso": {
+    "reference": "Utsugi (2025), Earth Planets Space 77:146",
+    "criterion": "nearest chi^2 = N",
+    "lambda1": 0.3648815650123784,
+    "lambda2": 0.3,
+    "mu": 39.320216049382715,
+    "lambda1_max": 364.88156501237836,
+    "lambda1_lcurve": null,
+    "lambda1_discrepancy": null,
+    "data_scaling": "std",
+    "data_scales": {
+      "gravity": "per datum",
+      "magnetics": "per datum"
+    },
+    "gamma": 2.0,
+    "solver": "cholesky (data space)",
+    "admm_iterations": 1,
+    "admm_converged": true,
+    "n_active_cells": 22590,
+    "chi2": {
+      "gravity": 525.5126721701703,
+      "magnetics": 3611.353409758827,
+      "total": 4136.866081928997
+    },
+    "primal_residual": 6.869842376388353e-05,
+    "dual_residual": 0.01610873940701293,
+    "models": {
+      "gravity": [
+        "gravity"
+      ],
+      "magnetics": [
+        "magnetics"
+      ]
+    },
+    "warnings": [
+      "chi^2 = N is not reached on the lambda1 sweep (chi^2 from 4.568e+05 to 4137); the point closest to it is kept",
+      "chi^2 stays above N = 2592 down to the smallest lambda1 (min 4137): lambda2 = 0.3 may damp the model too much for these data errors; try a smaller lambda2"
+    ],
+    "gravity_scale": "per datum",
+    "sweep": [
+      {
+        "lambda1": 214.47797036195837,
+        "misfit": 228376.45388999674,
+        "group_penalty": 158.69716349656943,
+        "l2_penalty": 113.42504523159158,
+        "cross_gradient": 0.0,
+        "objective": 262447.52693251026,
+        "n_iterations": 961,
+        "converged": true,
+        "n_active": 117,
+        "misfit_gravity": 194955.08146376253,
+        "misfit_magnetics": 33421.37242623421,
+        "chi2_gravity": 389910.1629275251,
+        "chi2_magnetics": 66842.74485246842,
+        "chi2": 456752.90777999355
+      },
+      {
+        "lambda1": 126.07049569364935,
+        "misfit": 170605.09039142085,
+        "group_penalty": 528.9156800056277,
+        "l2_penalty": 353.48578689160263,
+        "cross_gradient": 0.0,
+        "objective": 237391.79808594144,
+        "n_iterations": 253,
+        "converged": true,
+        "n_active": 590,
+        "misfit_gravity": 137183.71796518663,
+        "misfit_magnetics": 33421.37242623421,
+        "chi2_gravity": 274367.4359303733,
+        "chi2_magnetics": 66842.74485246842,
+        "chi2": 341210.18078284175
+      },
+      {
+        "lambda1": 74.10443999269361,
+        "misfit": 111644.5834947252,
+        "group_penalty": 1129.7494193946322,
+        "l2_penalty": 735.7110790146453,
+        "cross_gradient": 0.0,
+        "objective": 195584.74487473958,
+        "n_iterations": 383,
+        "converged": true,
+        "n_active": 1381,
+        "misfit_gravity": 79025.71903087138,
+        "misfit_magnetics": 32618.864463853824,
+        "chi2_gravity": 158051.4380617427,
+        "chi2_magnetics": 65237.72892770764,
+        "chi2": 223289.16698945034
+      },
+      {
+        "lambda1": 43.55870893039848,
+        "misfit": 71557.62856806787,
+        "group_penalty": 1816.5272580667652,
+        "l2_penalty": 1212.58644091294,
+        "cross_gradient": 0.0,
+        "objective": 151046.98659860683,
+        "n_iterations": 203,
+        "converged": true,
+        "n_active": 2329,
+        "misfit_gravity": 43077.81756000474,
+        "misfit_magnetics": 28479.81100806313,
+        "chi2_gravity": 86155.63512000948,
+        "chi2_magnetics": 56959.62201612626,
+        "chi2": 143115.25713613574
+      },
+      {
+        "lambda1": 25.603879118042702,
+        "misfit": 42857.53546896381,
+        "group_penalty": 2635.736507138714,
+        "l2_penalty": 1926.512461272684,
+        "cross_gradient": 0.0,
+        "objective": 110920.56812313736,
+        "n_iterations": 306,
+        "converged": true,
+        "n_active": 3346,
+        "misfit_gravity": 21823.200595574384,
+        "misfit_magnetics": 21034.334873389427,
+        "chi2_gravity": 43646.40119114877,
+        "chi2_magnetics": 42068.66974677886,
+        "chi2": 85715.07093792764
+      },
+      {
+        "lambda1": 15.050001296843908,
+        "misfit": 24404.387291609193,
+        "group_penalty": 3505.6532138530492,
+        "l2_penalty": 2852.366906552135,
+        "cross_gradient": 0.0,
+        "objective": 78020.18277834824,
+        "n_iterations": 371,
+        "converged": true,
+        "n_active": 4399,
+        "misfit_gravity": 10428.095566973061,
+        "misfit_magnetics": 13976.29172463613,
+        "chi2_gravity": 20856.191133946115,
+        "chi2_magnetics": 27952.583449272257,
+        "chi2": 48808.77458321837
+      },
+      {
+        "lambda1": 8.846414951060677,
+        "misfit": 14385.229018221278,
+        "group_penalty": 4281.886591833407,
+        "l2_penalty": 3644.009824560814,
+        "cross_gradient": 0.0,
+        "objective": 53357.77753033081,
+        "n_iterations": 419,
+        "converged": true,
+        "n_active": 5571,
+        "misfit_gravity": 5077.015458921891,
+        "misfit_magnetics": 9308.213559299387,
+        "chi2_gravity": 10154.030917843784,
+        "chi2_magnetics": 18616.42711859877,
+        "chi2": 28770.458036442556
+      },
+      {
+        "lambda1": 5.199936926434773,
+        "misfit": 8943.172378725647,
+        "group_penalty": 4973.440584046685,
+        "l2_penalty": 4325.028013006902,
+        "cross_gradient": 0.0,
+        "objective": 36102.2581270414,
+        "n_iterations": 480,
+        "converged": true,
+        "n_active": 7049,
+        "misfit_gravity": 2563.9254115593476,
+        "misfit_magnetics": 6379.246967166299,
+        "chi2_gravity": 5127.850823118695,
+        "chi2_magnetics": 12758.493934332599,
+        "chi2": 17886.344757451294
+      },
+      {
+        "lambda1": 3.0565312828399405,
+        "misfit": 5930.269928048709,
+        "group_penalty": 5607.1798413921115,
+        "l2_penalty": 4777.193393642661,
+        "cross_gradient": 0.0,
+        "objective": 24501.94853986599,
+        "n_iterations": 540,
+        "converged": true,
+        "n_active": 9030,
+        "misfit_gravity": 1392.375843441784,
+        "misfit_magnetics": 4537.8940846069245,
+        "chi2_gravity": 2784.7516868835673,
+        "chi2_magnetics": 9075.788169213849,
+        "chi2": 11860.539856097417
+      },
+      {
+        "lambda1": 1.7966340005944221,
+        "misfit": 4168.078321651206,
+        "group_penalty": 6212.506655629841,
+        "l2_penalty": 5099.256846729598,
+        "cross_gradient": 0.0,
+        "objective": 16859.4560620938,
+        "n_iterations": 596,
+        "converged": true,
+        "n_active": 11534,
+        "misfit_gravity": 801.2634201185406,
+        "misfit_magnetics": 3366.8149015326653,
+        "chi2_gravity": 1602.5268402370812,
+        "chi2_magnetics": 6733.629803065331,
+        "chi2": 8336.156643302413
+      },
+      {
+        "lambda1": 1.0560643531489589,
+        "misfit": 3136.514023883312,
+        "group_penalty": 6795.031876771579,
+        "l2_penalty": 5333.113321799665,
+        "cross_gradient": 0.0,
+        "objective": 11912.438963992545,
+        "n_iterations": 640,
+        "converged": true,
+        "n_active": 14496,
+        "misfit_gravity": 503.4333881063011,
+        "misfit_magnetics": 2633.0806357770107,
+        "chi2_gravity": 1006.8667762126021,
+        "chi2_magnetics": 5266.161271554021,
+        "chi2": 6273.028047766624
+      },
+      {
+        "lambda1": 0.6207563241166194,
+        "misfit": 2501.645266385859,
+        "group_penalty": 7382.433478060579,
+        "l2_penalty": 5499.437580661312,
+        "cross_gradient": 0.0,
+        "objective": 8734.168809460607,
+        "n_iterations": 676,
+        "converged": true,
+        "n_active": 18182,
+        "misfit_gravity": 348.7303913865178,
+        "misfit_magnetics": 2152.914874999341,
+        "chi2_gravity": 697.4607827730357,
+        "chi2_magnetics": 4305.829749998683,
+        "chi2": 5003.290532771719
+      },
+      {
+        "lambda1": 0.3648815650123784,
+        "misfit": 2068.4332100845,
+        "group_penalty": 8040.9282970527365,
+        "l2_penalty": 5619.213174360798,
+        "cross_gradient": 0.0,
+        "objective": 6688.18366357366,
+        "n_iterations": 710,
+        "converged": true,
+        "n_active": 22590,
+        "misfit_gravity": 262.7563923492517,
+        "misfit_magnetics": 1805.6768177352483,
+        "chi2_gravity": 525.5127846985034,
+        "chi2_magnetics": 3611.3536354704966,
+        "chi2": 4136.866420169
+      }
+    ]
+  },
+  "coupling": {
+    "kind": "group_lasso_uncoupled",
+    "label": "none \u2014 L1 + L2 by ADMM (control)",
+    "family": "sparsity",
+    "reference": "Utsugi (2025)",
+    "models": [
+      "gravity",
+      "magnetics"
+    ],
+    "lambda2": 0.3
+  },
+  "inversion_mode": "joint",
+  "param_mode": "manual",
+  "regularization_type": "group_lasso",
+  "mesh_type": "tensor",
+  "mesh_design": {
+    "source": "user",
+    "data_spacing": [
+      {
+        "method": "gravity",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      },
+      {
+        "method": "magnetics",
+        "spacing_m": 1985.664325036346,
+        "kind": "points"
+      }
+    ],
+    "recommended": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 1000.0,
+      "depth_core_m": 35000.0,
+      "pad_distance_m": 25000.0,
+      "shape": [
+        47,
+        47,
+        41
+      ],
+      "n_cells": 90569,
+      "sensitivity_bytes": 939019392.0,
+      "data_spacing_m": 1985.664325036346,
+      "survey_width_m": 70000.0,
+      "coarsened_from": null
+    },
+    "used": {
+      "core_cell_m": 2000.0,
+      "core_cell_z_m": 500.0,
+      "depth_core_m": 10000.0,
+      "pad_distance_m": 20000.0
+    },
+    "client": null
+  },
+  "mesh_shape": [
+    45,
+    45,
+    27
+  ],
+  "mesh": {
+    "__module__": "discretize.tensor_mesh",
+    "__class__": "TensorMesh",
+    "reference_system": "cartesian",
+    "h": [
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        7425.860000000001,
+        5712.200000000001,
+        4394.0,
+        3380.0000000000005,
+        2600.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2000.0,
+        2600.0,
+        3380.0000000000005,
+        4394.0,
+        5712.200000000001,
+        7425.860000000001
+      ],
+      [
+        1856.4650000000001,
+        1428.0500000000002,
+        1098.5,
+        845.0000000000001,
+        650.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0,
+        500.0
+      ]
+    ],
+    "shape_cells": [
+      45,
+      45,
+      27
+    ],
+    "origin": [
+      617487.94,
+      1611487.94,
+      -15493.254147233374
+    ],
+    "orientation": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ]
+  },
+  "n_cells": 54675,
+  "n_active_cells": 50959,
+  "n_data": 2592,
+  "cell_centers_x": [
+    641000.0,
+    711000.0
+  ],
+  "cell_centers_y": [
+    1635000.0,
+    1704000.0
+  ],
+  "topography": {
+    "source": "dem",
+    "file": "dem_utm43n_450m.tif",
+    "stations_lifted": {
+      "gravity": {
+        "n": 264,
+        "max_m": 347.5,
+        "mean_m": 199.1
+      }
+    },
+    "elevation_min": 385.3,
+    "elevation_max": 1057.3
+  },
+  "crs": "EPSG:32643",
+  "datasets": [
+    {
+      "method": "gravity",
+      "component": "gz",
+      "files": [
+        "gravity_complete_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.0,
+      "noise_floor": 0.5,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -94.97324566451456,
+        "trend_max": -75.30437758544088,
+        "data_std_before": 10.32423144569337,
+        "data_std_after": 9.610398656556216,
+        "residual_min": -16.393925713552093,
+        "residual_max": 32.181023466748535
+      },
+      "gz_convention": "positive_down",
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "gravity_complete_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5040
+          }
+        }
+      }
+    },
+    {
+      "method": "magnetics",
+      "component": "tmi",
+      "files": [
+        "magnetic_1km.csv"
+      ],
+      "n_data": 1296,
+      "noise_pct": 0.05,
+      "noise_floor": 10.0,
+      "regional": {
+        "method": "polynomial",
+        "order": 2,
+        "trend_min": -97.52266614679812,
+        "trend_max": 77.83299903974091,
+        "data_std_before": 274.1033445272048,
+        "data_std_after": 271.75223351109815,
+        "residual_min": -1513.2444968495738,
+        "residual_max": 2398.0416863822848
+      },
+      "gz_convention": null,
+      "decimation": {
+        "target_spacing_m": 2000.0,
+        "files": {
+          "magnetic_1km.csv": {
+            "kind": "points",
+            "cell_m": 2000.0,
+            "n_before": 5041
+          }
+        }
+      }
+    }
+  ],
+  "settings": {
+    "regularization_type": "group_lasso",
+    "gl_lambda1_selection": "discrepancy",
+    "gl_lambda1": null,
+    "gl_lambda1_ratio": 0.02,
+    "gl_lambda2": 0.3,
+    "gl_mu": null,
+    "gl_data_scaling": "std",
+    "gl_gamma": 2.0,
+    "gl_n_lambda1": 13,
+    "gl_lambda1_decades": 3.0,
+    "gl_max_iter": 3000,
+    "gl_tol": 0.0001,
+    "gl_cross_gradient": 0.0,
+    "gl_gn_max_iter": 20,
+    "gl_gn_tol": 1e-05,
+    "gl_coupling": "none",
+    "coupling": "group_lasso_uncoupled"
+  },
+  "outside_core_share": {
+    "gravity": 0.565187191438331,
+    "magnetics": 0.8542821893295475
+  },
+  "notes": [
+    "57% of the recovered gravity anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1\u2013L2), property bounds, or a larger core (depth_core_m).",
+    "85% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1\u2013L2), property bounds, or a larger core (depth_core_m)."
+  ]
+}

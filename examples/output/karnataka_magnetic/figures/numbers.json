@@ -1,0 +1,1195 @@
+{
+ "prep": {
+  "crs": "EPSG:32643",
+  "aoi": [
+   641000.0,
+   711000.0,
+   1634000.0,
+   1704000.0
+  ],
+  "dem": {
+   "source": "Copernicus GLO-90 (DSM, EGM2008)",
+   "resolution_m": 90.0,
+   "aoi_min": 381.0,
+   "aoi_max": 1092.498291015625,
+   "aoi_mean": 554.3406100087624,
+   "aoi_p01": 403.02421417236326,
+   "aoi_p99": 927.8757659912112
+  },
+  "stations": {
+   "n_used": 3269,
+   "n_in_aoi": 1941,
+   "elevation_min": 386.0,
+   "elevation_max": 1019.0,
+   "dem_minus_station_mean": 1.5322745624141447,
+   "dem_minus_station_std": 4.464445320544667,
+   "spacing_km": 1.5888586852485813
+  },
+  "terrain_correction": {
+   "density": 2.67,
+   "radius_km": 50.0,
+   "stations": {
+    "min": 0.0170669811858872,
+    "median": 0.09834996645752694,
+    "mean": 0.25107697730523276,
+    "p90": 0.5052647146656787,
+    "p99": 2.954098165539835,
+    "max": 6.674769838677686,
+    "n_above_1": 77,
+    "n_above_0.5": 197
+   },
+   "zones_mean": {
+    "inner": 0.04614836155237897,
+    "near": 0.12310860311529762,
+    "middle": 0.06181695961653863,
+    "far": 0.02000305302101755
+   },
+   "zones_max": {
+    "inner": 2.2799999412829983,
+    "near": 4.592807297327229,
+    "middle": 1.2890775486907693,
+    "far": 0.297637115210218
+   }
+  },
+  "gravity": {
+   "n": 5040,
+   "simple_min": -94.93940734863281,
+   "simple_max": -44.317283630371094,
+   "tc_nodes": {
+    "min": 0.0,
+    "median": 0.11179402814427804,
+    "mean": 0.32754206001737357,
+    "p99": 3.446645878468048,
+    "max": 6.667971810249413,
+    "n_above_1": 393,
+    "n_above_0.5": 728
+   },
+   "node_elevation_min": 382.07250138271,
+   "node_elevation_max": 1070.6514248318142,
+   "grid_minus_station_std": 0.48283022545482907,
+   "grid_minus_station_mean": 0.008034868260144752
+  },
+  "magnetic": {
+   "grid_cell_m": 37.5,
+   "flight_height_m": 80.0,
+   "receiver_height_m": 1000.0,
+   "continued_by_m": 920.0,
+   "n": 5041,
+   "raw_grid": {
+    "min": -7401.80859375,
+    "max": 14973.4501953125,
+    "std": 603.2326877547623
+   },
+   "raw_at_nodes": {
+    "min": -4349.678412543403,
+    "max": 12486.499131944445,
+    "std": 599.6075583408656
+   },
+   "continued_at_nodes": {
+    "min": -1511.0269828652442,
+    "max": 2461.847962650013,
+    "std": 275.96154774526264,
+    "p01": -821.9598726739276,
+    "p99": 1037.3139555442488
+   },
+   "short_wavelength_share": {
+    "80 m": 0.18469815903736736,
+    "500 m": 0.011596962337993705,
+    "1000 m": 0.0007254446121877075
+   },
+   "receiver_z_min": 1384.760854337716,
+   "receiver_z_max": 2051.732217075678
+  }
+ },
+ "full": {
+  "sens": {
+   "core": 0.12435339446999229,
+   "below": 0.6280446764099341,
+   "lateral": 0.24760192912007362,
+   "D50": 10.78625,
+   "D90": 15.1800662125,
+   "chi2": 0.9340641711636204,
+   "rms": 40.54300412196309,
+   "max_abs": 618.2780155078299,
+   "corr": 0.991283147817952,
+   "box_sandur": {
+    "total": 208.8630937809933,
+    "centroid_km": 3.37491223202434,
+    "d10_km": 1.125,
+    "d50_km": 3.125,
+    "d90_km": 6.125,
+    "max": 1.0,
+    "volume_half_km3": 209.75
+   },
+   "box_ne": {
+    "total": 42.63242856791841,
+    "centroid_km": 2.0804125927367028,
+    "d10_km": 0.375,
+    "d50_km": 1.625,
+    "d90_km": 4.625,
+    "max": 1.0,
+    "volume_half_km3": 21.25
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.0042113984942685635,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "sensitivity",
+    "depth_weighting_exponent": 2.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 46,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta0.5": {
+   "core": 0.7769794733633064,
+   "below": 0.08108199895844877,
+   "lateral": 0.14193852767824483,
+   "D50": 0.875,
+   "D90": 6.375,
+   "chi2": 0.9073567428374203,
+   "rms": 52.716573465777756,
+   "max_abs": 750.4698353871572,
+   "corr": 0.9838158528424404,
+   "box_sandur": {
+    "total": 119.70270361189894,
+    "centroid_km": 0.760088184324763,
+    "d10_km": 0.125,
+    "d50_km": 0.625,
+    "d90_km": 1.375,
+    "max": 1.0,
+    "volume_half_km3": 108.5
+   },
+   "box_ne": {
+    "total": 26.259070129239905,
+    "centroid_km": 0.3271304169464361,
+    "d10_km": 0.125,
+    "d50_km": 0.125,
+    "d90_km": 0.625,
+    "max": 1.0,
+    "volume_half_km3": 13.75
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.0001907498256427375,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 0.5,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 45,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1": {
+   "core": 0.7091699859818125,
+   "below": 0.0957239029348234,
+   "lateral": 0.19510611108336412,
+   "D50": 3.375,
+   "D90": 7.625,
+   "chi2": 0.8993286880728103,
+   "rms": 49.38909439431199,
+   "max_abs": 679.5355567108295,
+   "corr": 0.9861100608828794,
+   "box_sandur": {
+    "total": 151.8470272498973,
+    "centroid_km": 2.066642891940851,
+    "d10_km": 0.625,
+    "d50_km": 1.875,
+    "d90_km": 3.875,
+    "max": 1.0,
+    "volume_half_km3": 144.25
+   },
+   "box_ne": {
+    "total": 26.5958884699406,
+    "centroid_km": 0.5037706045296174,
+    "d10_km": 0.125,
+    "d50_km": 0.375,
+    "d90_km": 0.875,
+    "max": 1.0,
+    "volume_half_km3": 12.0
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.0010729677692403984,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 45,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1.5": {
+   "core": 0.4341660279588415,
+   "below": 0.4473378425062813,
+   "lateral": 0.1184961295348772,
+   "D50": 5.875,
+   "D90": 11.903762500000001,
+   "chi2": 0.8255893646155169,
+   "rms": 45.933545414745986,
+   "max_abs": 677.7950781952045,
+   "corr": 0.9886235292746653,
+   "box_sandur": {
+    "total": 187.09131622634033,
+    "centroid_km": 2.9169294666484293,
+    "d10_km": 1.125,
+    "d50_km": 2.875,
+    "d90_km": 5.125,
+    "max": 1.0,
+    "volume_half_km3": 185.5
+   },
+   "box_ne": {
+    "total": 31.491300333755287,
+    "centroid_km": 1.0864072898287123,
+    "d10_km": 0.125,
+    "d50_km": 0.875,
+    "d90_km": 2.125,
+    "max": 1.0,
+    "volume_half_km3": 16.25
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.003209961909644192,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.5,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 44,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta2": {
+   "core": 0.26818713826013246,
+   "below": 0.696353435467838,
+   "lateral": 0.03545942627202958,
+   "D50": 10.125,
+   "D90": 15.1800662125,
+   "chi2": 1.0273343733780154,
+   "rms": 46.024800720053534,
+   "max_abs": 710.0425297364422,
+   "corr": 0.9888582022062279,
+   "box_sandur": {
+    "total": 228.14283954652248,
+    "centroid_km": 3.739065719941682,
+    "d10_km": 1.375,
+    "d50_km": 3.625,
+    "d90_km": 6.375,
+    "max": 1.0,
+    "volume_half_km3": 228.0
+   },
+   "box_ne": {
+    "total": 39.66604447241586,
+    "centroid_km": 1.8695899797660942,
+    "d10_km": 0.375,
+    "d50_km": 1.625,
+    "d90_km": 3.625,
+    "max": 0.9940066581307055,
+    "volume_half_km3": 24.0
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.004399167853885634,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 2.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 44,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta3": {
+   "core": 0.16809018379205543,
+   "below": 0.8232997838630182,
+   "lateral": 0.00861003234492641,
+   "D50": 12.47489125,
+   "D90": 15.1800662125,
+   "chi2": 0.8676535912434182,
+   "rms": 40.53897006421878,
+   "max_abs": 717.5339969531424,
+   "corr": 0.9908754941332938,
+   "box_sandur": {
+    "total": 392.3134719945288,
+    "centroid_km": 5.559256694552598,
+    "d10_km": 2.125,
+    "d50_km": 5.375,
+    "d90_km": 9.375,
+    "max": 1.0,
+    "volume_half_km3": 397.1613
+   },
+   "box_ne": {
+    "total": 108.85077995094751,
+    "centroid_km": 3.855611931315307,
+    "d10_km": 1.125,
+    "d50_km": 3.625,
+    "d90_km": 6.875,
+    "max": 1.0,
+    "volume_half_km3": 89.25
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.006026502303900238,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 3.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 44,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "l1l2_irls": {
+   "core": 0.6150816244798566,
+   "below": 0.10454318668671611,
+   "lateral": 0.28037518883342727,
+   "D50": 4.125,
+   "D90": 9.625,
+   "chi2": 1.0737329123133619,
+   "rms": 60.43242696402276,
+   "max_abs": 966.7709354297049,
+   "corr": 0.9822074584020009,
+   "box_sandur": {
+    "total": 161.37861974981908,
+    "centroid_km": 2.8471692491228064,
+    "d10_km": 0.625,
+    "d50_km": 2.625,
+    "d90_km": 5.375,
+    "max": 0.6790724024410796,
+    "volume_half_km3": 76.75
+   },
+   "box_ne": {
+    "total": 30.89734252986377,
+    "centroid_km": 1.0347750418116148,
+    "d10_km": 0.125,
+    "d50_km": 0.875,
+    "d90_km": 2.125,
+    "max": 0.8768740599098311,
+    "volume_half_km3": 4.0
+   },
+   "model_max": 0.8768740599098311,
+   "n_active": 335518,
+   "at_bound": 2.9804660256677732e-06,
+   "settings": {
+    "regularization_type": "l1l2",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.8,
+    "alpha_s": 1.0,
+    "alpha_x": 1.0,
+    "alpha_y": 1.0,
+    "alpha_z": 1.0,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "sensitivity",
+    "depth_weighting_exponent": 2.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     1.0
+    ]
+   },
+   "n_iterations": 47,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "as0.1_beta1": {
+   "core": 0.664005330480182,
+   "below": 0.11709811472072443,
+   "lateral": 0.21889655479909362,
+   "D50": 3.375,
+   "D90": 8.625,
+   "chi2": 0.9966559141437834,
+   "rms": 52.04963566194521,
+   "max_abs": 706.6273807422049,
+   "corr": 0.9849263784823263,
+   "box_sandur": {
+    "total": 150.22994519521782,
+    "centroid_km": 2.114747065858837,
+    "d10_km": 0.375,
+    "d50_km": 1.875,
+    "d90_km": 4.125,
+    "max": 0.813741393187608,
+    "volume_half_km3": 46.75
+   },
+   "box_ne": {
+    "total": 27.139544764742293,
+    "centroid_km": 0.6430970550179662,
+    "d10_km": 0.125,
+    "d50_km": 0.375,
+    "d90_km": 1.125,
+    "max": 0.8066956560567932,
+    "volume_half_km3": 9.75
+   },
+   "model_max": 0.813741393187608,
+   "n_active": 335518,
+   "at_bound": 5.9609320513355465e-06,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 0.1,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 43,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1_ub0.3": {
+   "core": 0.6605002482101581,
+   "below": 0.1486384076943734,
+   "lateral": 0.19086134409546854,
+   "D50": 4.125,
+   "D90": 9.375,
+   "chi2": 0.9390720657834051,
+   "rms": 51.30327579526557,
+   "max_abs": 669.7931522265799,
+   "corr": 0.9881101224342651,
+   "box_sandur": {
+    "total": 173.40399964935827,
+    "centroid_km": 2.545735210623377,
+    "d10_km": 0.625,
+    "d50_km": 2.625,
+    "d90_km": 4.375,
+    "max": 0.3,
+    "volume_half_km3": 583.25
+   },
+   "box_ne": {
+    "total": 31.569125674572266,
+    "centroid_km": 0.8716788674141801,
+    "d10_km": 0.125,
+    "d50_km": 0.875,
+    "d90_km": 1.625,
+    "max": 0.3,
+    "volume_half_km3": 84.25
+   },
+   "model_max": 0.3,
+   "n_active": 335518,
+   "at_bound": 0.015981258829630602,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 0.3,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 45,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1_err2": {
+   "core": 0.503410041180421,
+   "below": 0.28030254737770255,
+   "lateral": 0.21628741144187646,
+   "D50": 4.375,
+   "D90": 11.653762500000001,
+   "chi2": 1.0755906091580707,
+   "rms": 15.53444906665233,
+   "max_abs": 231.85691665042236,
+   "corr": 0.9986190952842088,
+   "box_sandur": {
+    "total": 178.80655300608015,
+    "centroid_km": 2.056508174028689,
+    "d10_km": 0.375,
+    "d50_km": 1.875,
+    "d90_km": 3.875,
+    "max": 1.0,
+    "volume_half_km3": 105.0
+   },
+   "box_ne": {
+    "total": 40.5798945110441,
+    "centroid_km": 0.7889896214590795,
+    "d10_km": 0.125,
+    "d50_km": 0.625,
+    "d90_km": 1.625,
+    "max": 1.0,
+    "volume_half_km3": 12.0
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 3.576559230801328e-05,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 49,
+   "noise": [
+    0.02,
+    5.0
+   ]
+  },
+  "beta1_h500": {
+   "core": 0.6123884079426427,
+   "below": 0.16159314450695236,
+   "lateral": 0.22601844755040493,
+   "D50": 3.625,
+   "D90": 9.875,
+   "chi2": 1.0014642456886917,
+   "rms": 69.30777085996658,
+   "max_abs": 1245.0487846425704,
+   "corr": 0.9841319826014627,
+   "box_sandur": {
+    "total": 160.78264480413813,
+    "centroid_km": 2.071334775584691,
+    "d10_km": 0.625,
+    "d50_km": 1.875,
+    "d90_km": 3.625,
+    "max": 1.0,
+    "volume_half_km3": 145.0
+   },
+   "box_ne": {
+    "total": 33.44548474344955,
+    "centroid_km": 0.8066342456462197,
+    "d10_km": 0.125,
+    "d50_km": 0.625,
+    "d90_km": 1.625,
+    "max": 1.0,
+    "volume_half_km3": 10.5
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.0005543666807742058,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 44,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1_raw80": {
+   "core": 0.29619219222090193,
+   "below": 0.3754316318389469,
+   "lateral": 0.3283761759401512,
+   "D50": 8.375,
+   "D90": 13.792358625,
+   "chi2": 1.445547539121746,
+   "rms": 208.71451177521013,
+   "max_abs": 9825.567793223756,
+   "corr": 0.9395837205339621,
+   "box_sandur": {
+    "total": 365.8048968032543,
+    "centroid_km": 4.300292634759801,
+    "d10_km": 1.125,
+    "d50_km": 3.875,
+    "d90_km": 8.375,
+    "max": 1.0,
+    "volume_half_km3": 113.0
+   },
+   "box_ne": {
+    "total": 215.54160040020025,
+    "centroid_km": 4.4276039232710875,
+    "d10_km": 1.125,
+    "d50_km": 4.125,
+    "d90_km": 8.125,
+    "max": 0.9638161557584469,
+    "volume_half_km3": 10.25
+   },
+   "model_max": 1.0,
+   "n_active": 335518,
+   "at_bound": 0.00010431631089837206,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 55,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  },
+  "beta1_flat": {
+   "core": 0.6769303667360956,
+   "below": 0.12164743752331654,
+   "lateral": 0.20142219574058784,
+   "D50": 3.125,
+   "D90": 8.375,
+   "chi2": 1.0171918411152219,
+   "rms": 51.45113840341534,
+   "max_abs": 757.3817064639625,
+   "corr": 0.9855263104010427,
+   "box_sandur": {
+    "total": 148.98447245899095,
+    "centroid_km": 2.170740554706911,
+    "d10_km": 0.375,
+    "d50_km": 2.125,
+    "d90_km": 3.875,
+    "max": 1.0,
+    "volume_half_km3": 144.5
+   },
+   "box_ne": {
+    "total": 25.962419102862118,
+    "centroid_km": 0.570241050782421,
+    "d10_km": 0.125,
+    "d50_km": 0.375,
+    "d90_km": 1.125,
+    "max": 1.0,
+    "volume_half_km3": 13.75
+   },
+   "model_max": 1.0,
+   "n_active": 331632,
+   "at_bound": 0.0010071404448304144,
+   "settings": {
+    "regularization_type": "sparse",
+    "max_iter": 60,
+    "max_irls_iterations": 40,
+    "beta_selection": "auto",
+    "l1_ratio": 0.5,
+    "alpha_s": 1.0,
+    "alpha_x": 1,
+    "alpha_y": 1,
+    "alpha_z": 1,
+    "bounds_lower": 0.0,
+    "bounds_upper": 1.0,
+    "depth_weighting": "depth",
+    "depth_weighting_exponent": 1.0,
+    "norms": [
+     0.0,
+     2.0,
+     2.0,
+     2.0
+    ]
+   },
+   "n_iterations": 43,
+   "noise": [
+    0.05,
+    10.0
+   ]
+  }
+ },
+ "runs": {
+  "sens": {
+   "task_id": "karnataka-magnetic-1790769964-sens",
+   "instance": "c5.4xlarge",
+   "minutes": 14.5,
+   "cost_usd": 0.165
+  },
+  "beta0.5": {
+   "task_id": "karnataka-magnetic-1790771924-beta0.5",
+   "instance": "c5.4xlarge",
+   "minutes": 13.9,
+   "cost_usd": 0.158
+  },
+  "beta1": {
+   "task_id": "karnataka-magnetic-1790769964-beta1",
+   "instance": "c5.4xlarge",
+   "minutes": 13.9,
+   "cost_usd": 0.157
+  },
+  "beta1.5": {
+   "task_id": "karnataka-magnetic-1790770487-beta1.5",
+   "instance": "c5.4xlarge",
+   "minutes": 13.8,
+   "cost_usd": 0.157
+  },
+  "beta2": {
+   "task_id": "karnataka-magnetic-1790770487-beta2",
+   "instance": "c5.4xlarge",
+   "minutes": 14.8,
+   "cost_usd": 0.168
+  },
+  "beta3": {
+   "task_id": "karnataka-magnetic-1790769964-beta3",
+   "instance": "c5.4xlarge",
+   "minutes": 15.4,
+   "cost_usd": 0.174
+  },
+  "l1l2_irls": {
+   "task_id": "karnataka-magnetic-1790769964-l1l2_irls",
+   "instance": "c5.4xlarge",
+   "minutes": 12.6,
+   "cost_usd": 0.143
+  },
+  "as0.1_beta1": {
+   "task_id": "karnataka-magnetic-1790771924-as0.1_beta1",
+   "instance": "c5.4xlarge",
+   "minutes": 13.9,
+   "cost_usd": 0.158
+  },
+  "beta1_ub0.3": {
+   "task_id": "karnataka-magnetic-1790769964-beta1_ub0.3",
+   "instance": "c5.4xlarge",
+   "minutes": 14.7,
+   "cost_usd": 0.166
+  },
+  "beta1_err2": {
+   "task_id": "karnataka-magnetic-1790769964-beta1_err2",
+   "instance": "c5.4xlarge",
+   "minutes": 15.1,
+   "cost_usd": 0.171
+  },
+  "beta1_h500": {
+   "task_id": "karnataka-magnetic-1790771924-beta1_h500",
+   "instance": "c5.4xlarge",
+   "minutes": 14.1,
+   "cost_usd": 0.16
+  },
+  "beta1_raw80": {
+   "task_id": "karnataka-magnetic-1790771924-beta1_raw80",
+   "instance": "c5.4xlarge",
+   "minutes": 15.4,
+   "cost_usd": 0.175
+  },
+  "beta1_flat": {
+   "task_id": "karnataka-magnetic-1790771924-beta1_flat",
+   "instance": "c5.4xlarge",
+   "minutes": 13.7,
+   "cost_usd": 0.155
+  }
+ },
+ "data": {
+  "n": 5041,
+  "raw": [
+   -1511.027,
+   2461.848
+  ],
+  "regional": [
+   -105.44029804963705,
+   77.98146874049709
+  ],
+  "residual": [
+   -1518.2408748355874,
+   2446.29608191408
+  ],
+  "std": [
+   10.000603284261397,
+   13.221921680896516,
+   132.314804095704
+  ]
+ },
+ "mesh": {
+  "shape": [
+   84,
+   84,
+   50
+  ],
+  "n_cells": 352800,
+  "n_active": 335518,
+  "ground_min": 387.30035909016806,
+  "ground_max": 1137.300359090168,
+  "z_bottom": -15327.122315909832,
+  "z_core_base": -9612.699640909832
+ },
+ "receivers": [
+  1137.550359090168,
+  2051.732
+ ],
+ "integrated_corr": {
+  "keys": [
+   "sens",
+   "beta0.5",
+   "beta1",
+   "beta1.5",
+   "beta2",
+   "beta3",
+   "l1l2_irls"
+  ],
+  "matrix": [
+   [
+    1.0,
+    0.369,
+    0.476,
+    0.466,
+    0.562,
+    0.553,
+    0.508
+   ],
+   [
+    0.369,
+    1.0,
+    0.675,
+    0.467,
+    0.399,
+    0.34,
+    0.781
+   ],
+   [
+    0.476,
+    0.675,
+    1.0,
+    0.704,
+    0.535,
+    0.388,
+    0.655
+   ],
+   [
+    0.466,
+    0.467,
+    0.704,
+    1.0,
+    0.73,
+    0.4,
+    0.533
+   ],
+   [
+    0.562,
+    0.399,
+    0.535,
+    0.73,
+    1.0,
+    0.548,
+    0.522
+   ],
+   [
+    0.553,
+    0.34,
+    0.388,
+    0.4,
+    0.548,
+    1.0,
+    0.463
+   ],
+   [
+    0.508,
+    0.781,
+    0.655,
+    0.533,
+    0.522,
+    0.463,
+    1.0
+   ]
+  ]
+ },
+ "integrated_corr_smooth": {
+  "keys": [
+   "sens",
+   "beta0.5",
+   "beta1",
+   "beta1.5",
+   "beta2",
+   "beta3",
+   "l1l2_irls"
+  ],
+  "matrix": [
+   [
+    1.0,
+    0.484,
+    0.6,
+    0.61,
+    0.671,
+    0.695,
+    0.585
+   ],
+   [
+    0.484,
+    1.0,
+    0.895,
+    0.639,
+    0.497,
+    0.407,
+    0.95
+   ],
+   [
+    0.6,
+    0.895,
+    1.0,
+    0.836,
+    0.67,
+    0.493,
+    0.888
+   ],
+   [
+    0.61,
+    0.639,
+    0.836,
+    1.0,
+    0.883,
+    0.502,
+    0.677
+   ],
+   [
+    0.671,
+    0.497,
+    0.67,
+    0.883,
+    1.0,
+    0.592,
+    0.588
+   ],
+   [
+    0.695,
+    0.407,
+    0.493,
+    0.502,
+    0.592,
+    1.0,
+    0.496
+   ],
+   [
+    0.585,
+    0.95,
+    0.888,
+    0.677,
+    0.588,
+    0.496,
+    1.0
+   ]
+  ]
+ },
+ "integrated_tests_smooth": {
+  "beta1": 1.0,
+  "as0.1_beta1": 0.978866585796845,
+  "beta1_ub0.3": 0.9033283267984931,
+  "beta1_err2": 0.7264881079209815,
+  "beta1_h500": 0.9504232119905197,
+  "beta1_raw80": 0.3510106375311804,
+  "beta1_flat": 0.9563984612508288
+ },
+ "edge_share": {
+  "sens": 0.37300567429248094,
+  "beta0.5": 0.3396667124121085,
+  "beta1": 0.3863839414114025,
+  "beta1.5": 0.4231493417769738,
+  "beta2": 0.45944967963290345,
+  "beta3": 0.34755604012978913,
+  "l1l2_irls": 0.382276777024896,
+  "as0.1_beta1": 0.37570674839387425,
+  "beta1_ub0.3": 0.38517690909921554,
+  "beta1_err2": 0.38413691442858044,
+  "beta1_h500": 0.37856932104629853,
+  "beta1_raw80": 0.37572416048052504,
+  "beta1_flat": 0.36339761574985135
+ },
+ "edge_area_share": 0.4048979591836735,
+ "integrated_tests": {
+  "beta1": 1.0,
+  "as0.1_beta1": 0.8501460202112822,
+  "beta1_ub0.3": 0.6971876560718095,
+  "beta1_err2": 0.58782453301465,
+  "beta1_h500": 0.8311714564585639,
+  "beta1_raw80": 0.265479963169049,
+  "beta1_flat": 0.8214624934956377
+ },
+ "residual": {
+  "p01": -1.3290573751599943,
+  "p99": 3.8375626338497044,
+  "worst_1pct_share": 0.23925987237533428,
+  "above_3": 0.0198373338623289,
+  "n_above_150": {
+   "sens": 64,
+   "beta0.5": 98,
+   "beta1": 92,
+   "beta1.5": 77,
+   "beta2": 71,
+   "beta3": 57,
+   "l1l2_irls": 113
+  },
+  "n_below_150": {
+   "sens": 0,
+   "beta0.5": 0,
+   "beta1": 0,
+   "beta1.5": 0,
+   "beta2": 0,
+   "beta3": 3,
+   "l1l2_irls": 0
+  }
+ },
+ "gravity": {
+  "corr_integrated": 0.23952737987859177,
+  "corr_positive": 0.2583056438852559,
+  "corr_l1l2": 0.4239139875644541,
+  "magnetic_in_dense": 0.30714285714285716,
+  "dense_in_magnetic": 0.438136826783115,
+  "box_sandur_density_centroid": 4.772976414668065
+ }
+}

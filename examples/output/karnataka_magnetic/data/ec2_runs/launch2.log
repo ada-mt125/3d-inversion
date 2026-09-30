@@ -1,0 +1,62 @@
+13:14:47 karnataka-magnetic: ['beta1.5', 'beta2']; owner miaozhou, region ap-south-1
+13:14:52 [beta1.5] launched i-0b9b2fc429be115dd (c5.4xlarge)
+13:14:53 [beta1.5] launching launching
+13:14:56 [beta2] launched i-07996ab4f1d181082 (c5.4xlarge)
+13:14:56 [beta2] launching launching
+13:15:08 [beta1.5] bootstrapping bootstrapping
+13:15:11 [beta2] bootstrapping bootstrapping
+13:15:39 [beta1.5] uploading sending_data
+13:15:57 [beta1.5] running inverting
+13:16:00 [beta2] running building_mesh
+13:16:20 [beta2] running inverting
+13:22:31 [beta1.5] running inverting it 1/60 phi_d 1.053e+05 (target 5041)
+13:22:50 [beta1.5] running inverting it 3/60 phi_d 2.553e+04 (target 5041)
+13:22:55 [beta2] running inverting it 1/60 phi_d 1.128e+05 (target 5041)
+13:23:09 [beta1.5] running inverting it 7/60 phi_d 1.415e+04 (target 5041)
+13:23:15 [beta2] running inverting it 3/60 phi_d 2.251e+04 (target 5041)
+13:23:27 [beta1.5] running inverting it 9/60 phi_d 7896 (target 5041)
+13:23:34 [beta2] running inverting it 5/60 phi_d 1.483e+04 (target 5041)
+13:23:46 [beta1.5] running inverting it 11/60 phi_d 6904 (target 5041)
+13:23:53 [beta2] running inverting it 9/60 phi_d 5249 (target 5041)
+13:24:04 [beta1.5] running inverting it 13/60 phi_d 3099 (target 5041)
+13:24:11 [beta2] running inverting it 11/60 phi_d 5485 (target 5041)
+13:24:23 [beta1.5] running inverting it 15/60 phi_d 6223 (target 5041)
+13:24:30 [beta2] running inverting it 13/60 phi_d 5959 (target 5041)
+13:24:41 [beta1.5] running inverting it 17/60 phi_d 7752 (target 5041)
+13:24:49 [beta2] running inverting it 15/60 phi_d 5941 (target 5041)
+13:25:00 [beta1.5] running inverting it 19/60 phi_d 7439 (target 5041)
+13:25:07 [beta2] running inverting it 17/60 phi_d 3641 (target 5041)
+13:25:19 [beta1.5] running inverting it 23/60 phi_d 4642 (target 5041)
+13:25:26 [beta2] running inverting it 19/60 phi_d 4826 (target 5041)
+13:25:38 [beta1.5] running inverting it 25/60 phi_d 4907 (target 5041)
+13:25:44 [beta2] running inverting it 21/60 phi_d 4891 (target 5041)
+13:25:57 [beta1.5] running inverting it 27/60 phi_d 4737 (target 5041)
+13:26:03 [beta2] running inverting it 23/60 phi_d 4657 (target 5041)
+13:26:15 [beta1.5] running inverting it 29/60 phi_d 4849 (target 5041)
+13:26:22 [beta2] running inverting it 25/60 phi_d 4725 (target 5041)
+13:26:34 [beta1.5] running inverting it 31/60 phi_d 4623 (target 5041)
+13:26:42 [beta2] running inverting it 27/60 phi_d 4840 (target 5041)
+13:26:52 [beta1.5] running inverting it 33/60 phi_d 4657 (target 5041)
+13:27:01 [beta2] running inverting it 29/60 phi_d 4952 (target 5041)
+13:27:11 [beta1.5] running inverting it 35/60 phi_d 4681 (target 5041)
+13:27:20 [beta2] running inverting it 31/60 phi_d 4327 (target 5041)
+13:27:30 [beta1.5] running inverting it 39/60 phi_d 4274 (target 5041)
+13:27:39 [beta2] running inverting it 35/60 phi_d 4355 (target 5041)
+13:27:48 [beta1.5] running inverting it 41/60 phi_d 4561 (target 5041)
+13:27:57 [beta2] running inverting it 37/60 phi_d 5259 (target 5041)
+13:28:07 [beta1.5] running inverting it 43/60 phi_d 4207 (target 5041)
+13:28:16 [beta2] running inverting it 39/60 phi_d 5089 (target 5041)
+13:28:26 [beta1.5] finishing collecting it 44/60 phi_d 4162 (target 5041)
+13:28:35 [beta2] running inverting it 41/60 phi_d 5192 (target 5041)
+13:28:41 [beta1.5] succeeded 
+13:28:41 [beta1.5] succeeded after 13.8 min
+13:28:53 [beta2] running inverting it 43/60 phi_d 5247 (target 5041)
+13:29:13 [beta2] finishing collecting it 44/60 phi_d 5179 (target 5041)
+13:29:28 [beta2] finishing collecting
+13:29:43 [beta2] succeeded 
+13:29:43 [beta2] succeeded after 14.8 min
+13:29:44 terminated ['i-0b9b2fc429be115dd', 'i-07996ab4f1d181082'] (safety net; harmless if already terminated)
+13:29:44 summary:
+13:29:44   beta1.5 succeeded  13.8 min ~$0.16 44 it, chi2/N 0.83, regional 2, notes ['55% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+13:29:44   beta2   succeeded  14.8 min ~$0.17 44 it, chi2/N 1.03, regional 2, notes ['72% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+13:29:47 viewer: C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\ec2_runs\karnataka-magnetic-1790770487.geoinv3d_viewer.html

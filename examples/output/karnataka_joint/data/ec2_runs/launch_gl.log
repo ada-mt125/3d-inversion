@@ -1,0 +1,42 @@
+14:29:57 karnataka-joint: ['group_lasso', 'group_lasso_uncoupled']; owner miaozhou, region ap-south-1
+14:30:01 [group_lasso_uncoupled] launched i-02ac5602fbf24b6d3 (c5.18xlarge)
+14:30:01 [group_lasso_uncoupled] launching launching
+14:30:03 [group_lasso] launched i-02ca8f204ba963765 (c5.18xlarge)
+14:30:03 [group_lasso] launching launching
+14:30:17 [group_lasso_uncoupled] bootstrapping bootstrapping
+14:30:18 [group_lasso] bootstrapping bootstrapping
+14:31:03 [group_lasso_uncoupled] uploading sending_data
+14:31:07 [group_lasso] running starting
+14:31:21 [group_lasso_uncoupled] running inverting
+14:31:26 [group_lasso] running inverting
+14:59:01 [group_lasso_uncoupled] running inverting it 1/13 phi_d 1.823e+06 (target 10081)
+14:59:08 [group_lasso] running inverting it 1/13 phi_d 1.779e+06 (target 10081)
+15:04:29 [group_lasso] running inverting it 2/13 phi_d 1.317e+06 (target 10081)
+15:05:15 [group_lasso_uncoupled] running inverting it 2/13 phi_d 1.361e+06 (target 10081)
+15:11:49 [group_lasso] running inverting it 3/13 phi_d 8.423e+05 (target 10081)
+15:12:47 [group_lasso_uncoupled] running inverting it 3/13 phi_d 8.737e+05 (target 10081)
+15:15:11 [group_lasso] running inverting it 4/13 phi_d 5.371e+05 (target 10081)
+15:16:34 [group_lasso_uncoupled] running inverting it 4/13 phi_d 5.807e+05 (target 10081)
+15:18:07 [group_lasso] running inverting it 5/13 phi_d 3.326e+05 (target 10081)
+15:18:37 [group_lasso_uncoupled] running starting
+15:18:37 [group_lasso_uncoupled] ! SSH: No existing session
+15:19:15 [group_lasso_uncoupled] running inverting it 4/13 phi_d 5.807e+05 (target 10081)
+15:19:50 [group_lasso] running inverting it 6/13 phi_d 1.972e+05 (target 10081)
+15:20:49 [group_lasso_uncoupled] running inverting it 5/13 phi_d 3.647e+05 (target 10081)
+15:22:09 [group_lasso] running inverting it 7/13 phi_d 1.171e+05 (target 10081)
+15:22:11 [group_lasso_uncoupled] running inverting it 6/13 phi_d 2.235e+05 (target 10081)
+15:24:01 [group_lasso_uncoupled] running inverting it 7/13 phi_d 1.374e+05 (target 10081)
+15:24:41 [group_lasso] running inverting it 8/13 phi_d 7.126e+04 (target 10081)
+15:26:46 [group_lasso_uncoupled] running inverting it 8/13 phi_d 8.262e+04 (target 10081)
+15:28:05 [group_lasso] running inverting it 9/13 phi_d 4.498e+04 (target 10081)
+15:28:42 [group_lasso] finishing collecting it 9/13 phi_d 4.498e+04 (target 10081)
+15:28:53 [group_lasso_uncoupled] finishing collecting it 8/13 phi_d 8.262e+04 (target 10081)
+15:28:57 [group_lasso] succeeded 
+15:28:57 [group_lasso] succeeded after 58.9 min
+15:29:08 [group_lasso_uncoupled] succeeded 
+15:29:08 [group_lasso_uncoupled] succeeded after 59.1 min
+15:29:09 terminated ['i-02ac5602fbf24b6d3', 'i-02ca8f204ba963765'] (safety net; harmless if already terminated)
+15:29:09 summary:
+15:29:09   group_lasso succeeded  58.9 min ~$3.00 9 it, chi2/N 4.46, regional 2, notes ['54% of the recovered gravity anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).', '81% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+15:29:09   group_lasso_uncoupled succeeded  59.1 min ~$3.01 8 it, chi2/N 8.20, regional 2, notes ['53% of the recovered gravity anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).', '87% of the recovered magnetics anomaly lies outside the core mesh (padding cells), where it is poorly constrained. Consider a compact regularization (L1–L2), property bounds, or a larger core (depth_core_m).']
+15:29:50 viewer: C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\ec2_runs\karnataka-joint-1790774997.geoinv3d_viewer.html
