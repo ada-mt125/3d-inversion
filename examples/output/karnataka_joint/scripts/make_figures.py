@@ -98,6 +98,39 @@ def coupling_measures(gg, gm):
     }
 
 
+def depth_sensitivity(path):
+    """How fast the gravity and the magnetic data lose sight of a cell with depth: the median
+    column norm of each error-weighted sensitivity matrix per km3 of cell, in depth bins below
+    the ground (core columns), relative to 0-2 km.  From the 2 km run at ``path``."""
+    from geoinv3d.datamodel.mesh import Mesh3D
+    from geoinv3d.datamodel.survey import SurveyData
+    from geoinv3d.methods.gravity import GravityMethod
+    from geoinv3d.methods.magnetics import MagneticsMethod
+    from geoinv3d.viz.result_workflow import result_mesh
+    r, gg, _ = load_joint(path)
+    tm = result_mesh(r)
+    mesh, act = Mesh3D.from_discretize(tm), np.asarray(r["_active"], bool)
+    from joint_params import FIELD
+    norms = {}
+    for name, method in (("gravity", GravityMethod()), ("magnetics", MagneticsMethod(inducing_field=tuple(FIELD)))):
+        d = r["_datas"][name]
+        sv = SurveyData(locations=d["locations"], observed=d["observed"], std=d["std"])
+        G = np.asarray(method.make_simulation_active(mesh, sv, act).G, dtype=float) / d["std"][:, None]
+        norms[name] = np.linalg.norm(G, axis=0) / (tm.cell_volumes[act] / 1e9)
+    depth = gg.depth.reshape(-1, order="F")[act]
+    core = np.broadcast_to(gg.core_xy[:, :, None], gg.shape).reshape(-1, order="F")[act]
+    out, ref = [], None
+    for lo, hi in ((0, 2), (2, 4), (4, 8), (8, 10), (10, 40)):
+        sel = core & (depth >= lo * 1e3) & (depth < hi * 1e3)
+        if not sel.any():
+            continue
+        v = {k: float(np.median(n[sel])) for k, n in norms.items()}
+        ref = ref or v
+        out.append({"from_km": lo, "to_km": hi, "gravity": v["gravity"] / ref["gravity"],
+                    "magnetics": v["magnetics"] / ref["magnetics"]})
+    return out
+
+
 def load_joint(path):
     r = load(path)
     gg, gm = Grid(r, r["_models"]["gravity"]), Grid(r, r["_models"]["magnetics"])
@@ -308,6 +341,7 @@ def main():
                 under[k] = {"n_over": int((rr > UNDERFIT_NT).sum()), "mean_at_single": float(rr[bad].mean()),
                             "rms_at_single": float(np.sqrt(np.mean(rr[bad] ** 2)))}
         numbers["magnetic"]["joint_underfit"] = under
+        numbers["depth_sensitivity"] = depth_sensitivity(LOW / "none")
         numbers["gl_info"] = {k: runs[k][0].get("group_lasso") and {
             key: runs[k][0]["group_lasso"].get(key) for key in (
                 "criterion", "lambda1", "lambda1_max", "lambda2", "data_weights", "weighting",

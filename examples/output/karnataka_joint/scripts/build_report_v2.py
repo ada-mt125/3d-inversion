@@ -23,6 +23,7 @@ FIGS = ROOT / "figures_v2"
 N = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
 F, LOW, S, RUNS, M, MAG = N["full"], N["low"], N["single"], N["runs"], N["mesh"], N.get("magnetic", {})
 GL = N.get("gl_info", {})
+DS = N.get("depth_sensitivity", [])
 KEYS = N["keys"]
 GLK, CTRL = "group_lasso_depth", "group_lasso_depth_uncoupled"
 LABEL = {"none": "No coupling", "cross_gradient": "Cross-gradient", "joint_total_variation": "Joint total variation",
@@ -159,6 +160,13 @@ def mvi_table():
     return table(head, rows, numeric_from=1)
 
 
+def depth_table():
+    head = ["Depth below the ground (km)", "Gravity", "Magnetics", "Magnetics / gravity"]
+    rows = [[f"{d['from_km']}–{d['to_km']}" if d["to_km"] < 40 else f"below {d['from_km']} (below the core)",
+             f"{d['gravity']:.2f}", f"{d['magnetics']:.3f}", f"{d['magnetics'] / d['gravity']:.2f}"] for d in DS]
+    return table(head, rows, compact=True)
+
+
 def body(fig, notes):
     n = len(KEYS)
     cost = sum(r["cost_usd"] for r in RUNS.values())
@@ -237,6 +245,13 @@ def body(fig, notes):
 @@DISCUSSION@@
 </div>
 
+<h3><span class="no">4.1</span>Why the couplings that tie the values lift the dense body</h3>
+<div class="prose">
+@@WHY@@
+</div>
+{depth_table() if DS else ""}
+<p class="note">Median column norm of the error-weighted sensitivities per km³ of cell, in the core columns of the 2 km mesh, relative to the cells 0–2 km below the ground.</p>
+
 <h2><span class="no">5</span>The 2 km study</h2>
 <div class="prose">
 <p>Every coupling was also run locally on a 2 km × 2 km × 500 m mesh (1,296 + 1,296 data):</p>
@@ -267,13 +282,14 @@ def body(fig, notes):
 
 
 def main():
-    from report_text_v2 import coupling_notes, discussion, fit_text, low_text, mvi_text, recommend, summary
+    from report_text_v2 import coupling_notes, discussion, fit_text, low_text, mvi_text, recommend, summary, why
     fig = Figures("en", FIGS)
-    ctx = dict(F=F, LOW=LOW, S=S, MAG=MAG, GL=GL, KEYS=KEYS, g=g, m=m, c=c, has=has, pct=pct, rng=rng,
-               GLK=GLK, CTRL=CTRL)
+    ctx = dict(F=F, LOW=LOW, S=S, MAG=MAG, GL=GL, DS=DS, KEYS=KEYS, g=g, m=m, c=c, has=has, pct=pct,
+               rng=rng, GLK=GLK, CTRL=CTRL)
     html = body(fig, coupling_notes(**ctx))
     for tag, fn in (("@@SUMMARY@@", summary), ("@@FITTEXT@@", fit_text), ("@@MVITEXT@@", mvi_text),
-                    ("@@DISCUSSION@@", discussion), ("@@LOWTEXT@@", low_text), ("@@RECOMMEND@@", recommend)):
+                    ("@@DISCUSSION@@", discussion), ("@@WHY@@", why), ("@@LOWTEXT@@", low_text),
+                    ("@@RECOMMEND@@", recommend)):
         html = html.replace(tag, fn(**ctx))
     OUT.write_text(page("en", "Karnataka Joint Inversion", html), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")

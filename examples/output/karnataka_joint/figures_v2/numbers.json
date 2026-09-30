@@ -1236,6 +1236,38 @@
    }
   }
  },
+ "depth_sensitivity": [
+  {
+   "from_km": 0,
+   "to_km": 2,
+   "gravity": 1.0,
+   "magnetics": 1.0
+  },
+  {
+   "from_km": 2,
+   "to_km": 4,
+   "gravity": 0.4323372623898488,
+   "magnetics": 0.2954635396378744
+  },
+  {
+   "from_km": 4,
+   "to_km": 8,
+   "gravity": 0.21922454266386537,
+   "magnetics": 0.09865456822660547
+  },
+  {
+   "from_km": 8,
+   "to_km": 10,
+   "gravity": 0.1452040288495901,
+   "magnetics": 0.048386470979671733
+  },
+  {
+   "from_km": 10,
+   "to_km": 40,
+   "gravity": 0.10533248331233865,
+   "magnetics": 0.02735667718040223
+  }
+ ],
  "gl_info": {
   "group_lasso_depth": {
    "criterion": "chi^2 = N for each model (balanced)",

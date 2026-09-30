@@ -175,3 +175,44 @@ def recommend(has, MAG, GLK, **_):
         out.append("""  <li><b>Invert the magnetic data of the belt for a magnetization vector.</b> The susceptibility models are an approximation where the iron formation is remanent; a joint inversion that couples the amplitude of the magnetization vector, rather than the susceptibility, would carry the remanence into the joint model. Oriented samples of the iron formation would tell whether the direction found (Section 3) is its remanence.</li>""")
     out.append("""  <li><b>Depth still needs independent information.</b> The couplings do not supply it; the mapped dips of the iron formation or boreholes would.</li>""")
     return "\n".join(out)
+
+
+def why(F, DS, g, m, c, has, pct, rng, GLK, CTRL, **_):
+    """Why the linear correspondence (and, less, the group lasso) moves the dense body up."""
+    if not DS:
+        return ""
+    top = DS[0]
+    mid = next((d for d in DS if d["from_km"] == 4), DS[min(2, len(DS) - 1)])
+    deep = DS[-1]
+    out = [f"<p>The two datasets do not see depth alike. Per unit volume, the magnetic data lose sight of a cell much "
+           f"faster than the gravity data: at 4–8 km below the ground a cell counts {mid['gravity']:.2f} of what it counts "
+           f"at the surface for gravity but {mid['magnetics']:.2f} for the magnetic data, and below the core "
+           f"{deep['gravity']:.2f} against {deep['magnetics']:.3f} (the field of a magnetic dipole falls off one power of the "
+           "distance faster than that of a mass). The magnetic data therefore fix where the magnetic rock is, near the "
+           "surface, much more firmly than the gravity data fix the depth of the dense rock.</p>"]
+    if has("linear_correspondence"):
+        k = "linear_correspondence"
+        out.append(f"<p><b>Linear correspondence.</b> With density = 0.5 × susceptibility in every cell, a cell can be dense "
+                   "only if it is magnetic too: the relation asks for 2 SI of susceptibility per g/cc of density, 0.6 SI for a "
+                   f"contrast of 0.3 g/cc. The dense body at {rng(g('none')['main'])} km of the uncoupled run would need that "
+                   "much susceptibility at depth, whose magnetic anomaly the data do not have; so density is allowed only where "
+                   "the magnetic rock is — the "
+                   f"shallow sheets, which carry the dense body up to {rng(g(k)['main'])} km under the main high — and where "
+                   f"the magnetic data can no longer object: below the core, which receives {pct(g(k)['below'])} of the "
+                   f"density model ({pct(g('none')['below'])} uncoupled). The susceptibility model gets shallower too "
+                   f"(centroid in the belt {m(k)['box_sandur']['centroid_km']:.1f} km, against "
+                   f"{m('none')['box_sandur']['centroid_km']:.1f} km uncoupled).</p>")
+    if has(GLK):
+        k = GLK
+        ctrl = (f" Its control, the same solver without the pairing, keeps the dense body at {rng(g(CTRL)['main'])} km: the "
+                "lift comes from the pairing." if has(CTRL) else "")
+        out.append(f"<p><b>Group lasso.</b> The group norm of a cell, ‖(ρ, χ)‖, is less than |ρ| + |χ|: density costs less in a "
+                   "cell that already holds susceptibility than in an empty one. So the dense rock is drawn towards the shallow "
+                   "magnetic cells, but, with no fixed ratio, it may still stay in non-magnetic cells at the full price: the "
+                   f"dense body rises only part of the way, to {rng(g(k)['main'])} km, and little goes below the core "
+                   f"({pct(g(k)['below'])}).{ctrl}</p>")
+    out.append("<p>The couplings that leave the values free (the cross-gradient and the joint total variation) place no such "
+               "condition on a cell, and the dense body stays where the gravity data and its own regularization put it. None "
+               "of the depths is confirmed by the data — every run fits them equally — so the lift shows what the "
+               "assumption does, not where the rock is.</p>")
+    return "\n".join(out)
