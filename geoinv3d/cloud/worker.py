@@ -2679,6 +2679,13 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                               **{k: getattr(task, k) for k in GROUP_LASSO_KEYS}}
         # the hybrid with a cross-gradient is a coupling of its own (not Utsugi's method)
         result["settings"]["coupling"] = _group_lasso_coupling(task, [])["kind"]
+        # how its cells were weighed (the workflow tree's weighting column)
+        if task.gl_weighting == "depth":
+            result["settings"]["depth_weighting"] = "depth"
+            result["settings"]["depth_weighting_exponent"] = _common_setting(
+                task, datasets, "depth_weighting_exponent")
+        else:
+            result["settings"]["depth_weighting"] = task.gl_weighting
     else:
         result["settings"] = {k: getattr(task, k) for k in (
             "regularization_type", "max_iter", "max_irls_iterations", "beta_selection",
@@ -2689,6 +2696,17 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             task, length_scales=task.regularization_type in ("l2", "sparse", "l1l2", "mgs", "tv")
             or mode == "joint")
         result["settings"]["norms"] = list(task.norms)
+        if mode == "joint":
+            # the models' own regularizations (joint_regularizations), where they agree
+            overridden = {k for ds in datasets for k in (ds.regularization or {})}
+            for key in ("regularization_type", "alpha_s", "norms", "depth_weighting",
+                        "depth_weighting_exponent", "l1_ratio"):
+                if key in overridden:
+                    result["settings"][key] = _common_setting(task, datasets, key)
+        else:
+            kwargs = datasets[0].method_kwargs or {}
+            if kwargs.get("magnetization") == "vector":
+                result["settings"]["magnetization"] = "vector"
         if mode == "joint":   # the first column of the workflow tree
             result["settings"]["coupling"] = task.coupling
             if task.coupling == "pgi":
@@ -2728,6 +2746,16 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     if notes:
         result["notes"] = notes
     return result
+
+
+def _common_setting(task, datasets, key):
+    """A regularization setting of a joint job's models: the datasets' own values
+    (joint_regularizations), else the task's; "per model" when they differ."""
+    vals = []
+    for ds in datasets:
+        v = (ds.regularization or {}).get(key, getattr(task, key, None))
+        vals.append(list(v) if isinstance(v, (tuple, list)) else v)
+    return vals[0] if all(v == vals[0] for v in vals) else "per model"
 
 
 def result_metadata_json(result: dict) -> str:

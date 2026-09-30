@@ -412,6 +412,20 @@ class TestPipelinePlumbing:
         assert capture["task"].joint_models == ["density", None]
         assert capture["task"].joint_regularizations is None
 
+    def test_joint_settings_record_the_models_own(self, tmp_path, capture):
+        """The result's settings (the workflow tree) give the models' own regularizations
+        where they agree, "per model" where they differ, not the task's defaults."""
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+        params = _joint_params(["g.csv"], ["m.csv"], param_mode="manual")
+        own = {"depth_weighting": "depth", "depth_weighting_exponent": 1.0}
+        params["datasets"][0]["regularization"] = dict(own)
+        params["datasets"][1]["regularization"] = {**own, "regularization_type": "mgs"}
+        s = run_data_pipeline(params, str(tmp_path))["settings"]
+        assert s["depth_weighting"] == "depth" and s["depth_weighting_exponent"] == 1.0
+        assert s["regularization_type"] == "per model"
+
     def test_mesh_recommended_from_data_spacing(self, grav_grid_dir, capture):
         """Without mesh settings the mesh follows the data (100 m grid, 600 m wide)."""
         params = _single("gravity", ["grav.grd"])

@@ -45,7 +45,9 @@ SETTING_LABELS = {"gl_lambda1_selection": "λ1 by", "gl_lambda1": "λ1", "gl_lam
                   "gl_mu": "μ", "gl_data_scaling": "data scaling", "gl_gamma": "γ",
                   "gl_n_lambda1": "λ1 points", "gl_lambda1_decades": "λ1 decades",
                   "gl_max_iter": "ADMM max it", "gl_tol": "ADMM tol", "geology": "geology",
-                  "coupling_weight": "coupling weight", "gl_cross_gradient": "λ3"}
+                  "coupling_weight": "coupling weight", "gl_cross_gradient": "λ3",
+                  "magnetization": "magnetization", "gl_data_weights": "data weights from",
+                  "gl_balance": "balanced"}
 
 
 def _g(v) -> str:
@@ -108,6 +110,10 @@ def _weighting_level(s):
     if s.get("depth_weighting") == "depth":
         b = s.get("depth_weighting_exponent")
         return (1, b), f"depth, β = {_g(b)}", f"β={_g(b)}"
+    if s.get("depth_weighting") == "sensitivity_volume":   # the group lasso's
+        return (0, 1), "sensitivity × cell volume", "sensitivity×volume"
+    if s.get("depth_weighting") == "per model":
+        return (2, 0), "per model", "per model"
     return (0, 0), "sensitivity", "sensitivity"
 
 
@@ -137,7 +143,7 @@ BRANCH_LEVELS = [
 ]
 # settings the levels above cover, and settings a regularization ignores (still recorded)
 COVERED = {"regularization_type", "alpha_s", "l1_ratio", "depth_weighting", "depth_weighting_exponent", "norms",
-           "gl_lambda2", "coupling", "coupling_weight"}
+           "gl_lambda2", "coupling", "coupling_weight", "gl_weighting"}
 IGNORED = {"l1l2": {"alpha_s", "norms", "alpha_x", "alpha_y", "alpha_z", "max_irls_iterations"},
            "l2": {"norms", "max_irls_iterations"}, "smooth": {"norms", "max_irls_iterations"},
            # PGI regularizes by its rock units: none of the per-model settings apply

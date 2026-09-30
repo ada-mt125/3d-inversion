@@ -1292,6 +1292,8 @@ class TestWeightingAndBalance:
         result = run_data_pipeline(params, str(tmp_path))
         info = result["group_lasso"]
         assert info["weighting"] == "depth" and info["relaxation"] == 1.6
+        assert result["settings"]["depth_weighting"] == "depth"          # the workflow's column
+        assert result["settings"]["depth_weighting_exponent"] == 1.0
         rounds = info["balance"]
         spread = [max(abs(np.log(v)) for v in r["chi2_per_datum"].values()) for r in rounds]
         assert spread[-1] <= np.log(BALANCE_TOLERANCE) or spread[-1] < spread[0]
