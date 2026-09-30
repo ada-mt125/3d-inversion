@@ -20,7 +20,9 @@
    "centroid_km": 5.260900600623463,
    "mass": 2.1374484621146546,
    "thickness_at_contrast": 7.124828207048849,
-   "top_km_mean": 0.0005923553478874523
+   "top_km_mean": 0.0005923553478874523,
+   "dense_top_km": 3.0,
+   "dense_bottom_km": 7.75
   },
   "box_dense_at_ground": 0.03333333333333333,
   "box_dense_top1km": 0.006151926124915132,
@@ -97,7 +99,9 @@
    "centroid_km": 3.167424762474933,
    "mass": 1.418628616631885,
    "thickness_at_contrast": 4.728762055439617,
-   "top_km_mean": 0.0017970428040097288
+   "top_km_mean": 0.0017970428040097288,
+   "dense_top_km": 1.0,
+   "dense_bottom_km": 5.5
   },
   "box_dense_at_ground": 0.24722222222222223,
   "box_dense_top1km": 0.0657241774073519,
@@ -174,7 +178,9 @@
    "centroid_km": 5.164582920706587,
    "mass": 2.180226028119538,
    "thickness_at_contrast": 7.267420093731793,
-   "top_km_mean": 0.0008297214519136318
+   "top_km_mean": 0.0008297214519136318,
+   "dense_top_km": 2.75,
+   "dense_bottom_km": 7.75
   },
   "box_dense_at_ground": 0.03333333333333333,
   "box_dense_top1km": 0.006510587697601253,
@@ -251,7 +257,9 @@
    "centroid_km": 3.1263929556138454,
    "mass": 1.400708345743083,
    "thickness_at_contrast": 4.66902781914361,
-   "top_km_mean": 0.005748738218292545
+   "top_km_mean": 0.005748738218292545,
+   "dense_top_km": 1.0,
+   "dense_bottom_km": 5.5
   },
   "box_dense_at_ground": 0.23333333333333334,
   "box_dense_top1km": 0.06528333380703462,

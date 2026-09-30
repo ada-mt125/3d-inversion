@@ -5,7 +5,8 @@
 
 Every number in the text comes from figures_v2/numbers.json; the interpretive text is in
 report_text_v2.py.  Runs: data/ec2_runs_fixed (full resolution), data/lowres_runs_fixed (2 km),
-karnataka_magnetic/data/ec2_runs/beta1 and beta1_mvi (the magnetic data alone).
+karnataka_magnetic/data/ec2_runs/beta1 and beta1_mvi (the magnetic data alone), and with the
+rock-sample constraints data/lowres_bounds (2 km) and data/ec2_runs_bounds (full resolution).
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ FIGS = ROOT / "figures_v2"
 N = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
 F, LOW, S, RUNS, M, MAG = N["full"], N["low"], N["single"], N["runs"], N["mesh"], N.get("magnetic", {})
 GL = N.get("gl_info", {})
+C = N.get("constraints", {})
 DS = N.get("depth_sensitivity", [])
 KEYS = N["keys"]
 GLK, CTRL = "group_lasso_depth", "group_lasso_depth_uncoupled"
@@ -249,22 +251,112 @@ def depth_table():
     return table(head, rows, compact=True)
 
 
+ROCK_ORDER = ["Metabasalt / amphibolite", "Dolerite / gabbro", "Banded iron formation", "Granite", "Gneiss / TTG",
+              "Schist, phyllite, quartzite", "Felsic volcanic"]
+C_KEYS = ["rho50", "rho40", "rho35", "rho30", "rho35_gb05", "rho35_b05"]
+C_LABEL = {"none": "No coupling", "joint_total_variation": "Joint total variation"}
+
+
+def signed(x, nd=2):
+    return f"{0.0:.{nd}f}" if round(x, nd) == 0 else f"{x:+.{nd}f}".replace("-", "−")
+
+
+def c_setting(key):
+    s = C["settings"][key]
+    lo, hi = s["bounds"]
+    return f"{signed(lo)} / {signed(hi)}", f"{s['betas'][0]:g} / {s['betas'][1]:g}"
+
+
+def rocks_table():
+    R, bg = C["rocks"], C["background"]
+    head = ["Rock family", "Inside the block: median (range), n", "Region: median (range), n",
+            f"Contrast to {bg} g/cc (block / region median)", "Susceptibility inside the block: median (5–95%), 10⁻³ SI"]
+    rows = []
+    for f in ROCK_ORDER:
+        if f not in R:
+            continue
+        b, r = R[f].get("block"), R[f].get("region")
+
+        def dens(x):
+            if not x:
+                return "—"
+            if x["n"] == 1:
+                return f"{x['rho_median']:.2f}, n = 1"
+            return f"{x['rho_median']:.2f} ({x['rho_min']:.2f}–{x['rho_max']:.2f}), n = {x['n']}"
+        con = " / ".join(signed(x["rho_median"] - bg) for x in (b, r) if x)
+        def milli(x):
+            return f"{max(x, 0.0) * 1e3 + 0.0:.2g}"
+        sus = "—" if not b else (milli(b["k_median"]) if b["n"] == 1 else
+                                 f"{milli(b['k_median'])} ({milli(b['k_p05'])}–{milli(b['k_p95'])})")
+        rows.append([f, dens(b), dens(r), con, sus])
+    return table(head, rows, compact=True)
+
+
+def constraints_low_table():
+    head = ["Coupling", "Density bounds (g/cc)", "β gravity / magnetics", "Gravity χ²/N", "Magnetic χ²/N",
+            "Dense cells at the upper bound", "Main high, half-max km", "centroid km", "Column mass (g/cc·km)",
+            "Dense rock of the belt within 1 km of the ground", "Magnetic rock within 1 km",
+            "Susceptibility edges on a density edge", "Magnetic cells that are dense or light"]
+    rows = []
+    for cpl in ("none", "joint_total_variation"):
+        for key in C_KEYS:
+            x = C["low"].get(key, {}).get(cpl)
+            if not x:
+                continue
+            b, beta = c_setting(key)
+            mn = x["main"]
+            rows.append([C_LABEL[cpl], (b, "n"), (beta, "n"),
+                         warn(f"{x['gravity_chi2']:.2f}", not 0.7 <= x["gravity_chi2"] <= 1.3),
+                         warn(f"{x['magnetics_chi2']:.2f}", not 0.7 <= x["magnetics_chi2"] <= 1.3),
+                         pct(x["dense_at_upper"]), rng(mn), f"{mn['centroid_km']:.1f}", f"{mn['mass']:.2f}",
+                         pct(x["box_dense_top1km"]), pct(x["box_magnetic_top1km"]),
+                         pct(x["coupling"]["edges_shared"]), pct(x["coupling"]["support"]["magnetic_in_dense"])])
+    return table(head, rows, compact=True)
+
+
+def constraints_full_table():
+    head = ["Coupling", "Density bounds (g/cc)", "β gravity / magnetics", "Gravity χ²/N", "RMS (mGal)",
+            "Magnetic χ²/N", "RMS (nT)", "Main high, half-max km", "centroid km",
+            "Dense rock of the belt within 1 km of the ground", "Susceptibility below the core",
+            "Belt volume above half the largest susceptibility (km³)", "Susceptibility edges on a density edge",
+            "Magnetic cells that are dense or light", "Time (min)"]
+    rows = []
+    for cpl in ("none", "joint_total_variation"):
+        for key in ("rho50", C["full_key"]):
+            x = C["full"].get(key, {}).get(cpl)
+            if not x:
+                continue
+            b, beta = c_setting(key)
+            mn, run = x["main"], x.get("run") or RUNS.get(cpl, {})
+            rows.append([C_LABEL[cpl], (b, "n"), (beta, "n"), f"{x['gravity_chi2']:.2f}", f"{x['rms']['gravity']:.2f}",
+                         f"{x['magnetics_chi2']:.2f}", f"{x['rms']['magnetics']:.0f}", rng(mn),
+                         f"{mn['centroid_km']:.1f}", pct(x["box_dense_top1km"]),
+                         warn(pct(x["magnetic_shares"]["below"]), x["magnetic_shares"]["below"] > 0.3),
+                         f"{x['magnetic_box']['volume_half_km3']:.0f}", pct(x["coupling"]["edges_shared"]),
+                         pct(x["coupling"]["support"]["magnetic_in_dense"]),
+                         f"{run['minutes']:.0f}" if run else "—"])
+    return table(head, rows, compact=True)
+
+
 def body(fig, notes):
     n = len(KEYS)
     cost = sum(r["cost_usd"] for r in RUNS.values())
     minutes = [r["minutes"] for r in RUNS.values()]
     mag_cost = ((MAG.get("mvi") or {}).get("run") or {}).get("cost_usd", 0.0)
     gl = GL.get(GLK) or {}
+    c_runs = [x["run"] for x in C.get("full", {}).get(C.get("full_key"), {}).values() if x.get("run")]
+    c_cost = sum(r["cost_usd"] for r in c_runs)
     return f"""
 <header>
   <div class="eyebrow">GeoInv3D · field-data test · 30 September 2026 · second series</div>
-  <h1>Karnataka Joint Gravity–Magnetic Inversion: Couplings and Remanence</h1>
-  <p class="lede">The gravity and the magnetic data of the same area inverted together on one mesh with terrain, once for each coupling of the joint inversion, and the magnetic data alone with a magnetization vector per cell. The report shows what each coupling does to the two models, what it costs in data fit, which assumption suits this belt, and what the magnetic data say about the direction of magnetization.</p>
+  <h1>Karnataka Joint Gravity–Magnetic Inversion: Couplings, Remanence and Rock-Sample Constraints</h1>
+  <p class="lede">The gravity and the magnetic data of the same area inverted together on one mesh with terrain, once for each coupling of the joint inversion, and the magnetic data alone with a magnetization vector per cell. The report shows what each coupling does to the two models, what it costs in data fit, which assumption suits this belt, what the magnetic data say about the direction of magnetization, and how the measured densities of the rocks, used as bounds, change the models.</p>
   <dl class="meta">
     <div><dt>Area</dt><dd>70 × 70 km, easting 641–711 km, northing 1634–1704 km (UTM 43N, EPSG:32643)</dd></div>
     <div><dt>Data</dt><dd>Complete Bouguer anomaly, {N['n_data']['gravity']:,} points, error 0.5 mGal; magnetic anomaly continued to 1 km above the ground, {N['n_data']['magnetics']:,} points, error 5% + 10 nT; second-order trends removed</dd></div>
     <div><dt>Models</dt><dd>Density contrast (−0.2 to +0.5 g/cc) and susceptibility (0 to 1 SI) on {M['n_active']:,} cells below the ground (1 km × 1 km × 250 m); each sparse with α<sub>s</sub> = 1 and depth weighting β = 1</dd></div>
     <div><dt>Runs</dt><dd>{n} joint inversions and one magnetization-vector inversion on AWS EC2 (ap-south-1, c5.9xlarge and c5.18xlarge), {min(minutes):.0f}–{max(minutes):.0f} minutes each, ${cost + mag_cost:.2f} in total; the same couplings on a 2 km mesh locally</dd></div>
+    <div><dt>Constraints</dt><dd>The density bounds from the measured rock samples (−0.15 to +0.35 g/cc) with β = 0.5 for the gravity model: {len(c_runs)} runs at full resolution (${c_cost:.2f}) and {sum(len(v) for v in C.get('low', {}).values())} on the 2 km mesh (Section 5)</dd></div>
   </dl>
 </header>
 
@@ -350,7 +442,41 @@ def body(fig, notes):
 {guide_table()}
 <p class="note">From the behaviour of Section 4.1, the belt of this report and the synthetic comparison of 30 September (three dense bodies, of high, low and no susceptibility), where the group lasso recovered the bodies best because each magnetic body was a dense body. PGI was not run in this series.</p>
 
-<h2><span class="no">5</span>The 2 km study</h2>
+<h2><span class="no">5</span>Constraints from the rock samples</h2>
+<div class="prose">
+@@C_INTRO@@
+</div>
+
+<h3><span class="no">5.1</span>The measured densities</h3>
+{rocks_table()}
+<p class="note">Rock samples of the area (toposheets 57A and 57B), grouped by rock family, from the density report of 30 September 2026 (<code>data/rock_properties/measured_by_rock_type.csv</code>). Block: the 70 × 70 km area of this report; region: the two toposheets. Densities in g/cc.</p>
+{fig('constraints_rocks', "The measured densities as contrasts to the 2.66 g/cc background: range and median of each rock family inside the block (dark) and in the region (light), with the bounds of Sections 2–4 (grey, dashed) and those from the samples (red).")}
+<div class="prose">
+@@C_ROCKS@@
+</div>
+
+<h3><span class="no">5.2</span>Bounds and depth weighting on the 2 km mesh</h3>
+{constraints_low_table()}
+<p class="note">Depths below the ground. Main high: the density profile under the main Bouguer high; column mass: its positive density × thickness. Within 1 km: the share of the positive density × volume (or of the susceptibility × volume) in the Sandur belt that lies within 1 km of the ground. Red: χ²/N outside 0.7–1.3.</p>
+{fig('constraints_column', "The density contrast under the main Bouguer high: on the 2 km mesh for each upper bound and depth weighting, uncoupled (left) and with the joint total variation (middle); at full resolution without and with the constraints (right).")}
+<div class="prose">
+@@C_LOW@@
+</div>
+
+<h3><span class="no">5.3</span>Full resolution</h3>
+{constraints_full_table()}
+<p class="note">As the table of Section 5.2; susceptibility below the core: its share of the susceptibility × volume (red above 30%). The rows with −0.20 / +0.50 are the runs of Sections 2–4.</p>
+{fig('constraints_sections', "E–W sections through the Sandur belt (northing 1667.5 km) without and with the constraints: density contrast (left, ±0.5 g/cc) and susceptibility (right, square-root scale to 1 SI).")}
+<div class="prose">
+@@C_FULL@@
+</div>
+
+<h3><span class="no">5.4</span>What the constraints settle and what they do not</h3>
+<div class="prose">
+@@C_LIMITS@@
+</div>
+
+<h2><span class="no">6</span>The 2 km study</h2>
 <div class="prose">
 <p>Every coupling was also run locally on a 2 km × 2 km × 500 m mesh (1,296 + 1,296 data):</p>
 </div>
@@ -360,7 +486,7 @@ def body(fig, notes):
 @@LOWTEXT@@
 </div>
 
-<h2><span class="no">6</span>Conclusions and recommendations</h2>
+<h2><span class="no">7</span>Conclusions and recommendations</h2>
 <div class="prose">
 <ul class="plain">
 @@RECOMMEND@@
@@ -371,7 +497,8 @@ def body(fig, notes):
 <div class="prose">
 <ul class="plain">
   <li>Parameters of every run: <code>examples/output/karnataka_joint/scripts/joint_params.py</code> (joint) and <code>deploy/ec2_multi_run.py</code> (the magnetic runs <code>beta1</code> and <code>beta1_mvi</code>); launched with <code>deploy/ec2_multi_run.py</code> and <code>scripts/run_lowres.py --out data/lowres_runs_fixed</code></li>
-  <li>This report and its figures: <code>scripts/make_figures.py --set v2</code>, <code>scripts/build_report_v2.py</code>, <code>scripts/report_text_v2.py</code>; results in <code>data/ec2_runs_fixed/</code>, <code>data/lowres_runs_fixed/</code> and <code>karnataka_magnetic/data/ec2_runs/</code></li>
+  <li>This report and its figures: <code>scripts/make_figures.py --set v2</code> (with <code>scripts/constraint_figures.py</code>), <code>scripts/build_report_v2.py</code>, <code>scripts/report_text_v2.py</code>; results in <code>data/ec2_runs_fixed/</code>, <code>data/lowres_runs_fixed/</code> and <code>karnataka_magnetic/data/ec2_runs/</code></li>
+  <li>The constraints (Section 5): the variants of <code>joint_params.VARIANTS</code>, run with <code>scripts/run_lowres.py --bounds KEY</code> (2 km, <code>data/lowres_bounds/</code>) and <code>deploy/ec2_multi_run.py karnataka-joint --only none_rho35_gb05,joint_total_variation_rho35_gb05</code> (<code>data/ec2_runs_bounds/</code>); compared by <code>scripts/compare_bounds.py [--full]</code>; the rock samples in <code>data/rock_properties/</code></li>
   <li>The single-method reports: <code>examples/output/karnataka_gravity_terrain/</code>, <code>examples/output/karnataka_magnetic/</code></li>
 </ul>
 </div>
@@ -380,14 +507,16 @@ def body(fig, notes):
 
 
 def main():
-    from report_text_v2 import coupling_notes, discussion, fit_text, low_text, mvi_text, recommend, summary, why
+    from report_text_v2 import (c_full, c_intro, c_limits, c_low, c_rocks, coupling_notes, discussion, fit_text,
+                                low_text, mvi_text, recommend, summary, why)
     fig = Figures("en", FIGS)
     ctx = dict(F=F, LOW=LOW, S=S, MAG=MAG, GL=GL, DS=DS, KEYS=KEYS, g=g, m=m, c=c, has=has, pct=pct,
-               rng=rng, GLK=GLK, CTRL=CTRL)
+               rng=rng, GLK=GLK, CTRL=CTRL, C=C)
     html = body(fig, coupling_notes(**ctx))
     for tag, fn in (("@@SUMMARY@@", summary), ("@@FITTEXT@@", fit_text), ("@@MVITEXT@@", mvi_text),
                     ("@@DISCUSSION@@", discussion), ("@@WHY@@", why), ("@@LOWTEXT@@", low_text),
-                    ("@@RECOMMEND@@", recommend)):
+                    ("@@RECOMMEND@@", recommend), ("@@C_INTRO@@", c_intro), ("@@C_ROCKS@@", c_rocks),
+                    ("@@C_LOW@@", c_low), ("@@C_FULL@@", c_full), ("@@C_LIMITS@@", c_limits)):
         html = html.replace(tag, fn(**ctx))
     OUT.write_text(page("en", "Karnataka Joint Inversion", html), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")

@@ -3,8 +3,9 @@
     py examples/output/karnataka_joint/scripts/make_figures.py [--set v2]
 
 --set v2: the second series of runs (data/ec2_runs_fixed, data/lowres_runs_fixed; the group
-lasso as group_lasso_depth) and the magnetization-vector inversion of the magnetic data, into
-figures_v2/ (build_report_v2.py); without it, the first series into figures/.
+lasso as group_lasso_depth), the magnetization-vector inversion of the magnetic data and the runs
+with the rock-sample constraints (constraint_figures.py), into figures_v2/ (build_report_v2.py);
+without it, the first series into figures/.
 """
 
 from __future__ import annotations
@@ -347,6 +348,9 @@ def main():
                 "criterion", "lambda1", "lambda1_max", "lambda2", "data_weights", "weighting",
                 "balance", "admm_iterations")} for k in keys if k.startswith("group_lasso")}
         mvi(FIGS, name="mvi")
+        # the constraints from the rock samples (Section 5)
+        from constraint_figures import constraints
+        numbers["constraints"] = constraints(FIGS)
     (FIGS / "numbers.json").write_text(json.dumps(numbers, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
     print("figures and numbers written to", FIGS, "for", keys)
 

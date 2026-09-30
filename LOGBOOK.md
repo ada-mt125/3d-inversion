@@ -1282,3 +1282,26 @@ same models (82 / 62 % in the core, 74 % of the magnetic cells anomalous in dens
 problem counts ADMM iterations over all its solves (group_lasso.admm_iterations_total).
 Page: the search among the lambda1 choices (with the ratio field).  joint_params:
 group_lasso_fast (the 2 km start).  tests: TestSpeed.
+
+---
+
+## 2026-09-30 (late night) — Karnataka joint: the rock-sample constraints
+
+The measured rock samples (density_report.md, magnetics_report.md; table in
+examples/output/karnataka_joint/data/rock_properties/) put the belt's metabasalt and amphibolite
++0.28-0.32 g/cc above the 2.66 background, the lightest granite at -0.14 and the iron formation at
++0.73.  2 km, uncoupled and JTV (joint_params.VARIANTS, run_lowres.py --bounds KEY): density
+bounds -0.15 / +0.30, +0.35, +0.40 stretch the dense body (half-max 2.5-8.0 -> 1.5-9.0 km) without
+lifting it (centroid 5.1-5.6 km, <= 2 % within 1 km of the ground); beta 0.5 for the gravity model
+starts it at the ground (0.0-5.5 km, centroid 2.7-2.9); beta 0.5 for the magnetics too cuts the
+root of the steep magnetic bodies, so kept at 1.  chi^2 / N 0.84-1.14 for all: the data do not
+choose.  The column mass under the main high falls 2.2 -> 1.6 g/cc km with the shallower body:
+mass / contrast is not a depth-free thickness check.  Full resolution (EC2 c5.9xlarge x 2, 23 and
+28 min, $1.29; data/ec2_runs_bounds): -0.15 / +0.35, beta 0.5 / 1: chi^2 / N 0.91-0.94, dense body
+1.0-5.2 km at half-max under the main high (3.0-7.5 before), reaching the ground along the belt;
+density correlates 0.42 with the unconstrained model, JTV vs none 0.98: the constraints move the
+density more than any coupling.  JTV then merges the two steep magnetic bodies (668-678 km) into
+one wider body of 0.2-0.5 SI (volume above half max 141 -> 83 km3, 15 % below the core).  The
+~6 km of Maurya et al. 2023 is a conference abstract (full text not accessible). Report v2
+Section 5 (constraint_figures.py, compare_bounds.py [--full]); EC2 case karnataka-joint
+<coupling>_<variant>.

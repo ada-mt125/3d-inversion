@@ -1,0 +1,14 @@
+scope,family,n,rho_min,rho_median,rho_max,k_SI_p05,k_SI_median,k_SI_p95
+block,Metabasalt / amphibolite,6,2.81,2.94,2.99,0.00021,0.00762,0.01712
+block,Banded iron formation,2,3.38,3.39,3.4,0.05298,0.05395,0.05493
+block,Dolerite / gabbro,3,2.96,3.01,3.03,0.00027,0.00038,0.00171
+block,Granite,19,2.6,2.63,2.74,-0.0,0.0011,0.00758
+block,Gneiss / TTG,1,2.62,2.62,2.62,0.00066,0.00066,0.00066
+block,"Schist, phyllite, quartzite",1,2.69,2.69,2.69,4e-05,4e-05,4e-05
+region,Metabasalt / amphibolite,40,2.64,2.975,3.33,2e-05,0.00025,0.01496
+region,Banded iron formation,3,3.03,3.38,3.4,0.01024,0.05287,0.05482
+region,Dolerite / gabbro,53,2.77,3.02,3.24,0.0002,0.00645,0.02091
+region,Granite,213,2.52,2.64,3.1,3e-05,0.0025,0.01159
+region,Gneiss / TTG,38,2.59,2.66,3.02,1e-05,0.00063,0.01193
+region,"Schist, phyllite, quartzite",4,2.62,2.655,2.69,-3e-05,-1e-05,3e-05
+region,Felsic volcanic,2,2.6,2.64,2.68,1e-05,8e-05,0.00014

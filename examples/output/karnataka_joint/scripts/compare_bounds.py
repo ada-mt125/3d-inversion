@@ -80,7 +80,10 @@ def measures(path, key):
         "cells_at_lower": int((rho <= lo + 0.01).sum()),
         "n_dense": int(dense.sum()),
         "main": {**body(z, v, dz), "mass": mass, "thickness_at_contrast": mass / CONTRAST,
-                 "top_km_mean": float(v[near].mean())},
+                 "top_km_mean": float(v[near].mean()),
+                 # the depth range of the cells denser than +0.05 g/cc (their edges)
+                 "dense_top_km": float((z - dz / 2)[v > 0.05].min()) if (v > 0.05).any() else float("nan"),
+                 "dense_bottom_km": float((z + dz / 2)[v > 0.05].max()) if (v > 0.05).any() else float("nan")},
         "box_dense_at_ground": float((top_mean[box] > 0.1).mean()),
         "box_dense_top1km": top_share(gg, BOX),
         "box": box_stats(Grid(r, np.clip(r["_models"]["gravity"], 0, None)), BOX),
