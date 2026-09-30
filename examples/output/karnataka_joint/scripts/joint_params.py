@@ -91,3 +91,9 @@ _GL_FIXED = {"coupling": "group_lasso", "gl_weighting": "depth", "gl_data_scalin
              "gl_relaxation": 1.6, "gl_n_lambda1": 8}   # lambda1 from chi^2 = N: 8 points do
 COUPLINGS["group_lasso_depth"] = dict(_GL_FIXED)
 COUPLINGS["group_lasso_depth_uncoupled"] = {**_GL_FIXED, "gl_coupling": "none"}
+# The paper's weighting x cell volume / smallest volume (gl_weighting="sensitivity_volume"):
+# the same as the paper in the equal core cells, so the synthetic tests keep its results (with
+# the balance: blocks rho rms error 0.030, the best of all couplings; depth weighting beta = 1
+# recovered the magnetic block at 0.030 SI of 0.05), while a padding cell pays for its volume.
+# 2 km: 68 % / 51 % in the core, 2 % / 6 % below it, chi^2 / N 0.96 / 1.07.
+COUPLINGS["group_lasso_sv"] = {**_GL_FIXED, "gl_weighting": "sensitivity_volume"}

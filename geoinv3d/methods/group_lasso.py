@@ -899,6 +899,13 @@ class GroupLassoProblem:
             gamma = 2, so lambda2 and mu keep their scale).  The group norm is
             then sum_k R_k ||(c_1 m_1k, ..., c_P m_Pk)|| up to that constant.
             model_weights, when given for a model, take precedence.
+        cell_factors: per model, a factor F >= 1 on the penalty of each cell on top of the
+            sensitivity weights: w_p = ||column||^(-gamma/2) / F (not rescaled, so cells
+            with F = 1 keep the paper's unit columns).  With F = cell volume / smallest
+            cell volume (the worker's gl_weighting="sensitivity_volume") the group norm
+            counts the volume of anomalous rock instead of the number of anomalous cells:
+            a padding cell of 50 core cells' volume no longer explains its share of the
+            data for the price of one.
         relaxation: ADMM over-relaxation alpha in (0, 2): the s and u updates
             use alpha zeta + (1 - alpha) s_old (Boyd et al. 2011, 3.4.3); 1 is
             plain ADMM, 1.5–1.8 usually needs fewer iterations for the same
@@ -927,7 +934,7 @@ class GroupLassoProblem:
                  data_scaling="auto", solver: str = "auto",
                  factor_max_bytes: float = FACTOR_MAX_BYTES, cg_rtol: float = 1e-8,
                  cg_maxiter: int = 500, mesh=None, active_cells=None, bounds=None,
-                 cell_weights=None, relaxation: float = 1.0):
+                 cell_weights=None, relaxation: float = 1.0, cell_factors=None):
         self.datasets = list(datasets)
         if not self.datasets:
             raise ValueError("A group-lasso problem needs at least one dataset")
@@ -986,15 +993,17 @@ class GroupLassoProblem:
         self._K = [d.jacobian(m0[d.model]) for d in self.datasets]
         given = list(model_weights) if model_weights is not None else [None] * self.n_models
         cells = list(cell_weights) if cell_weights is not None else [None] * self.n_models
-        if len(given) != self.n_models or len(cells) != self.n_models:
+        factors = list(cell_factors) if cell_factors is not None else [None] * self.n_models
+        if len(given) != self.n_models or len(cells) != self.n_models or len(factors) != self.n_models:
             raise ValueError(f"model_weights / cell_weights need one entry per model "
                              f"({self.n_models})")
         if not 0.0 < relaxation < 2.0:
             raise ValueError(f"relaxation must be in (0, 2), got {relaxation}")
         self.relaxation = float(relaxation)
         self.weighting = ["given" if g is not None else "cells" if c is not None
-                          else f"sensitivity (gamma = {gamma:g})" if sensitivity_weighting
-                          else "none" for g, c in zip(given, cells)]
+                          else f"sensitivity (gamma = {gamma:g})"
+                          + (" x cell factors" if f is not None else "") if sensitivity_weighting
+                          else "none" for g, c, f in zip(given, cells, factors)]
         self.weights, traces = [], []
         for p, ds in enumerate(self.model_datasets):
             explicit = all(isinstance(self._K[i], np.ndarray) or sp.issparse(self._K[i])
@@ -1024,6 +1033,12 @@ class GroupLassoProblem:
                     raise ValueError("Give the weights of a matrix-free operator "
                                      "(magnetic_weights / gravity_weights / model_weights)")
                 w = sensitivity_weights(gamma=gamma, norms=np.sqrt(norms2))
+                if factors[p] is not None:
+                    F = np.broadcast_to(np.asarray(factors[p], dtype=float), (self.m,))
+                    if not np.all(F > 0) or not np.all(np.isfinite(F)):
+                        raise ValueError(f"The cell factors of '{self.model_names[p]}' must be "
+                                         "positive and finite")
+                    w = w / F
             else:
                 w = np.ones(self.m)
             self.weights.append(w)

@@ -1044,11 +1044,12 @@ def _group_lasso_problem(task: InversionTask, mesh):
         data_scaling=task.gl_data_scaling, mesh=dmesh,
         active_cells=active if dmesh is not None else None, bounds=bounds,
         cell_weights=group_lasso_cell_weights(task, mesh, setups, model_labels, names),
+        cell_factors=group_lasso_cell_factors(task, mesh, names),
         relaxation=float(task.gl_relaxation))
     return problem, setups, model_labels, dataset_labels
 
 
-GROUP_LASSO_WEIGHTINGS = ("sensitivity", "depth")
+GROUP_LASSO_WEIGHTINGS = ("sensitivity", "sensitivity_volume", "depth")
 BALANCE_TOLERANCE = 1.2     # each model's chi^2 / N within 1/1.2 .. 1.2
 DISCREPANCY_TOLERANCE = 0.05
 
@@ -1121,6 +1122,21 @@ def _balance_group_lasso(problem, result, lam1, lam2, solve_kw, rounds, should_s
     return result, lam1, history
 
 
+def group_lasso_cell_factors(task: InversionTask, mesh, names):
+    """gl_weighting "sensitivity_volume": each cell's volume over the smallest one, for every
+    model (GroupLassoProblem cell_factors); else None."""
+    if task.gl_weighting != "sensitivity_volume":
+        return None
+    dmesh = mesh.to_discretize()
+    volume = np.asarray(dmesh.cell_volumes)
+    if task.active_cells is not None:
+        volume = volume[task.active_cells]
+    factor = volume / volume.min()
+    print(f"[Group lasso] cells weighed by sensitivity (gamma = {task.gl_gamma:g}) x volume / "
+          f"smallest volume (1 to {factor.max():.3g})")
+    return [factor] * len(names)
+
+
 def group_lasso_cell_weights(task: InversionTask, mesh, setups, model_labels, names):
     """The group lasso's cell weights (GroupLassoProblem cell_weights), or None.
 
@@ -1134,7 +1150,7 @@ def group_lasso_cell_weights(task: InversionTask, mesh, setups, model_labels, na
     if task.gl_weighting not in GROUP_LASSO_WEIGHTINGS:
         raise ValueError(f"Unknown gl_weighting '{task.gl_weighting}' "
                          f"(expected one of {GROUP_LASSO_WEIGHTINGS})")
-    if task.gl_weighting == "sensitivity":
+    if task.gl_weighting in ("sensitivity", "sensitivity_volume"):
         return None
     dmesh = mesh.to_discretize()
     active = task.active_cells if task.active_cells is not None \
