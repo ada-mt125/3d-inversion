@@ -1487,6 +1487,77 @@ _MANUAL_KEYS = (
 )
 # Warn when more than this share of the recovered anomaly lies in padding cells
 PADDING_WARNING_SHARE = 0.5
+# The iterations kept in progress.json for the page's live curves (the last ones)
+HISTORY_POINTS = 500
+# A run fits its data when phi_d is within this share of the target (SimPEG's UpdateIRLS
+# ends the IRLS within the same tolerance)
+MISFIT_TOLERANCE = 0.1
+# Results whose beta follows the discrepancy principle (chi^2 = N), by their label (joint
+# runs add "joint_", MVI "mvi_"): the others (the L1–L2 coordinate-descent path, the
+# group lasso, PGI) judge themselves
+_DISCREPANCY_LABELS = ("smooth_L2", "sparse_IRLS", "elastic_net_IRLS", "focusing_MGS",
+                       "total_variation", "L2", "mixed")
+
+
+def _follows_discrepancy(label) -> bool:
+    label = str(label or "")
+    for prefix in ("joint_", "mvi_"):
+        if label.startswith(prefix):
+            label = label[len(prefix):]
+    return label in _DISCREPANCY_LABELS
+
+
+def assess_convergence(result: dict, n_data: int, max_iter) -> dict | None:
+    """Did a discrepancy-principle run fit its data (chi^2 = N) before its iteration limit?
+
+    Sets ``result["converged"]`` and returns what was found: the final and target
+    phi_d, whether the limit of ``max_iter`` iterations ended the run, and advice
+    when it did not converge.  Returns None (the flag is left as it is) for runs
+    judged otherwise: beta chosen by L-curve or GCV, the L1–L2 coordinate-descent
+    path, the group lasso, PGI, and runs without iterations.
+    """
+    iterations = result.get("iterations") or []
+    if (not _follows_discrepancy(result.get("regularization")) or "beta_selection" in result
+            or not iterations or not n_data):
+        return None
+    phi_d = iterations[-1].get("phi_d")
+    if phi_d is None or not np.isfinite(phi_d):
+        return None
+    target = float(n_data)
+    ratio = float(phi_d) / target
+    at_limit = bool(max_iter) and len(iterations) >= int(max_iter)
+    fits = ratio <= 1.0 + MISFIT_TOLERANCE
+    info = {"phi_d": float(phi_d), "target": target, "chi2_per_datum": ratio,
+            "tolerance": MISFIT_TOLERANCE, "max_iter": int(max_iter) if max_iter else None,
+            "n_iterations": len(iterations), "at_iteration_limit": at_limit, "advice": []}
+    if result.get("stopped_early"):
+        info.update(status="stopped", reason="stopped by the user before it converged")
+        result["converged"] = False
+        return info
+    if fits and not at_limit:
+        info.update(status="converged", reason=f"χ²/N = {ratio:.2f} reached the target "
+                    f"(1 ± {MISFIT_TOLERANCE:g}) after {len(iterations)} iterations")
+        result["converged"] = True
+        return info
+    result["converged"] = False
+    if fits:
+        info.update(status="at_limit", reason=f"χ²/N = {ratio:.2f} reached the target, but the "
+                    f"run ended at its limit of {max_iter} iterations: the model may still "
+                    f"have been changing")
+        info["advice"].append(f"Run again with more iterations (max_iter {2 * int(max_iter)})")
+    elif at_limit:
+        info.update(status="not_converged", reason=f"χ²/N = {ratio:.2f} is still above the "
+                    f"target (1 ± {MISFIT_TOLERANCE:g}) after the limit of {max_iter} iterations")
+        info["advice"].append(f"Run again with more iterations (max_iter {2 * int(max_iter)})")
+        info["advice"].append("If the misfit has levelled off, the data errors may be too "
+                              "small: raise the noise floor")
+    else:
+        info.update(status="not_converged", reason=f"χ²/N = {ratio:.2f} is still above the "
+                    f"target (1 ± {MISFIT_TOLERANCE:g}): the IRLS ended after "
+                    f"{len(iterations)} iterations without reaching it")
+        info["advice"].append("Raise max_irls_iterations, or raise the noise floor if the "
+                              "data errors are too small")
+    return info
 # The group lasso in auto mode: the paper's settings (sensitivity weighting, amplitude
 # balance, L-curve) put most of the Karnataka models into the padding and fitted gravity to
 # 0.4 N and magnetics to 2.6 N; weighing the cells like the other inversions (volume x depth
@@ -2614,14 +2685,24 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     group_lasso = mode == "joint" and task.coupling == "group_lasso"
     report("inverting", max_iter=task.gl_n_lambda1 if group_lasso else task.max_iter,
            phi_d_target=n_data, n_data=n_data, n_cells=n_params,
-           regularization=task.regularization_type)
-    IterationCollector.on_iteration = lambda snap: report(
-        "inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta,
-        **getattr(snap, "extra", {}))
+           regularization=task.regularization_type, history=[])
+    history = []   # every iteration so far, for the page's live convergence curves
+
+    def on_iteration(snap):
+        # (the λ paths of the L1–L2 coordinate descent and the group lasso report no phi_m)
+        history.append({"i": snap.iteration, "phi_d": snap.phi_d,
+                        "phi_m": getattr(snap, "phi_m", None), "beta": snap.beta})
+        report("inverting", iteration=snap.iteration, phi_d=snap.phi_d, beta=snap.beta,
+               history=history[-HISTORY_POINTS:], **getattr(snap, "extra", {}))
+
+    IterationCollector.on_iteration = on_iteration
     try:
         result = execute_task(task, mesh=mesh)
     finally:
         IterationCollector.on_iteration = None
+    convergence = assess_convergence(result, n_data, task.max_iter)
+    if convergence is not None:
+        result["convergence"] = convergence
 
     result.update({
         "inversion_mode": mode,
@@ -2835,7 +2916,10 @@ def run_local_job(params_path: str, data_dir: str, out_dir: str) -> int:
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    progress = FileProgress(out / "progress.json")
+    # the local backend asks for frequent reports (the page's live curves); EC2 reads
+    # the file over SSH and keeps the default
+    progress = FileProgress(out / "progress.json",
+                            min_interval=float(os.environ.get("GEOINV3D_PROGRESS_INTERVAL", 10)))
     progress("starting")
     # out_dir/STOP (written by the API's "stop and keep the result") ends the
     # inversion after its current iteration; the result is then kept as usual

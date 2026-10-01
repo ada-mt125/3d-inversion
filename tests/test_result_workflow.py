@@ -182,3 +182,27 @@ class TestWorkflowEndpoint:
         inv = wf["nodes"][-1]
         assert inv["type"] == "RegularizedInversionNode" and "dense test" in inv["name"]
         assert "model_3d" in inv["output"] and "data_fit" in inv["output"]
+
+
+def test_a_job_of_the_api_carries_its_id_and_how_it_converged(tmp_path):
+    result, zpath, _ = _run(tmp_path)
+    assert result["convergence"]["status"] in ("converged", "at_limit", "not_converged")
+    pack_result(result, str(zpath))
+    run = load_result(zpath)
+    run.update(_job_id="local-abc", _rerun=True, _backend="local")
+    node = build_workflow([run])["nodes"][-1]
+    assert node["job"] == {"id": "local-abc", "rerun": True, "backend": "local"}
+    assert node["params"]["backend"] == "local"
+    assert node["output"]["convergence"]["target"] == result["n_data"]
+    plain = build_workflow([load_result(zpath)])["nodes"][-1]   # a result file: no job
+    assert "job" not in plain
+
+
+def test_a_stand_alone_viewer_keeps_the_map_layers(tmp_path):
+    from geoinv3d.viz.serve_dag import generate_viewer
+    layers = [{"name": "Mines", "kind": "points", "items": [{"x": 1.0, "y": 2.0, "label": "K"}]}]
+    src = tmp_path / "w.geoinv3d.json"
+    src.write_text(json.dumps({"version": 1, "nodes": [], "map_layers": layers}))
+    html = open(generate_viewer(str(src)), encoding="utf-8").read()
+    data = json.loads(html.split('<script id="embedded-data" type="application/json">')[1].split("</script>")[0])
+    assert data["map_layers"] == layers

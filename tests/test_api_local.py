@@ -45,16 +45,19 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "_backend", backend)
     monkeypatch.setattr(server, "_store", store)
     monkeypatch.setenv("GEOINV3D_COMPARISONS_DIR", str(tmp_path / "comparisons"))
+    monkeypatch.setenv("GEOINV3D_INPUTS_DIR", str(tmp_path / "inputs"))
+    monkeypatch.setattr(server, "_local_backend", None)
+    monkeypatch.setenv("GEOINV3D_LOCAL_DIR", str(tmp_path / "local"))
     monkeypatch.setenv("GEOINV3D_VCPU_LIMIT", "36")
     monkeypatch.delenv("GEOINV3D_ALLOWED_ORIGINS", raising=False)
     monkeypatch.delenv("GEOINV3D_ALLOWED_HOSTS", raising=False)
     return TestClient(server.app), backend, store
 
 
-def _submit(client, instance="c5.2xlarge", params=None, workspace_id="", **headers):
+def _submit(client, instance="c5.2xlarge", params=None, workspace_id="", backend="aws", **headers):
     return client.post("/api/inversion/submit", headers=headers,
                        files=[("files", ("g.csv", b"x,y,v\n0,0,1\n", "text/csv"))],
-                       data={"method": "gravity", "instance_type": instance,
+                       data={"method": "gravity", "instance_type": instance, "backend": backend,
                              "params_json": json.dumps(params or {}), "workspace_id": workspace_id})
 
 
@@ -259,3 +262,141 @@ class TestWorkspaces:
         assert sorted(n["params"]["task"] for n in runs) == ["β = 0.5", "β = 1"]
         assert sum(n["type"] == "SurveyCreateNode" for n in nodes) == 1   # the same data: one data node
         assert client.get(url).json()["workflow"] == d2["workflow"]      # served from the cache
+
+
+class FakeLocal(FakeBackend):
+    """The local backend: jobs named local-<task>, queued first."""
+
+    def start_job(self, task_id, files, params, instance_type):
+        self.started.append((task_id, params, instance_type))
+        return f"local-{task_id}"
+
+    def initial_fields(self):
+        return {"status": "RUNNABLE", "phase": "queued", "backend": "local"}
+
+    def resources(self):
+        return {"cpus": 8, "memory_gb": 16.0, "max_jobs": 1}
+
+
+class TestLocalJobsAndReruns:
+    @pytest.fixture
+    def both(self, api, monkeypatch):
+        client, aws, store = api
+        local = FakeLocal()
+        monkeypatch.setattr(server, "_local_backend", local)
+        return client, aws, local, store
+
+    def test_a_local_job_needs_no_vcpus_and_keeps_its_inputs(self, both):
+        client, aws, local, store = both
+        for i in range(2):   # the account's vCPUs all in use
+            store.put({"job_id": f"run-{i}", "task_id": f"t{i}", "status": "RUNNING",
+                       "instance_type": "c5.9xlarge"})
+        assert _submit(client).status_code == 409
+        r = _submit(client, backend="local", params={"max_iter": 30})
+        assert r.status_code == 200 and len(local.started) == 1 and not aws.started
+        assert local.started[0][2] is None          # no instance type for this machine
+        record = store.get(r.json()["job_id"])
+        assert (record["backend"], record["instance_type"]) == ("local", "local")
+        p = client.get(f"/api/inversion/{record['job_id']}/params").json()
+        assert p["files"] == ["g.csv"] and p["params"]["max_iter"] == 30
+        assert client.get("/api/jobs").json()["jobs"][0]["rerun"] is True
+
+    def test_unknown_backend(self, both):
+        client, *_ = both
+        assert _submit(client, backend="mars").status_code == 400
+
+    def test_rerun_with_changes(self, both):
+        client, aws, local, store = both
+        base = {"param_mode": "auto", "max_iter": 30, "datasets": [{"method": "gravity", "noise_floor": 0.05}]}
+        job = _submit(client, backend="local", params=base).json()["job_id"]
+        r = client.post(f"/api/inversion/{job}/rerun",
+                        json={"changes": {"max_iter": 60, "datasets": [{"noise_floor": 0.5}]}})
+        assert r.status_code == 200
+        params = local.started[-1][1]
+        assert params["max_iter"] == 60 and params["datasets"] == [{"method": "gravity", "noise_floor": 0.5}]
+        assert params["param_mode"] == "auto"       # neither change is a manual-mode setting
+        record = store.get(r.json()["job_id"])
+        assert record["parent_job"] == job and record["changes"]["max_iter"] == 60
+        assert record["note"].startswith("re-run of")
+        # a regularization setting makes an auto job a manual one
+        client.post(f"/api/inversion/{job}/rerun", json={"changes": {"norms": [1, 2, 2, 2]}})
+        assert local.started[-1][1]["param_mode"] == "manual"
+
+    def test_rerun_with_the_whole_parameters_on_aws(self, both):
+        client, aws, local, store = both
+        job = _submit(client, backend="local", params={"max_iter": 30, "alpha_s": 1}).json()["job_id"]
+        r = client.post(f"/api/inversion/{job}/rerun", json={
+            "params": {"max_iter": 30, "alpha_s": 0.1}, "backend": "aws", "instance_type": "c5.4xlarge"})
+        assert r.status_code == 200
+        task, params, instance = aws.started[-1]
+        assert params["alpha_s"] == 0.1 and instance == "c5.4xlarge" and params["task_id"] == task
+        assert store.get(r.json()["job_id"])["changes"] == {"alpha_s": 0.1}
+
+    def test_a_preview_runs_its_full_settings_where_they_were_meant_to_go(self, both):
+        client, aws, local, store = both
+        full = {"core_cell_m": 1000, "max_iter": 30}
+        r = _submit(client, backend="local", params={"core_cell_m": 2000, "max_iter": 30, "preview_of": {
+            "params": full, "backend": "aws", "instance_type": "c5.4xlarge"}})
+        job = r.json()["job_id"]
+        assert store.get(job)["preview"] is True
+        assert "preview_of" not in local.started[-1][1]     # not sent to the worker
+        r = client.post(f"/api/inversion/{job}/rerun", json={"full": True})
+        assert r.status_code == 200
+        task, params, instance = aws.started[-1]
+        assert params["core_cell_m"] == 1000 and instance == "c5.4xlarge"
+        assert store.get(r.json()["job_id"])["note"].startswith("full resolution of")
+        # a job that previews nothing
+        plain = _submit(client, backend="local").json()["job_id"]
+        assert client.post(f"/api/inversion/{plain}/rerun", json={"full": True}).status_code == 400
+
+    def test_jobs_whose_inputs_were_not_kept(self, both):
+        client, _, _, store = both
+        store.put({"job_id": "i-old", "task_id": "old", "status": "SUCCEEDED", "summary": {}})
+        assert client.post("/api/inversion/i-old/rerun", json={}).status_code == 404
+        assert client.get("/api/inversion/nope/params").status_code == 404
+
+    def test_the_server_reports_this_machine(self, both):
+        client, *_ = both
+        health = client.get("/api/health").json()
+        assert "local" in health and "comparisons_dir" in health
+
+
+class TestMergeParams:
+    def test_merge(self):
+        base = {"a": 1, "d": {"x": 1, "y": 2}, "ds": [{"f": 1, "g": 2}], "l": [1, 2]}
+        out = server.merge_params(base, {"a": None, "d": {"y": 3}, "ds": [{"f": 5}], "l": [3]})
+        assert out == {"d": {"x": 1, "y": 3}, "ds": [{"f": 5, "g": 2}], "l": [3]}
+        assert base["d"] == {"x": 1, "y": 2}         # the base is not changed
+
+
+class TestEstimates:
+    def test_rates_from_finished_jobs(self, api):
+        client, _, store = api
+        summary = {"n_data": 1000, "n_active_cells": 10000, "n_iterations": 10}
+        store.put({"job_id": "local-a", "task_id": "a", "status": "SUCCEEDED", "backend": "local",
+                   "method": "gravity", "started": 0, "stopped": 25_000, "summary": summary})
+        store.put({"job_id": "i-b", "task_id": "b", "status": "SUCCEEDED", "backend": "ec2",
+                   "instance_type": "c5.4xlarge", "method": "joint", "inversion_mode": "joint",
+                   "created": 0, "started": 60_000, "stopped": 260_000, "summary": summary})
+        store.put({"job_id": "i-c", "task_id": "c", "status": "FAILED", "backend": "ec2",
+                   "method": "gravity", "started": 0, "stopped": 1, "summary": summary})
+        d = client.get("/api/estimates").json()
+        assert d["rates"]["local"] == {"rate": pytest.approx(20 / 1e8), "n": 1}   # 25 s less 5 s set-up
+        assert d["rates"]["c5.4xlarge"]["rate"] == pytest.approx(200 / (2 * 1e8))
+        assert d["setup"]["ec2"] == {"seconds": 60.0, "n": 1}
+        assert d["rates"]["c5.xlarge"]["n"] == 0           # a default
+
+
+class TestMapLayers:
+    def test_put_get_and_check(self, api, tmp_path, monkeypatch):
+        client, _, _ = api
+        monkeypatch.setenv("GEOINV3D_WORKSPACES_DIR", str(tmp_path / "ws"))
+        ws = client.post("/api/workspaces", json={"name": "Sandur"}).json()["id"]
+        assert client.get(f"/api/workspaces/{ws}/layers").json()["layers"] == []
+        layers = [{"name": "Mines", "kind": "points", "items": [{"x": 671000, "y": 1660100, "label": "K"}]},
+                  {"name": "Belt", "kind": "lines", "items": [{"xy": [[0, 0], [1, 1]], "closed": True}]}]
+        assert client.put(f"/api/workspaces/{ws}/layers", json={"layers": layers}).status_code == 200
+        assert client.get(f"/api/workspaces/{ws}/layers").json()["layers"] == layers
+        assert client.get(f"/api/workspaces/{ws}").json()["layers"] == layers   # the page reads them here
+        bad = [{"name": "x", "kind": "raster", "items": []}]
+        assert client.put(f"/api/workspaces/{ws}/layers", json={"layers": bad}).status_code == 400

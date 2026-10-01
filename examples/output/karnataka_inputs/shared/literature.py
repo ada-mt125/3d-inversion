@@ -241,6 +241,62 @@ def belt_stats():
             "area_km2": float(len(pts) * 0.45 ** 2)}
 
 
+# ---------------------------------------------------------------- map layers for the viewers
+
+def _outlines(xc, yc, mask, min_points=4):
+    """The outlines of a boolean grid (km) as closed lines in metres."""
+    import contourpy
+    gen = contourpy.contour_generator(xc, yc, mask.astype(float), line_type="Separate")
+    return [[[round(float(x) * 1e3, 1), round(float(y) * 1e3, 1)] for x, y in line]
+            for line in gen.lines(0.5) if len(line) >= min_points]
+
+
+def _box(w, e, s, n):
+    return [[w * 1e3, s * 1e3], [e * 1e3, s * 1e3], [e * 1e3, n * 1e3], [w * 1e3, n * 1e3]]
+
+
+def map_layers():
+    """The localities and the schematic geology as layers of the workflow viewer
+    (geoinv3d/viz/dag_interactive.html: ``map_layers``), in UTM 43N metres."""
+    xc, yc, _, ridge, belt, _ = schematic()
+    pt = lambda name, e, n: {"x": e * 1e3, "y": n * 1e3, "label": name}   # noqa: E731
+    return [
+        {"name": "Schist belt (schematic, DEM)", "kind": "lines", "color": "#06d6a0",
+         "items": [{"xy": xy, "label": "Sandur schist belt", "closed": True} for xy in _outlines(xc, yc, belt)]},
+        {"name": "Iron-formation ridges (DEM)", "kind": "lines", "color": "#7bd389",
+         "items": [{"xy": xy, "label": "ridge", "closed": True} for xy in _outlines(xc, yc, ridge)]},
+        {"name": "Iron-ore mines", "kind": "points", "color": "#ffd166",
+         "items": [pt(n, e, k) for n, e, k, *_ in MINES]},
+        {"name": "Kumaraswamy blocks B, C", "kind": "lines", "color": "#ffd166",
+         "items": [{"xy": _box(*b), "label": f"Kumaraswamy block {k}", "closed": True}
+                   for k, b in KUMARASWAMY_BLOCKS.items()]},
+        {"name": "Gold occurrences", "kind": "points", "color": "#c77dff",
+         "items": [pt(n, e, k) for n, e, k, *_ in GOLD]},
+        {"name": "Mincheri copper block (approx.)", "kind": "lines", "color": "#4cc9f0",
+         "items": [{"xy": _box(*MINCHERI), "label": "Mincheri block", "closed": True}]},
+        {"name": "Towns", "kind": "points", "color": "#e9edc9", "items": [pt(n, e, k) for n, e, k in TOWNS]},
+    ]
+
+
+def map_layers_geojson():
+    """The same layers as GeoJSON (UTM 43N metres; each feature names its layer), to add to
+    any workspace of the upload page."""
+    features = []
+    for layer in map_layers():
+        for it in layer["items"]:
+            if layer["kind"] == "points":
+                geom = {"type": "Point", "coordinates": [it["x"], it["y"]]}
+            else:
+                ring = it["xy"] + [it["xy"][0]] if it.get("closed") else it["xy"]
+                geom = {"type": "Polygon" if it.get("closed") else "LineString",
+                        "coordinates": [ring] if it.get("closed") else ring}
+            features.append({"type": "Feature", "geometry": geom,
+                             "properties": {"layer": layer["name"], "name": it["label"], "color": layer["color"]}})
+    return {"type": "FeatureCollection", "name": "Sandur localities and schematic geology",
+            "crs": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32643"}},
+            "features": features}
+
+
 # ---------------------------------------------------------------- distances to the models
 
 def distance_table(x_km, y_km, value, threshold, edge_km=5.0):

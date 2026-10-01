@@ -139,6 +139,28 @@ Each node type follows the `Node` contract. Categories:
 | `plot_convergence` | phi_d / phi_m convergence curves     | matplotlib  |
 | `plot_model_3d`    | Interactive 3D volume rendering      | pyvista     |
 
+## Jobs: the upload page, the API server and its backends (`api/`, `cloud/`)
+
+```
+  viz/dag_interactive.html   the page: upload, mesh, model, inversion, jobs, results
+   │  HTTP (localhost only)
+  api/server.py              FastAPI: submit, jobs, re-run, estimates, workspaces, layers
+   │  start_job / refresh / result_summary / fetch_result / cancel / request_finish
+  cloud/local.py             this machine: a queued child process per job
+  cloud/ec2.py               one tagged EC2 instance per job, over SSH
+  cloud/aws.py               S3 + AWS Batch
+   │  all three run the same worker on the job's files
+  cloud/worker.py            run_local_job: progress.json, then result.zip / result.json
+```
+
+Every job record names its backend (`local`, `ec2` or `batch`), and the server sends each
+request to that one, so jobs on this machine and on AWS live side by side. The server keeps
+each job's input files and parameters (`~/.geoinv3d/inputs/<task>/`), which is what lets
+the page run a job again with changed settings, or run a preview's full-resolution
+settings, without uploading again. The worker's `progress.json` carries the iterations so
+far (the page's live curves) and its `result.json` a `convergence` record (chi^2 = N
+reached before the iteration limit, or why not).
+
 ## Invariants
 
 1. **The graph is the system of record.** If it's not in the DAG, it didn't happen.

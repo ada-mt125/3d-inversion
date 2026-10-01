@@ -2,7 +2,12 @@
 
 Endpoints:
     GET    /                              — the upload page (geoinv3d/viz/dag_interactive.html)
-    POST   /api/inversion/submit          — upload data files + params, start an AWS job
+    POST   /api/inversion/submit          — upload data files + params, start a job on this
+                                            machine (backend=local) or on AWS (backend=aws)
+    GET    /api/inversion/{job_id}/params — the parameters and input files a job ran with
+    POST   /api/inversion/{job_id}/rerun  — run a job again on its own inputs, with changes
+                                            (or a preview's full-resolution settings)
+    GET    /api/estimates                 — run times of finished jobs, to estimate new ones
     GET    /api/jobs                      — jobs submitted from here: live status, progress,
                                             result summary
     GET    /api/inversion/{job_id}        — one job, refreshed
@@ -17,15 +22,21 @@ Endpoints:
     …      /api/workspaces[/{id}]         — named workspaces (list, create, open, rename, delete);
                                             jobs submitted with a workspace_id join it
     GET    /api/workspaces/{id}/workflow  — a workspace's finished runs as one workflow
-    GET    /api/health
+    GET/PUT /api/workspaces/{id}/layers   — a workspace's map layers (points, outlines)
+    GET    /api/health                    — the backends: this machine's cores and memory, AWS
 
-Backends (``backend`` in ~/.geoinv3d/aws.json, or GEOINV3D_BACKEND):
+Backends: every job runs either on this machine or on AWS, as chosen when it is submitted.
+    "local"         — a child process on this machine, queued so that at most
+                      GEOINV3D_LOCAL_JOBS (aws.json "local_jobs", default 1) run at once
+                      (geoinv3d.cloud.local); needs no AWS account
+The AWS backend (``backend`` in ~/.geoinv3d/aws.json, or GEOINV3D_BACKEND):
     "ec2" (default) — one EC2 instance per job, driven over SSH; only needs
                       EC2 permissions, tags everything Owner=<IAM user>
                       (geoinv3d.cloud.ec2)
     "batch"         — S3 + AWS Batch (geoinv3d.cloud.aws; see deploy/setup_aws.py)
 The region comes from GEOINV3D_AWS_REGION, the config file, or the AWS
-profile's default region.
+profile's default region.  A job's input files and parameters are kept
+(GEOINV3D_INPUTS_DIR, default ~/.geoinv3d/inputs) so that it can be run again.
 
 Jobs are remembered in a JSON file (GEOINV3D_JOBS_FILE, default
 ~/.geoinv3d/jobs.json), so the list survives restarts.  Timestamps are
@@ -113,7 +124,8 @@ async def local_only(request: Request, call_next):
     return await call_next(request)
 
 
-_backend = None
+_backend = None           # the AWS backend, made when an AWS job first needs it
+_local_backend = None
 _store: Optional["JobStore"] = None
 _upload_dir = Path(tempfile.gettempdir()) / "geoinv3d_uploads"
 _upload_dir.mkdir(exist_ok=True)
@@ -146,7 +158,24 @@ def backend_settings() -> dict:
     }
 
 
+def get_local_backend():
+    """The backend of jobs run on this machine."""
+    global _local_backend
+    if _local_backend is None:
+        from ..cloud.local import LocalBackend
+        _local_backend = LocalBackend(
+            os.environ.get("GEOINV3D_LOCAL_DIR") or Path.home() / ".geoinv3d" / "local",
+            max_jobs=int(os.environ.get("GEOINV3D_LOCAL_JOBS") or load_config().get("local_jobs", 1)))
+    return _local_backend
+
+
+def backend_for(record: dict):
+    """The backend a job runs on: this machine's, or the AWS one."""
+    return get_local_backend() if record.get("backend") == "local" else get_backend()
+
+
 def get_backend():
+    """The AWS backend (ec2 or batch)."""
     global _backend
     if _backend is None:
         cfg = backend_settings()
@@ -226,7 +255,7 @@ def _summarize(result: dict) -> dict:
     """The parts of result.json the job list shows."""
     keys = ("error", "regularization", "n_iterations", "n_data", "n_active_cells",
             "mesh_type", "notes", "outside_core_share", "inversion_mode", "methods",
-            "converged", "stopped_early")
+            "converged", "stopped_early", "convergence")
     summary = {k: result[k] for k in keys if k in result}
     iterations = result.get("iterations") or []
     if iterations:
@@ -253,8 +282,8 @@ def _refresh(job_id: str) -> dict:
     store = get_store()
     record = store.get(job_id) or {"job_id": job_id}
     if record.get("status") in TERMINAL_STATUSES and "summary" in record:
-        return {**record, "display_status": _display_status(record)}
-    backend = get_backend()
+        return {**record, "display_status": _display_status(record), "rerun": _has_inputs(record)}
+    backend = backend_for(record)
     fields: dict = {"refreshed_at": int(time.time() * 1000), "refresh_error": None}
     try:
         fields.update(backend.refresh(record))
@@ -265,7 +294,7 @@ def _refresh(job_id: str) -> dict:
     except Exception as e:
         fields["refresh_error"] = str(e)
     record = store.update(job_id, **fields)
-    return {**record, "display_status": _display_status(record)}
+    return {**record, "display_status": _display_status(record), "rerun": _has_inputs(record)}
 
 
 @app.post("/api/inversion/submit")
@@ -277,31 +306,21 @@ async def submit_inversion(
     note: str = Form(""),
     params_json: str = Form("{}"),
     workspace_id: str = Form(""),
+    backend: str = Form("aws"),
 ):
-    """Upload data files to S3 and submit an AWS Batch job for them.
+    """Upload data files and start a job for them, on this machine or on AWS.
 
-    The job asks Batch for the vCPUs and memory of ``instance_type``.  With
-    ``workspace_id`` the job joins that workspace.
+    ``backend`` is "local" (this machine; ``instance_type`` is not used) or "aws" (the
+    configured AWS backend, on an instance of ``instance_type``).  With ``workspace_id``
+    the job joins that workspace.  ``params_json`` may carry ``preview_of``:
+    {"params", "backend", "instance_type"} of the full-resolution run that this job
+    previews, kept for ``/api/inversion/{job_id}/rerun`` with ``full``.
     """
-    if instance_type not in INSTANCE_RESOURCES:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown instance type '{instance_type}'")
-    if workspace_id:
-        _workspace_path(workspace_id)   # an unknown workspace launches nothing
-    # The account's vCPU limit: refuse a job that would exceed it rather than
-    # leave it failing at launch
-    limit, in_use = vcpu_limit(), vcpus_in_use()
-    need = INSTANCE_RESOURCES[instance_type][0]
-    if in_use + need > limit:
-        raise HTTPException(status_code=409, detail=(
-            f"{instance_type} needs {need} vCPUs but {in_use} of the {limit} allowed are in "
-            f"use by running jobs; wait for them to finish or choose a smaller instance"))
     task_id = uuid.uuid4().hex[:12]
     task_dir = _upload_dir / task_id
     task_dir.mkdir(exist_ok=True)
-
-    saved_files = []
     try:
+        saved_files = []
         for f in files:
             # Keep only the base name: a name like "../x" must not escape task_dir
             name = Path(f.filename or "").name
@@ -310,56 +329,218 @@ async def submit_inversion(
             dest = task_dir / name
             with open(dest, "wb") as out:
                 out.write(await f.read())
-            saved_files.append(str(dest))
-
-        params = json.loads(params_json)
-        # Jobs submitted together (e.g. a parameter sweep) share a group
-        group = params.pop("group", None) or {}
+            saved_files.append(dest)
+        try:
+            params = json.loads(params_json)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"params_json is not JSON: {e}")
         params.setdefault("method_type", method)
         params.setdefault("mesh_type", mesh_type)
-
-        params["task_id"] = task_id
-        backend = get_backend()
-        job_id = backend.start_job(task_id, saved_files, params, instance_type)
-
-        get_store().put({
-            **backend.initial_fields(),
-            "job_id": job_id,
-            "task_id": task_id,
-            "submitted_at": int(time.time() * 1000),
-            "method": method,
-            "inversion_mode": params.get("inversion_mode"),
-            "regularization_type": params.get("regularization_type"),
-            "max_iter": params.get("max_iter"),
-            "mesh_type": mesh_type,
-            "instance_type": instance_type,
-            "note": note,
-            "files": [Path(p).name for p in saved_files],
-            "n_files": len(saved_files),
-            "group_id": group.get("id"),
-            "group_label": group.get("label"),
-            "variant": group.get("variant"),
-            "workspace_id": workspace_id or None,
-        })
-        if workspace_id:
-            ws = _read_workspace(workspace_id)
-            ws["job_ids"].append(job_id)
-            _write_json(_workspace_path(workspace_id), ws)
-
-        return JSONResponse({
-            "ok": True,
-            "job_id": job_id,
-            "task_id": task_id,
-            "message": f"Job submitted: {len(saved_files)} file(s) uploaded, "
-                       f"method={method}, instance={instance_type}",
-        })
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(_launch(task_id, saved_files, params, method=method,
+                                    mesh_type=mesh_type, instance_type=instance_type, note=note,
+                                    workspace_id=workspace_id, backend=backend))
     finally:
         shutil.rmtree(task_dir, ignore_errors=True)
+
+
+BACKENDS = ("local", "aws")
+
+
+def _launch(task_id: str, files: list[Path], params: dict, *, method: str, mesh_type: str,
+            instance_type: str, note: str, workspace_id: str, backend: str,
+            extra: Optional[dict] = None) -> dict:
+    """Start a job: keep its inputs, hand it to its backend and record it."""
+    if backend not in BACKENDS:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown backend '{backend}' (expected 'local' or 'aws')")
+    local = backend == "local"
+    if not local and instance_type not in INSTANCE_RESOURCES:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown instance type '{instance_type}'")
+    if workspace_id:
+        _workspace_path(workspace_id)   # an unknown workspace launches nothing
+    if not local:
+        # The account's vCPU limit: refuse a job that would exceed it rather than
+        # leave it failing at launch
+        limit, in_use = vcpu_limit(), vcpus_in_use()
+        need = INSTANCE_RESOURCES[instance_type][0]
+        if in_use + need > limit:
+            raise HTTPException(status_code=409, detail=(
+                f"{instance_type} needs {need} vCPUs but {in_use} of the {limit} allowed are in "
+                f"use by running jobs; wait for them to finish or choose a smaller instance"))
+    params = dict(params)
+    # Jobs submitted together (e.g. a parameter sweep) share a group
+    group = params.pop("group", None) or {}
+    preview_of = params.pop("preview_of", None)
+    if preview_of is not None and not isinstance((preview_of or {}).get("params"), dict):
+        raise HTTPException(status_code=400, detail="preview_of needs the full run's params")
+    params["task_id"] = task_id
+    _keep_inputs(task_id, files, params, preview_of)
+    try:
+        runner = get_local_backend() if local else get_backend()
+        job_id = runner.start_job(task_id, [str(f) for f in files], params,
+                                  None if local else instance_type)
+    except Exception as e:
+        shutil.rmtree(_inputs_dir(task_id), ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    record = {
+        **runner.initial_fields(),
+        "job_id": job_id,
+        "task_id": task_id,
+        "submitted_at": int(time.time() * 1000),
+        "method": method,
+        "inversion_mode": params.get("inversion_mode"),
+        "regularization_type": params.get("regularization_type"),
+        "max_iter": params.get("max_iter"),
+        "mesh_type": mesh_type,
+        "instance_type": "local" if local else instance_type,
+        "note": note,
+        "files": [Path(p).name for p in files],
+        "n_files": len(files),
+        "group_id": group.get("id"),
+        "group_label": group.get("label"),
+        "variant": group.get("variant"),
+        "workspace_id": workspace_id or None,
+        "preview": bool(preview_of),
+        **(extra or {}),
+    }
+    if local:
+        record["backend"] = "local"
+    get_store().put(record)
+    if workspace_id:
+        ws = _read_workspace(workspace_id)
+        ws["job_ids"].append(job_id)
+        _write_json(_workspace_path(workspace_id), ws)
+    where = "this machine" if local else instance_type
+    return {"ok": True, "job_id": job_id, "task_id": task_id,
+            "message": f"Job submitted: {len(files)} file(s), method={method}, on {where}"}
+
+
+# ── A job's inputs, kept so that it can be run again (with changes, or at full resolution) ──
+INPUTS_DIR = Path.home() / ".geoinv3d" / "inputs"
+
+
+def _inputs_dir(task_id: str) -> Path:
+    return Path(os.environ.get("GEOINV3D_INPUTS_DIR", INPUTS_DIR)) / task_id
+
+
+def _keep_inputs(task_id: str, files: list[Path], params: dict, preview_of) -> None:
+    folder = _inputs_dir(task_id)
+    (folder / "data").mkdir(parents=True, exist_ok=True)
+    for f in files:
+        shutil.copy(f, folder / "data" / Path(f).name)
+    _write_json(folder / "params.json", params, indent=1)
+    if preview_of:
+        _write_json(folder / "preview_of.json", preview_of, indent=1)
+
+
+def _has_inputs(record: dict) -> bool:
+    return bool(record.get("task_id")) and (_inputs_dir(record["task_id"]) / "params.json").exists()
+
+
+def _job_inputs(job_id: str) -> tuple[dict, Path, dict, Optional[dict]]:
+    """A job's record, input folder, parameters and (for a preview) the full run's
+    {"params", "backend", "instance_type"}."""
+    record = get_store().get(job_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Unknown job")
+    folder = _inputs_dir(record["task_id"])
+    if not (folder / "params.json").exists():
+        raise HTTPException(status_code=404, detail=(
+            "This job's inputs were not kept (it was submitted before they were): submit it "
+            "again from the upload page"))
+    params = json.loads((folder / "params.json").read_text(encoding="utf-8"))
+    full = folder / "preview_of.json"
+    return record, folder, params, (json.loads(full.read_text(encoding="utf-8"))
+                                    if full.exists() else None)
+
+
+# Keys the worker reads only in manual mode (geoinv3d.cloud.worker._MANUAL_KEYS): changing
+# one in an auto job makes it a manual one, with the worker's defaults for the rest
+def _manual_keys() -> tuple:
+    from ..cloud.worker import _MANUAL_KEYS
+    return _MANUAL_KEYS
+
+
+def merge_params(base: dict, changes: dict) -> dict:
+    """``base`` with ``changes`` applied: dicts merge key by key, a list of dicts of the
+    same length merges item by item (e.g. one dataset's noise floor), anything else
+    (and None, which removes a key) replaces."""
+    out = dict(base)
+    for key, value in changes.items():
+        old = out.get(key)
+        if value is None:
+            out.pop(key, None)
+        elif isinstance(value, dict) and isinstance(old, dict):
+            out[key] = merge_params(old, value)
+        elif (isinstance(value, list) and isinstance(old, list) and len(value) == len(old)
+              and all(isinstance(v, dict) for v in value) and all(isinstance(o, dict) for o in old)):
+            out[key] = [merge_params(o, v) for o, v in zip(old, value)]
+        else:
+            out[key] = value
+    return out
+
+
+@app.get("/api/inversion/{job_id}/params")
+async def job_params(job_id: str):
+    """The parameters a job ran with, its input files, and (for a preview) the
+    settings of the full-resolution run."""
+    record, folder, params, full = _job_inputs(job_id)
+    files = sorted(p.name for p in (folder / "data").iterdir())
+    return JSONResponse({"ok": True, "job_id": job_id, "params": params, "files": files,
+                         "preview_of": full, "backend": record.get("backend"),
+                         "instance_type": record.get("instance_type"), "note": record.get("note")})
+
+
+@app.post("/api/inversion/{job_id}/rerun")
+async def rerun_job(job_id: str, body: dict = Body(default={})):
+    """Run a job again on its own input files.
+
+    Body (all optional): ``params`` — the whole set of parameters to run with (default the
+    job's own); ``changes`` — parameters to change on top (see :func:`merge_params`);
+    ``full`` — start from the full-resolution run the job previewed; ``backend``
+    ("local" or "aws", default the job's own, or the full run's), ``instance_type``,
+    ``note``, ``workspace_id`` (default the job's own).  Changing a manual-mode setting
+    of an auto job makes it a manual one.  The new job records which job it came
+    from and what changed.
+    """
+    record, folder, base, full = _job_inputs(job_id)
+    target = {}
+    if body.get("full"):
+        if not full:
+            raise HTTPException(status_code=400, detail="This job is not a preview")
+        base, target = full["params"], full
+    base = {k: v for k, v in base.items() if k not in ("task_id", "group", "preview_of")}
+    params = body.get("params") if body.get("params") is not None else base
+    changes = body.get("changes") or {}
+    if not isinstance(params, dict) or not isinstance(changes, dict):
+        raise HTTPException(status_code=400, detail="params and changes must be objects")
+    params = merge_params({k: v for k, v in params.items()
+                           if k not in ("task_id", "group", "preview_of")}, changes)
+    for key in ("method_type", "mesh_type"):   # what the job is, not a setting to edit
+        if key in base:
+            params.setdefault(key, base[key])
+    changed = {k: params.get(k) for k in sorted(set(base) | set(params))
+               if base.get(k) != params.get(k)}
+    if base.get("param_mode") == "auto" and params.get("param_mode", "auto") == "auto" \
+            and any(k in changed for k in _manual_keys()):
+        params["param_mode"] = changed["param_mode"] = "manual"
+    backend = body.get("backend") or target.get("backend") or (
+        "local" if record.get("backend") == "local" else "aws")
+    instance_type = body.get("instance_type") or target.get("instance_type") or (
+        record.get("instance_type") if record.get("instance_type") in INSTANCE_RESOURCES
+        else "c5.2xlarge")
+    workspace_id = body.get("workspace_id", record.get("workspace_id")) or ""
+    files = sorted((folder / "data").iterdir())
+    note = body.get("note")
+    if note is None:
+        note = ("full resolution of " if body.get("full") else "re-run of ") + \
+            (record.get("note") or job_id)
+    return JSONResponse(_launch(
+        uuid.uuid4().hex[:12], files, params, method=record.get("method") or params.get("method_type"),
+        mesh_type=params.get("mesh_type") or record.get("mesh_type") or "tensor",
+        instance_type=instance_type, note=str(note)[:300], workspace_id=workspace_id,
+        backend=backend, extra={"parent_job": job_id, "changes": changed or None}))
 
 
 def vcpu_limit() -> int:
@@ -371,7 +552,8 @@ def vcpus_in_use() -> int:
     """vCPUs of the jobs that may still hold an instance."""
     total = 0
     for record in get_store().all():
-        if record.get("status") in TERMINAL_STATUSES or record.get("status") == "STOPPED":
+        if record.get("status") in TERMINAL_STATUSES or record.get("status") == "STOPPED" \
+                or record.get("backend") == "local":
             continue
         status = _refresh(record["job_id"]).get("status")
         if status not in TERMINAL_STATUSES and status != "STOPPED":
@@ -386,6 +568,15 @@ def _run_label(record: dict) -> str:
     return label or f"{record.get('regularization_type') or 'inversion'} · {record['job_id']}"
 
 
+def _label_run(run: dict, record: dict) -> None:
+    """What the viewer shows of a job besides its result: its name, where it ran, and
+    its id (the page re-runs it with changes from its node)."""
+    run["_name"] = _run_label(record)
+    run["_backend"] = record.get("backend", "ec2")
+    run["_job_id"] = record["job_id"]
+    run["_rerun"] = _has_inputs(record)
+
+
 def _workflow_for(job_ids: list[str]) -> dict:
     """One DAG workflow holding the results of several finished jobs."""
     from ..viz.result_workflow import build_workflow, load_result
@@ -397,9 +588,8 @@ def _workflow_for(job_ids: list[str]) -> dict:
         record = get_store().get(job_id) or _refresh(job_id)
         if not record.get("task_id"):
             raise HTTPException(status_code=404, detail=f"Unknown job {job_id}")
-        run = load_result(get_backend().fetch_result(record, str(result_dir)))
-        run["_name"] = _run_label(record)
-        run["_backend"] = record.get("backend", "ec2")
+        run = load_result(backend_for(record).fetch_result(record, str(result_dir)))
+        _label_run(run, record)
         runs.append(run)
     return build_workflow(runs)
 
@@ -416,6 +606,56 @@ async def list_jobs(status: str = "all", workspace: str = ""):
     return JSONResponse({"ok": True, "jobs": jobs, "count": len(jobs)})
 
 
+# ── Run-time estimates: rate × sensitivity entries × iterations, after a set-up time ──
+# The defaults come from the Karnataka runs (5,040 data × 335,518 cells on c5.4xlarge: 30
+# iterations in 8 min and 45 in 14 min, set-up included; joint runs of 10,081 data on
+# c5.9xlarge in 22–28 min) and a run of 5,040 × 19,685 on a laptop; finished jobs refine them.
+DEFAULT_RATE_S = {"local": 6e-9, "c5.xlarge": 3.2e-8, "c5.2xlarge": 1.6e-8, "c5.4xlarge": 8e-9,
+                  "c5.9xlarge": 4e-9}
+DEFAULT_SETUP_S = {"local": 5.0, "ec2": 90.0, "batch": 240.0}
+JOINT_FACTOR = 2.0      # a joint iteration costs about two single ones per sensitivity entry
+_NOT_PER_ITERATION = ("elastic_net_CDA", "group_lasso_ADMM")   # λ paths: not timed per iteration
+
+
+def run_time_samples(records: list[dict]) -> dict:
+    """Per machine ("local" or the instance type): the rates (s per sensitivity entry and
+    iteration) of finished potential-field jobs; per backend: their set-up times (s)."""
+    rates: dict[str, list] = {}
+    setup: dict[str, list] = {}
+    for r in records:
+        s = r.get("summary") or {}
+        n, m, it = s.get("n_data"), s.get("n_active_cells"), s.get("n_iterations")
+        if r.get("status") != "SUCCEEDED" or not (n and m and it) or r.get("started") is None \
+                or r.get("stopped") is None or s.get("regularization") in _NOT_PER_ITERATION \
+                or r.get("method") not in ("gravity", "magnetics", "magnetic", "joint"):
+            continue
+        backend = r.get("backend") or "ec2"
+        machine = "local" if backend == "local" else r.get("instance_type")
+        run_s = (r["stopped"] - r["started"]) / 1000.0 - (DEFAULT_SETUP_S["local"] if backend == "local" else 0)
+        work = float(n) * float(m) * float(it) * (JOINT_FACTOR if r.get("inversion_mode") == "joint" else 1)
+        if run_s > 0 and machine:
+            rates.setdefault(machine, []).append(run_s / work)
+        if backend != "local" and r.get("created") is not None and r["started"] > r["created"]:
+            setup.setdefault(backend, []).append((r["started"] - r["created"]) / 1000.0)
+    return {"rates": rates, "setup": setup}
+
+
+@app.get("/api/estimates")
+async def estimates():
+    """What the page needs to estimate a job's run time and cost: the rate of each machine
+    (the median of its last 20 finished jobs, else a default) and the set-up time of each
+    backend.  A run takes about setup + rate × data × cells × iterations (× joint_factor)."""
+    import statistics
+    samples = run_time_samples(get_store().all())
+    rates = {k: {"rate": v, "n": 0} for k, v in DEFAULT_RATE_S.items()}
+    for machine, values in samples["rates"].items():
+        rates[machine] = {"rate": statistics.median(values[:20]), "n": len(values)}
+    setup = {k: {"seconds": v, "n": 0} for k, v in DEFAULT_SETUP_S.items()}
+    for backend, values in samples["setup"].items():
+        setup[backend] = {"seconds": statistics.median(values[:20]), "n": len(values)}
+    return JSONResponse({"ok": True, "rates": rates, "setup": setup, "joint_factor": JOINT_FACTOR})
+
+
 @app.get("/api/inversion/{job_id}")
 async def get_job_status(job_id: str):
     """One job: Batch status, the worker's progress, and the result summary."""
@@ -427,7 +667,7 @@ async def get_job_logs(job_id: str, limit: int = 100):
     """The last ``limit`` lines of the worker's log."""
     record = _refresh(job_id)
     try:
-        lines = get_backend().tail_logs(record, limit=max(1, min(limit, 1000)))
+        lines = backend_for(record).tail_logs(record, limit=max(1, min(limit, 1000)))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     if not lines:
@@ -446,7 +686,7 @@ async def get_job_result(job_id: str):
     try:
         result_dir = _upload_dir / "results"
         result_dir.mkdir(exist_ok=True)
-        local_path = get_backend().fetch_result(record, str(result_dir))
+        local_path = backend_for(record).fetch_result(record, str(result_dir))
         return FileResponse(local_path, media_type="application/zip",
                             filename=f"{task_id}_result.zip")
     except Exception as e:
@@ -465,8 +705,8 @@ async def get_job_workflow(job_id: str):
     try:
         result_dir = _upload_dir / "results"
         result_dir.mkdir(exist_ok=True)
-        run = load_result(get_backend().fetch_result(record, str(result_dir)))
-        run["_name"] = _run_label(record)
+        run = load_result(backend_for(record).fetch_result(record, str(result_dir)))
+        _label_run(run, record)
         return JSONResponse(build_workflow([run]))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -673,7 +913,9 @@ async def workspace_workflow(workspace_id: str, known: str = ""):
     jobs = _workspace_jobs(ws)
     done = [j["job_id"] for j in jobs if j.get("display_status") == "SUCCEEDED"]
     key = hashlib.sha1(",".join(done).encode()).hexdigest()[:12] if done else ""
-    counts = {"key": key, "finished": len(done), "running": sum(map(_running, jobs)), "jobs": len(jobs)}
+    counts = {"key": key, "finished": len(done), "running": sum(map(_running, jobs)),
+              "running_local": sum(_running(j) and j.get("backend") == "local" for j in jobs),
+              "jobs": len(jobs)}
     if known and known == key:
         return JSONResponse({"ok": True, "unchanged": True, **counts})
     if not done:
@@ -695,12 +937,47 @@ async def workspace_workflow(workspace_id: str, known: str = ""):
     return JSONResponse({"ok": True, **counts, "workflow": workflow})
 
 
+# Map layers: points (mines, towns) and lines or outlines (geology) drawn over every run
+# of the workspace, as the page made them from GeoJSON or CSV files:
+#   {"name", "color", "kind": "points" | "lines", "items": [...]}, items being
+#   {"x", "y", "label"} (points) or {"xy": [[x, y], ...], "label", "closed"} (lines)
+MAX_LAYERS_BYTES = 5_000_000
+
+
+def check_layers(layers) -> list:
+    if not isinstance(layers, list):
+        raise HTTPException(status_code=400, detail="layers must be a list")
+    for layer in layers:
+        if not isinstance(layer, dict) or not isinstance(layer.get("items"), list) \
+                or layer.get("kind") not in ("points", "lines"):
+            raise HTTPException(status_code=400, detail=(
+                "Each layer needs a kind ('points' or 'lines') and a list of items"))
+    if len(json.dumps(layers)) > MAX_LAYERS_BYTES:
+        raise HTTPException(status_code=413, detail=(
+            f"The layers are larger than {MAX_LAYERS_BYTES // 1_000_000} MB: simplify the outlines"))
+    return layers
+
+
+@app.get("/api/workspaces/{workspace_id}/layers")
+async def workspace_layers(workspace_id: str):
+    return JSONResponse({"ok": True, "layers": _read_workspace(workspace_id).get("layers") or []})
+
+
+@app.put("/api/workspaces/{workspace_id}/layers")
+async def set_workspace_layers(workspace_id: str, body: dict = Body(...)):
+    """Replace the workspace's map layers."""
+    ws = _read_workspace(workspace_id)
+    ws["layers"] = check_layers(body.get("layers"))
+    _write_json(_workspace_path(workspace_id), ws)
+    return JSONResponse({"ok": True, "layers": ws["layers"]})
+
+
 @app.delete("/api/inversion/{job_id}")
 async def cancel_job(job_id: str):
     """Stop a job: a queued job is cancelled, a running one is terminated."""
     record = get_store().get(job_id) or {"job_id": job_id}
     try:
-        get_backend().cancel(record)
+        backend_for(record).cancel(record)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     get_store().update(job_id, cancel_requested=True)
@@ -721,7 +998,7 @@ async def finish_job(job_id: str):
         raise HTTPException(status_code=409, detail="Only a running inversion can be stopped "
                                                     "with its result kept")
     try:
-        get_backend().request_finish(record)
+        backend_for(record).request_finish(record)
     except NotImplementedError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -739,7 +1016,7 @@ async def fetch_stopped_job(job_id: str):
     if not record:
         raise HTTPException(status_code=404, detail="Unknown job")
     try:
-        get_backend().fetch(record)
+        backend_for(record).fetch(record)
     except NotImplementedError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -773,6 +1050,9 @@ async def health():
         "aws_configured": has_creds,
         "backend": cfg["backend"],
         "region": cfg["region"],
+        # where jobs can run: this machine (its cores and memory) and AWS
+        "local": get_local_backend().resources(),
+        "comparisons_dir": str(_comparisons_dir()),
     })
 
 
@@ -785,7 +1065,10 @@ def main():
                         help="Interface to listen on (default: this machine only)")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--backend", choices=["ec2", "batch"], default=None,
-                        help="Job backend (or set GEOINV3D_BACKEND; default ec2)")
+                        help="AWS backend (or set GEOINV3D_BACKEND; default ec2); jobs can "
+                             "also run on this machine, chosen on the page")
+    parser.add_argument("--local-jobs", type=int, default=None,
+                        help="Jobs run at once on this machine (default 1; each uses every core)")
     parser.add_argument("--region", default=None,
                         help="AWS region (or set GEOINV3D_AWS_REGION)")
     parser.add_argument("--reload", action="store_true")
@@ -795,11 +1078,15 @@ def main():
         os.environ["GEOINV3D_BACKEND"] = args.backend
     if args.region:
         os.environ["GEOINV3D_AWS_REGION"] = args.region
+    if args.local_jobs:
+        os.environ["GEOINV3D_LOCAL_JOBS"] = str(args.local_jobs)
 
     cfg = backend_settings()
     print(f"Starting GeoInv3D API on {args.host}:{args.port}")
-    print(f"  Backend:   {cfg['backend']}")
-    print(f"  Region:    {cfg['region']}")
+    local = get_local_backend().resources()
+    print(f"  Local:     {local['cpus']} cores, {local['memory_gb']} GB, "
+          f"{local['max_jobs']} job(s) at a time")
+    print(f"  AWS:       {cfg['backend']} in {cfg['region']}")
     print(f"  Job list:  {get_store().path}")
     print(f"  Page:      http://{args.host}:{args.port}/")
     print(f"  Docs:      http://{args.host}:{args.port}/docs")

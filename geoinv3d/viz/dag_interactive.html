@@ -314,6 +314,87 @@ svg#dag:active{cursor:grabbing;}
 .stat-card .label{font-size:9px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}
 .stat-card .value{font-size:18px;font-weight:600;color:var(--accent);margin-top:2px;}
 
+/* Compute: where the job runs, the preview, the estimate */
+.up-chkline{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5;margin-top:12px;cursor:pointer;}
+.up-chkline input{margin-top:3px;flex:none;}
+.up-estimate{margin-top:10px;padding:9px 11px;border-radius:4px;font-size:12px;line-height:1.6;border:1px solid var(--border);border-left:3px solid var(--blue);background:var(--bg3);color:var(--text2);}
+.up-estimate.warn{border-left-color:var(--accent);}
+.up-estimate.bad{border-left-color:var(--red);background:rgba(192,72,61,.12);}
+.up-estimate b{color:var(--text);}
+/* a job: live curves while it runs, how it converged once it ended */
+.up-live{margin-top:8px;border:1px solid var(--border-soft);border-radius:6px;background:var(--bg);padding:6px 8px 2px;}
+.up-live svg{display:block;width:100%;height:auto;}
+.up-live-k{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:var(--text3);padding:0 2px 4px;}
+.up-live-k i{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:4px;}
+.up-conv{margin-top:6px;font-size:12px;line-height:1.5;}
+.up-conv.ok{color:#6fd0c3;}
+.up-conv.no{color:var(--accent2);}
+.up-conv ul{margin:2px 0 0 18px;color:var(--text2);font-size:11.5px;}
+.det-conv{font-size:11px;line-height:1.5;padding:5px 0;color:var(--text2);}
+.det-conv b.ok{color:#6fd0c3;} .det-conv b.no{color:var(--accent2);}
+.det-conv ul{margin:3px 0 0 16px;}
+.btn-rerun{display:block;width:100%;margin-top:8px;padding:7px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:12px;text-align:center;}
+.btn-rerun:hover{border-color:var(--accent);color:var(--accent);}
+/* map layers (3D view side panel) */
+.ml-list{display:flex;flex-direction:column;gap:3px;}
+.ml-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;}
+.ml-item label{display:flex;align-items:center;gap:5px;flex:1;min-width:0;cursor:pointer;}
+.ml-item .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ml-item .sw{width:10px;height:10px;flex:none;border-radius:2px;}
+.ml-item .sw.pt{border-radius:50%;}
+.ml-item .x{background:none;border:none;color:#57677a;cursor:pointer;font-size:13px;padding:0 2px;}
+.ml-item .x:hover{color:#e7ecf2;}
+.ml-add{font-size:11px;padding:5px;background:#1c2530;border:1px dashed #2a3644;border-radius:4px;color:#8b97a6;cursor:pointer;}
+.ml-add:hover{border-color:#d98e4a;color:#d98e4a;}
+.ml-note{font-size:10px;line-height:1.4;color:#57677a;}
+.ml-note:empty{display:none;}
+/* re-run a job with changes */
+.rr{margin:auto;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:0;width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 40px);}
+.rr::backdrop{background:rgba(5,8,12,.6);}
+.rr-in{display:flex;flex-direction:column;max-height:calc(100vh - 42px);}
+.rr-h{padding:14px 18px 10px;border-bottom:1px solid var(--border);}
+.rr-h h2{font-size:15px;color:var(--accent);margin-bottom:4px;}
+.rr-h p{font-size:11.5px;color:var(--text3);line-height:1.5;}
+.rr-body{padding:12px 18px;overflow-y:auto;}
+.rr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+.rr-g{font-size:11px;font-weight:600;color:var(--text);margin:14px 0 6px;}
+.rr-g:first-child{margin-top:0;}
+.rr-f .up-lbl{margin-bottom:3px;}
+.rr-f .up-in.changed{border-color:var(--accent);}
+.rr-json{width:100%;min-height:220px;font:11px/1.45 'Consolas','SF Mono',monospace;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;}
+.rr-json.bad{border-color:var(--red);}
+.rr details{margin-top:14px;}
+.rr summary{cursor:pointer;font-size:12px;color:var(--text2);}
+.rr-f-msg{font-size:11px;margin-top:8px;color:var(--text3);min-height:15px;}
+.rr-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 18px;border-top:1px solid var(--border);}
+.rr-foot .up-seg{margin:0;}
+.rr-foot .grow{flex:1;min-width:140px;}
+.toast{position:fixed;right:16px;bottom:16px;z-index:90;max-width:min(420px,calc(100vw - 32px));background:var(--bg2);border:1px solid var(--accent);border-radius:8px;padding:10px 14px;font-size:12px;line-height:1.5;color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.toast[hidden]{display:none;}
+.toast a{color:var(--accent);cursor:pointer;text-decoration:underline;}
+/* narrow windows: the header and the tabs wrap, side panels give way to the plots */
+@media (max-width:1100px){
+  .up-stp{padding:8px;gap:6px;font-size:11px;}
+  .sidebar{width:260px;}
+}
+@media (max-width:860px){
+  header{flex-wrap:wrap;gap:8px;padding:8px 12px;}
+  header .sub{display:none;}
+  .toolbar{margin-left:0;}
+  .tab-bar{overflow-x:auto;}
+  .tab{padding:8px 12px;white-space:nowrap;}
+  .up-wrap{padding:18px 12px 30px;}
+  .up-stepper{flex-wrap:wrap;}
+  .up-stp{flex:1 1 calc(25% - 6px);min-width:0;}
+  .up-review{grid-template-columns:1fr;gap:2px 0;}
+  .up-review dd{margin-bottom:8px;}
+  .dag-area{flex-direction:column;}
+  .sidebar{width:auto;max-height:42%;border-left:none;border-top:1px solid var(--border);}
+  #panel-model3d>div:first-child{flex-direction:column;}
+  #m3d-sidebar{width:auto!important;max-height:38%;border-left:none!important;border-top:1px solid #2a3644;}
+  #m3d-section-row{flex-direction:column;}
+  .ws-edit{width:200px;}
+}
 
 #file-input{display:none;}
 #dropzone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;}
@@ -415,6 +496,12 @@ svg#dag:active{cursor:grabbing;}
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Layers</div>
         <div id="m3d-layers"></div>
         <div style="height:1px;background:#212b37;"></div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Map layers</div>
+        <div id="ml-list" class="ml-list"></div>
+        <button type="button" id="ml-add" class="ml-add" title="Points (mines, towns) or lines and outlines (geology) from GeoJSON, or points from a CSV with x, y (or lon, lat) and name">＋ Add map layer</button>
+        <input type="file" id="ml-file" accept=".geojson,.json,.csv,.txt" multiple hidden>
+        <div id="ml-note" class="ml-note"></div>
+        <div style="height:1px;background:#212b37;"></div>
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Mouse Drag</div>
         <div style="display:flex;gap:4px;">
           <button id="m3d-mode-rotate" class="m3d-mode active" data-mode="turntable">Rotate</button>
@@ -489,7 +576,7 @@ svg#dag:active{cursor:grabbing;}
     <div class="up-scroll">
       <div class="up-wrap">
         <h2 class="up-title">New Inversion Job</h2>
-        <p class="up-sub">Upload your data, check the mesh against the data resolution, build a starting model if you have one, choose the regularization, submit to AWS, and follow the job</p>
+        <p class="up-sub">Upload your data, check the mesh against the data resolution, build a starting model if you have one, choose the regularization, run it on this computer or on AWS, and follow the job</p>
 
         <nav class="up-stepper" id="up-stepper">
           <button type="button" class="up-stp active" data-go="1"><span class="up-step">1</span>Data</button>
@@ -603,16 +690,27 @@ svg#dag:active{cursor:grabbing;}
           </section>
 
           <section class="up-sec">
-            <div class="up-sec-h">Compute</div>
+            <div class="up-sec-h">Compute<span class="up-hint">where the job runs</span></div>
             <div class="up-card">
-              <label class="up-lbl" for="upload-instance">Instance type</label>
-              <select id="upload-instance" class="up-in">
-                <option value="c5.xlarge">c5.xlarge (4 vCPU, 8 GB RAM, ~$0.17/hr)</option>
-                <option value="c5.2xlarge" selected>c5.2xlarge (8 vCPU, 16 GB RAM, ~$0.34/hr)</option>
-                <option value="c5.4xlarge">c5.4xlarge (16 vCPU, 32 GB RAM, ~$0.68/hr)</option>
-                <option value="c5.9xlarge">c5.9xlarge (36 vCPU, 72 GB RAM, ~$1.53/hr)</option>
-              </select>
-              <div class="up-method-desc">The recommended mesh keeps the sensitivity matrix within half of the instance's RAM.</div>
+              <div class="up-seg" id="up-where" role="group" aria-label="Where the job runs">
+                <button type="button" data-where="local" class="active">This computer</button>
+                <button type="button" data-where="aws">AWS</button>
+              </div>
+              <div class="up-method-desc" id="up-where-local"></div>
+              <div id="up-where-aws" style="margin-top:10px" hidden>
+                <label class="up-lbl" for="upload-instance">Instance type</label>
+                <select id="upload-instance" class="up-in">
+                  <option value="c5.xlarge">c5.xlarge (4 vCPU, 8 GB RAM, ~$0.17/hr)</option>
+                  <option value="c5.2xlarge" selected>c5.2xlarge (8 vCPU, 16 GB RAM, ~$0.34/hr)</option>
+                  <option value="c5.4xlarge">c5.4xlarge (16 vCPU, 32 GB RAM, ~$0.68/hr)</option>
+                  <option value="c5.9xlarge">c5.9xlarge (36 vCPU, 72 GB RAM, ~$1.53/hr)</option>
+                </select>
+              </div>
+              <label class="up-chkline"><input type="checkbox" id="up-preview">
+                <span><b>Preview first</b> on this computer with cells twice as large (and the data thinned to match);
+                the full run then starts from the preview's card on the Jobs page with one click</span></label>
+              <div class="up-method-desc" id="up-compute-note">The recommended mesh keeps the sensitivity matrix within half of the machine's memory.</div>
+              <div id="up-estimate"></div>
             </div>
           </section>
         </div>
@@ -913,12 +1011,13 @@ svg#dag:active{cursor:grabbing;}
             <div class="up-sec-h">Review</div>
             <div class="up-card"><dl class="up-review" id="up-review"></dl></div>
             <div id="up-sizecheck"></div>
+            <div id="up-estimate-review"></div>
           </section>
           <section class="up-sec">
             <label class="up-lbl" for="upload-note">Note (optional)</label>
             <input id="upload-note" type="text" class="up-in" placeholder="e.g. Karnataka 70 km deep inversion">
           </section>
-          <button id="upload-submit" class="up-submit">🚀 Submit inversion job to AWS</button>
+          <button id="upload-submit" class="up-submit">▶ Run on this computer</button>
         </div>
 
         <div class="up-pane" data-pane="7" hidden>
@@ -937,7 +1036,7 @@ svg#dag:active{cursor:grabbing;}
             <div id="up-jobs"></div>
           </section>
           <section class="up-sec">
-            <div class="up-sec-h">Saved comparisons<span class="up-hint">several results in one workflow, kept on this machine (~/.geoinv3d/comparisons)</span></div>
+            <div class="up-sec-h">Saved comparisons<span class="up-hint" id="up-cmps-where">several results in one workflow, kept by the API server on this machine</span></div>
             <div class="up-card" id="up-cmps"><div class="up-hint">None yet — tick finished jobs, or use a group's buttons, then Save comparison.</div></div>
           </section>
         </div>
@@ -953,6 +1052,31 @@ svg#dag:active{cursor:grabbing;}
   </div>
 
 </div>
+
+<!-- Re-run a job of the API server on its own inputs, with changed settings -->
+<dialog class="rr" id="rr-dlg" aria-labelledby="rr-title">
+  <form method="dialog" class="rr-in" id="rr-form">
+    <div class="rr-h">
+      <h2 id="rr-title">Run again with changes</h2>
+      <p id="rr-sub"></p>
+    </div>
+    <div class="rr-body" id="rr-body"></div>
+    <div class="rr-foot">
+      <div class="up-seg" id="rr-where" role="group" aria-label="Where the new run goes">
+        <button type="button" data-where="local">This computer</button>
+        <button type="button" data-where="aws">AWS</button>
+      </div>
+      <select id="rr-inst" class="up-in" style="width:auto" aria-label="Instance type">
+        <option value="c5.xlarge">c5.xlarge</option><option value="c5.2xlarge">c5.2xlarge</option>
+        <option value="c5.4xlarge">c5.4xlarge</option><option value="c5.9xlarge">c5.9xlarge</option>
+      </select>
+      <input id="rr-note" class="up-in grow" type="text" placeholder="Note" aria-label="Note">
+      <button type="button" class="up-btn" id="rr-cancel">Cancel</button>
+      <button type="submit" class="up-btn up-btn-primary" id="rr-go">▶ Run</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" role="status" hidden></div>
 
 <script>
 // ══════════════════════════════════════════
@@ -1045,6 +1169,7 @@ const sbBody = document.getElementById('sidebar-body');
 // TAB SWITCHING
 // ══════════════════════════════════════════
 let dirtyTabs = new Set();
+let dagStale = false;   // the graph was laid out while its tab was hidden
 
 document.querySelectorAll('.tab').forEach(t => {
   t.addEventListener('click', () => {
@@ -1064,7 +1189,10 @@ function switchTab(name) {
     t.classList.toggle('active', t.dataset.tab === name);
   });
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-'+name));
-  requestAnimationFrame(() => renderActiveTab(name));
+  requestAnimationFrame(() => {
+    if (name === 'dag' && dagStale && W) { const was = selNode; renderDAG(); if (was != null) selectNode(was); }
+    renderActiveTab(name);
+  });
 }
 
 function renderActiveTab(name) {
@@ -1334,8 +1462,9 @@ function renderDAG() {
   document.getElementById('legend').style.display='';
   document.getElementById('zoom-ctl').style.display='';
 
-  // Fit view
+  // Fit view (a hidden tab has no size: fit again when it is shown)
   const rect=svg.getBoundingClientRect();
+  dagStale=rect.width<10||rect.height<10;
   // the extent of the nodes themselves (their widths differ: result cards are wider)
   const P=Object.values(npos);
   const x0=arrMin(P.map(p=>p.x-p.w/2))-40, x1=arrMax(P.map(p=>p.x+p.w/2))+40;
@@ -1549,6 +1678,7 @@ function selectNode(id) {
     h+=dRow('Type',n.output.type);
     if(n.output.n_iterations) h+=dRow('Iterations',n.output.n_iterations);
     if(n.output.converged!=null) h+=dRow('Converged',n.output.converged?'Yes':'No');
+    if(n.output.convergence) h+=convergenceHTML(n.output.convergence);
     if(n.output.regularization) h+=dRow('Regularization',escH(n.output.regularization));
     if(n.output.selection){
       const sl=n.output.selection;
@@ -1568,9 +1698,21 @@ function selectNode(id) {
     h+=`</div>`;
     h+=`<button class="btn-results" onclick="viewResults(${n.id})">View Full Results →</button>`;
   }
+  // a job of the API server: run it again on its own inputs with changed settings
+  if(n.job&&n.job.rerun&&window.GEOINV3D_API){
+    const c=n.output&&n.output.convergence, more=c&&c.at_iteration_limit&&c.status!=='converged'&&c.max_iter;
+    h+=`<button class="btn-rerun" data-rerun="${escH(n.job.id)}" title="Same data, changed settings: the new run joins the workflow next to this one">↻ Run again with changes…</button>`;
+    if(more)h+=`<button class="btn-rerun" data-rerun="${escH(n.job.id)}" data-more="${2*c.max_iter}">↻ Run again with ${2*c.max_iter} iterations…</button>`;
+  }
 
   sbBody.innerHTML=h;
 }
+
+sbBody.addEventListener('click',e=>{
+  const b=e.target.closest('[data-rerun]'); if(!b)return;
+  const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===b.dataset.rerun);
+  openRerun(b.dataset.rerun,n?n.name:'',b.dataset.more?{max_iter:b.dataset.more}:null);
+});
 
 function dRow(k,v){return `<div class="det-row"><div class="det-key">${k}</div><div class="det-val">${v}</div></div>`;}
 
@@ -1967,6 +2109,7 @@ function drawStationMap(canvasId, df, mode) {
     ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fill();
     ctx.strokeStyle='#000'; ctx.lineWidth=0.5; ctx.stroke();
   });
+  mlDrawPlan(ctx,toX,toY,{l:pad.l,t:pad.t,w:pw,h:ph});
 
   // Axes
   ctx.fillStyle='#8b97a6'; ctx.font='9px sans-serif';
@@ -2293,7 +2436,7 @@ function m3dGroundTraces(){
     out.push({type:'scatter3d',mode:'markers',name:'Stations',x:t.x,y:t.y,z:t.z,
       marker:{size:t.z.length>2000?1:1.4,color:'#f2ecd8',opacity:0.6},hovertemplate:'station, %{z:.0f} m<extra></extra>'});
   }
-  return out;
+  return out.concat(mlTraces3D());
 }
 function niceStep(v){const p=10**Math.floor(Math.log10(v)),f=v/p;return (f<1.5?1:f<3.5?2:f<7.5?5:10)*p;}
 
@@ -2383,10 +2526,15 @@ function init3D(n) {
   $v('m3d-zslice').max=m3.nz-1;
   // below a terrain the top layers are partly air: start the depth slice at the first
   // layer under the lowest ground
-  if(m3.surface){
-    const low=Math.min(...m3.surface.z.flat()), ze=m3.z_edges;
-    let k=0; while(k<m3.nz-1&&0.5*(ze[k]+ze[k+1])>low)k++;
-    $v('m3d-zslice').value=k;
+  {
+    // the top layer that is mostly rock: above the ground (a terrain, or the air an octree
+    // keeps above a flat earth) the cells hold no model values
+    const ze=m3.z_edges, nxy=m3.nx*m3.ny, vals=m3.values;
+    const order=[...Array(m3.nz).keys()];
+    if(ze[0]<ze[m3.nz])order.reverse();                        // top layer first
+    const filled=k=>{let n=0;for(let i=k*nxy;i<(k+1)*nxy;i++){const v=vals[i];if(v!=null&&v!==0&&Number.isFinite(v))n++;}return n/nxy;};
+    const k=order.find(k=>filled(k)>=0.5);
+    $v('m3d-zslice').value=k??order[0];
   }
   $v('m3d-zslice-disp').textContent='iz='+$v('m3d-zslice').value;
   $v('m3d-ewslice').max=m3.ny-1;
@@ -2556,7 +2704,7 @@ function drawSection2D(mode){
 
   ctx.fillStyle='#0e131a'; ctx.fillRect(0,0,cw,ch);
 
-  const pad={t:18,r:16,b:28,l:48};
+  const pad={t:mode!=='z'&&mlShown().length?34:18,r:16,b:28,l:48};
   const pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
   if(pw<10||ph<10)return;
 
@@ -2611,6 +2759,14 @@ function drawSection2D(mode){
     const xp=toX(v);
     ctx.beginPath(); ctx.moveTo(xp,pad.t); ctx.lineTo(xp,pad.t+ph); ctx.stroke();
   }
+
+  // Map layers: in plan on the depth slice, where they cross a section along its top
+  const box={l:pad.l,t:pad.t,w:pw,h:ph};
+  if(mode==='z')mlDrawPlan(ctx,toX,toY,box);
+  else if(mode==='ew'){const iy=+document.getElementById('m3d-ewslice').value;
+    mlDrawSection(ctx,'ew',(YE[iy]+YE[iy+1])/2,1.5*Math.abs(YE[iy+1]-YE[iy]),toX,pad.t,box);}
+  else{const ix=+document.getElementById('m3d-nsslice').value;
+    mlDrawSection(ctx,'ns',(XE[ix]+XE[ix+1])/2,1.5*Math.abs(XE[ix+1]-XE[ix]),toX,pad.t,box);}
 
   // Axes border
   ctx.strokeStyle='#2a3644'; ctx.lineWidth=1;
@@ -2743,6 +2899,7 @@ document.getElementById('btn-export').addEventListener('click',()=>{
 // ══════════════════════════════════════════
 function initWorkflow() {
   renderDAG();
+  mlRender();
   const rn=W.nodes.find(n=>n.output&&n.output.model_3d);
   if(rn){
     selectNode(rn.id);
@@ -2793,11 +2950,12 @@ async function wsInit(){
       ws=last?await wsApi('/api/workspaces/'+last.id):await wsApi('/api/workspaces',wsSend('POST',{}));
     }
     WS.id=ws.id; wsSetName(ws.name);
+    ML.own=Array.isArray(ws.layers)?ws.layers:[]; mlRender();
     history.replaceState(null,'','?ws='+ws.id);
     wsEl('ws-sub').hidden=true; wsEl('ws-bar').hidden=false; wsEl('up-jobs-all-row').hidden=false;
     await wsRefresh();
     wsShow();
-    setInterval(wsRefresh,20000);
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')wsRefresh();});
   }catch(err){console.warn('GeoInv3D workspace:',err);}   // the page still works as a plain viewer
 }
 window.addEventListener('load',wsInit);
@@ -2816,8 +2974,21 @@ async function wsRefresh(){
     WS.counts=d;
     if(!d.unchanged){WS.key=d.key; WS.workflow=d.workflow; if(WS.showing)wsShow();}
     wsStatus();
-  }catch(err){wsEl('ws-status').textContent='⚠ '+err.message;}
+  }catch(err){
+    wsEl('ws-status').textContent='⚠ '+err.message;
+    if(/^HTTP 404/.test(err.message)){WS.busy=false; return;}   // the workspace is gone: stop asking
+  }
   WS.busy=false;
+  wsSchedule();
+}
+
+// The next refresh: soon while a job runs on this computer, less often for AWS jobs, and
+// rarely when nothing runs (a job started from this page refreshes at once)
+function wsSchedule(){
+  clearTimeout(WS.timer);
+  const c=WS.counts||{};
+  const ms=document.visibilityState==='hidden'?60000:c.running_local?4000:c.running?20000:60000;
+  WS.timer=setTimeout(wsRefresh,ms);
 }
 
 function wsStatus(){
@@ -2952,6 +3123,452 @@ const GeoCRS=(function(){
   return {looksGeographic,toUtm,project,scanTiff,reset:()=>{hint=null;}};
 })();
 window.GeoCRS=GeoCRS;
+
+// ══════════════════════════════════════════
+// MAP LAYERS — points (mines, towns) and lines or outlines (geology) over the results: at
+// the ground in the 3D view, on the depth slice and the sections, and on the data-fit maps.
+// A workflow brings its own (map_layers, e.g. a study's viewer); more come from GeoJSON or
+// CSV files added here, and in a workspace the server keeps them for all its runs.
+// A layer: {name, color, kind: 'points'|'lines', items}, items {x, y, label} or
+// {xy: [[x, y], …], label, closed}, in the data's projected metres.
+// ══════════════════════════════════════════
+const ML={own:[], hidden:new Set()};
+const ML_COLORS=['#ffd166','#ef476f','#06d6a0','#4cc9f0','#f78c6b','#c77dff','#e9edc9'];
+try{ML.hidden=new Set(JSON.parse(localStorage.getItem('geoinv3d.hiddenLayers')||'[]'));}catch(e){}
+function mlAll(){return [...((W&&W.map_layers)||[]).map(l=>({...l,builtin:true})),...ML.own];}
+const mlKey=l=>(l.builtin?'w:':'o:')+l.name;
+const mlColor=(l,k)=>l.color||ML_COLORS[k%ML_COLORS.length];
+function mlShown(){return mlAll().map((l,k)=>({...l,color:mlColor(l,k)})).filter(l=>!ML.hidden.has(mlKey(l)));}
+
+function mlLabel(p){
+  for(const k of ['name','Name','NAME','label','Label','title','site','locality','id'])if(p&&p[k]!=null&&p[k]!=='')return String(p[k]);
+  return '';
+}
+function mlFromGeoJSON(gj,fname){
+  const groups=new Map();   // a file's features split by their "layer" property
+  const feats=gj.type==='FeatureCollection'?gj.features||[]:gj.type==='Feature'?[gj]:[{geometry:gj,properties:{}}];
+  for(const f of feats){
+    const pr=f.properties||{}, geom=f.geometry; if(!geom)continue;
+    const gname=String(pr.layer||pr.Layer||fname), label=mlLabel(pr);
+    if(!groups.has(gname))groups.set(gname,{points:[],lines:[],color:pr.color||pr.colour||pr.stroke||pr['marker-color']||null});
+    const G=groups.get(gname), xy=c=>[+c[0],+c[1]];
+    const add=(t,c)=>{
+      if(t==='Point')G.points.push({x:+c[0],y:+c[1],label});
+      else if(t==='MultiPoint')c.forEach(q=>G.points.push({x:+q[0],y:+q[1],label}));
+      else if(t==='LineString')G.lines.push({xy:c.map(xy),label});
+      else if(t==='MultiLineString')c.forEach(l=>G.lines.push({xy:l.map(xy),label}));
+      else if(t==='Polygon')c.forEach(r=>G.lines.push({xy:r.map(xy),label,closed:true}));
+      else if(t==='MultiPolygon')c.forEach(P=>P.forEach(r=>G.lines.push({xy:r.map(xy),label,closed:true})));
+    };
+    if(geom.type==='GeometryCollection')(geom.geometries||[]).forEach(g=>add(g.type,g.coordinates));
+    else add(geom.type,geom.coordinates);
+  }
+  const out=[];
+  for(const [name,G] of groups){
+    const both=G.points.length&&G.lines.length;
+    if(G.points.length)out.push({name:both?name+' · points':name,kind:'points',color:G.color,items:G.points});
+    if(G.lines.length)out.push({name:both?name+' · outlines':name,kind:'lines',color:G.color,items:G.lines});
+  }
+  return out;
+}
+// Points from a table with x and y (or lon and lat) columns, a name and optionally a layer
+function mlFromTable(text,fname){
+  const rows=text.split(/\r?\n/).filter(l=>l.trim()&&!/^\s*#/.test(l));
+  if(!rows.length)return [];
+  const sep=rows[0].includes(',')?',':rows[0].includes('\t')?'\t':rows[0].includes(';')?';':/\s+/;
+  const cells=l=>l.split(sep).map(c=>c.trim().replace(/^"(.*)"$/,'$1'));
+  let head=cells(rows[0]).map(h=>h.toLowerCase()), body=rows.slice(1);
+  const find=names=>head.findIndex(h=>names.includes(h));
+  let ix=find(['x','easting','east','e','utm_e','lon','long','longitude']);
+  let iy=find(['y','northing','north','n','utm_n','lat','latitude']);
+  const il=find(['name','label','site','title','locality','id']), ig=find(['layer','type','class','category','group']);
+  if(ix<0||iy<0){
+    if(head.length>=2&&Number.isFinite(+head[0])&&Number.isFinite(+head[1])){ix=0;iy=1;body=rows;}
+    else throw new Error(`${fname}: no x and y (or lon and lat) columns`);
+  }
+  const groups=new Map();
+  for(const r of body){
+    const c=cells(r), x=+c[ix], y=+c[iy];
+    if(!Number.isFinite(x)||!Number.isFinite(y))continue;
+    const g=ig>=0&&c[ig]?c[ig]:fname;
+    if(!groups.has(g))groups.set(g,[]);
+    groups.get(g).push({x,y,label:il>=0?c[il]||'':''});
+  }
+  return [...groups].map(([name,items])=>({name,kind:'points',items}));
+}
+
+// The x and y extent of the results on screen, to place layers given in other units
+function mlModelExtent(){
+  const n=(W&&W.nodes||[]).find(nd=>nd.output&&nd.output.model_3d);
+  if(!n)return null;
+  const m=n.output.model_3d;
+  return [Math.min(m.x_edges[0],m.x_edges[m.nx]),Math.max(m.x_edges[0],m.x_edges[m.nx]),
+          Math.min(m.y_edges[0],m.y_edges[m.ny]),Math.max(m.y_edges[0],m.y_edges[m.ny])];
+}
+function mlEachXY(layers,fn){
+  for(const l of layers)for(const it of l.items){
+    if(l.kind==='points'){const [x,y]=fn(it.x,it.y);it.x=x;it.y=y;}
+    else it.xy=it.xy.map(([x,y])=>fn(x,y));
+  }
+}
+// Degrees go to UTM (the zone of their median, as station tables do); kilometres go to
+// metres when only that puts them over the results
+function mlPlace(layers){
+  const xs=[],ys=[];
+  mlEachXY(layers,(x,y)=>{xs.push(x);ys.push(y);return [x,y];});
+  if(!xs.length)throw new Error('The file has no points or lines');
+  const notes=[];
+  if(GeoCRS.looksGeographic(xs,ys)){
+    const med=a=>[...a].sort((p,q)=>p-q)[a.length>>1], lon=med(xs), lat=med(ys);
+    const zone=Math.floor((lon+180)/6)%60+1, south=lat<0;
+    mlEachXY(layers,(x,y)=>GeoCRS.toUtm(x,y,zone,south));
+    notes.push(`longitude/latitude projected to UTM zone ${zone}${south?'S':'N'}`);
+  }else{
+    const ext=mlModelExtent();
+    if(ext){
+      const bx=[Math.min(...xs),Math.max(...xs),Math.min(...ys),Math.max(...ys)];
+      const over=(b,k)=>b[0]*k<ext[1]&&b[1]*k>ext[0]&&b[2]*k<ext[3]&&b[3]*k>ext[2];
+      if(!over(bx,1)&&over(bx,1000)){mlEachXY(layers,(x,y)=>[x*1000,y*1000]);notes.push('coordinates read as kilometres');}
+      else if(!over(bx,1))notes.push('⚠ the layer lies outside the model: is it in the same projection?');
+    }
+  }
+  return notes;
+}
+
+async function mlReadFiles(fileList){
+  const added=[], notes=[];
+  for(const f of fileList){
+    const text=await f.text(), base=f.name.replace(/\.[^.]+$/,'');
+    let layers;
+    if(/\.(geo)?json$/i.test(f.name))layers=mlFromGeoJSON(JSON.parse(text),base);
+    else layers=mlFromTable(text,base);
+    notes.push(...mlPlace(layers).map(n=>`${f.name}: ${n}`));
+    const taken=new Set(mlAll().map(l=>l.name).concat(added.map(l=>l.name)));
+    for(const l of layers){let nm=l.name,k=2;while(taken.has(nm))nm=`${l.name} (${k++})`;l.name=nm;taken.add(nm);added.push(l);}
+  }
+  return {added,notes};
+}
+
+async function mlSave(){
+  if(!WS.id||!window.GEOINV3D_API)return;
+  try{await wsApi(`/api/workspaces/${WS.id}/layers`,wsSend('PUT',{layers:ML.own}));}
+  catch(err){$v('ml-note').textContent='⚠ Could not save the layers in the workspace: '+err.message;}
+}
+function mlRender(){
+  const box=$v('ml-list'); if(!box)return;
+  const L=mlAll();
+  box.innerHTML=L.length?L.map((l,k)=>`<div class="ml-item"><label title="${escH(l.name)}: ${l.items.length} ${l.kind==='points'?'points':'lines'}">`+
+      `<input type="checkbox" data-ml="${k}"${ML.hidden.has(mlKey(l))?'':' checked'} style="accent-color:${mlColor(l,k)}">`+
+      `<span class="sw${l.kind==='points'?' pt':''}" style="background:${mlColor(l,k)}"></span><span class="nm">${escH(l.name)}</span></label>`+
+      (l.builtin?'':`<button type="button" class="x" data-ml-del="${k}" title="Remove this layer">×</button>`)+'</div>').join('')
+    :'<div class="ml-note">None yet: add mines, towns or geological outlines to see them over the model, the depth slice and the data maps.</div>';
+}
+function mlRedraw(){
+  mlRender();
+  if(m3dData){schedule3D(false); updateSectionRow();}
+  if(resultNode){
+    dirtyTabs.add('datafit');
+    if($v('panel-datafit').classList.contains('active'))renderActiveTab('datafit');
+  }
+}
+$v('ml-list').addEventListener('change',e=>{
+  const c=e.target.closest('[data-ml]'); if(!c)return;
+  const l=mlAll()[+c.dataset.ml]; if(!l)return;
+  if(c.checked)ML.hidden.delete(mlKey(l)); else ML.hidden.add(mlKey(l));
+  try{localStorage.setItem('geoinv3d.hiddenLayers',JSON.stringify([...ML.hidden]));}catch(err){}
+  mlRedraw();
+});
+$v('ml-list').addEventListener('click',e=>{
+  const b=e.target.closest('[data-ml-del]'); if(!b)return;
+  const l=mlAll()[+b.dataset.mlDel]; if(!l||l.builtin)return;
+  ML.own=ML.own.filter(o=>o.name!==l.name); mlSave(); mlRedraw();
+});
+$v('ml-add').addEventListener('click',()=>$v('ml-file').click());
+$v('ml-file').addEventListener('change',async e=>{
+  const files=[...e.target.files]; e.target.value=''; if(!files.length)return;
+  try{
+    const {added,notes}=await mlReadFiles(files);
+    ML.own.push(...added);
+    $v('ml-note').textContent=notes.join(' · ')+(WS.id?'':(notes.length?' · ':'')+'kept until the page is closed');
+    mlSave(); mlRedraw();
+  }catch(err){$v('ml-note').textContent='⚠ '+err.message;}
+});
+
+// The visible layers in plan view on a canvas (toX, toY: metres to pixels; box clips them)
+function mlDrawPlan(ctx,toX,toY,box){
+  const L=mlShown(); if(!L.length)return;
+  ctx.save(); ctx.beginPath(); ctx.rect(box.l,box.t,box.w,box.h); ctx.clip();
+  for(const l of L.filter(l=>l.kind==='lines')){
+    ctx.strokeStyle=l.color; ctx.lineWidth=1.5;
+    for(const it of l.items){
+      ctx.beginPath();
+      it.xy.forEach(([x,y],i)=>i?ctx.lineTo(toX(x),toY(y)):ctx.moveTo(toX(x),toY(y)));
+      if(it.closed)ctx.closePath();
+      ctx.stroke();
+    }
+  }
+  ctx.font='10px sans-serif'; ctx.textAlign='left'; ctx.lineJoin='round';
+  for(const l of L.filter(l=>l.kind==='points'))for(const it of l.items){
+    const px=toX(it.x), py=toY(it.y);
+    ctx.beginPath(); ctx.moveTo(px,py-5); ctx.lineTo(px+4,py); ctx.lineTo(px,py+5); ctx.lineTo(px-4,py); ctx.closePath();
+    ctx.fillStyle=l.color; ctx.fill(); ctx.strokeStyle='#0e131a'; ctx.lineWidth=1; ctx.stroke();
+    if(it.label){ctx.lineWidth=3; ctx.strokeStyle='rgba(14,19,26,.85)'; ctx.strokeText(it.label,px+6,py+3);
+      ctx.fillStyle='#e7ecf2'; ctx.fillText(it.label,px+6,py+3);}
+  }
+  ctx.restore();
+}
+// On a vertical section (mode 'ew' at northing `at`, 'ns' at easting `at`): the points
+// within `tol` of it and the lines crossing it, marked along its top edge
+function mlDrawSection(ctx,mode,at,tol,toH,yTop,box){
+  const L=mlShown(); if(!L.length)return;
+  const along=(x,y)=>mode==='ew'?x:y, across=(x,y)=>mode==='ew'?y:x;
+  ctx.save(); ctx.beginPath(); ctx.rect(box.l,box.t-14,box.w,box.h+14); ctx.clip();
+  const tick=(h,color,label)=>{
+    const px=toH(h);
+    ctx.beginPath(); ctx.moveTo(px-4,yTop-7); ctx.lineTo(px+4,yTop-7); ctx.lineTo(px,yTop); ctx.closePath();
+    ctx.fillStyle=color; ctx.fill();
+    if(label){ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.lineWidth=3; ctx.strokeStyle='rgba(14,19,26,.85)';
+      ctx.strokeText(label,px,yTop-9); ctx.fillStyle='#e7ecf2'; ctx.fillText(label,px,yTop-9);}
+  };
+  for(const l of L){
+    if(l.kind==='points'){for(const it of l.items)if(Math.abs(across(it.x,it.y)-at)<=tol)tick(along(it.x,it.y),l.color,it.label);}
+    else for(const it of l.items){
+      const P=it.closed?[...it.xy,it.xy[0]]:it.xy;
+      for(let i=1;i<P.length;i++){
+        const a0=across(...P[i-1])-at, a1=across(...P[i])-at;
+        if((a0<=0&&a1>0)||(a0>0&&a1<=0)){
+          const f=a0/(a0-a1), h=along(...P[i-1])+f*(along(...P[i])-along(...P[i-1]));
+          const px=toH(h);
+          ctx.strokeStyle=l.color; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(px,yTop); ctx.lineTo(px,yTop+10); ctx.stroke();
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+// The ground under (x, y) in the 3D view: the terrain if the run had one, else the stations' level
+function mlGround(m){
+  if(m.surface){
+    const s=m.surface, X=s.x, Y=s.y, nx=X.length, ny=Y.length;
+    const ix=x=>Math.max(0,Math.min(nx-1,Math.round((x-X[0])/((X[nx-1]-X[0])||1)*(nx-1))));
+    const iy=y=>Math.max(0,Math.min(ny-1,Math.round((y-Y[0])/((Y[ny-1]-Y[0])||1)*(ny-1))));
+    const dz=Math.max(20,0.005*Math.abs(m.z_edges[m.nz]-m.z_edges[0]));
+    return (x,y)=>s.z[iy(y)][ix(x)]+dz;
+  }
+  const zs=m.stations&&m.stations.z;
+  const z=zs&&zs.length?[...zs].sort((a,b)=>a-b)[zs.length>>1]:0;
+  return ()=>z;
+}
+function mlTraces3D(){
+  const L=mlShown(), m=m3dData; if(!L.length||!m)return [];
+  const zAt=mlGround(m), XE=m.x_edges, YE=m.y_edges;
+  const x0=Math.min(XE[0],XE[m.nx]), x1=Math.max(XE[0],XE[m.nx]), y0=Math.min(YE[0],YE[m.ny]), y1=Math.max(YE[0],YE[m.ny]);
+  const inside=(x,y)=>x>=x0&&x<=x1&&y>=y0&&y<=y1;
+  const out=[];
+  for(const l of L){
+    if(l.kind==='points'){
+      const it=l.items.filter(p=>inside(p.x,p.y)); if(!it.length)continue;
+      out.push({type:'scatter3d',mode:'markers+text',name:l.name,x:it.map(p=>p.x),y:it.map(p=>p.y),z:it.map(p=>zAt(p.x,p.y)),
+        text:it.map(p=>p.label||''),textposition:'top center',textfont:{size:10,color:'#e7ecf2'},
+        marker:{size:4,color:l.color,symbol:'diamond',line:{color:'#0e131a',width:1}},
+        hovertemplate:`%{text}<br>${escH(l.name)}<extra></extra>`});
+    }else{
+      const x=[],y=[],z=[];
+      for(const it of l.items){
+        const P=it.closed&&it.xy.length>2?[...it.xy,it.xy[0]]:it.xy;
+        for(const [px,py] of P){
+          if(inside(px,py)){x.push(px);y.push(py);z.push(zAt(px,py));}
+          else if(x.length&&x[x.length-1]!==null){x.push(null);y.push(null);z.push(null);}
+        }
+        x.push(null);y.push(null);z.push(null);
+      }
+      if(x.some(v=>v!==null))out.push({type:'scatter3d',mode:'lines',name:l.name,x,y,z,connectgaps:false,
+        line:{color:l.color,width:4},hovertemplate:`${escH(l.name)}<extra></extra>`});
+    }
+  }
+  return out;
+}
+
+// ══════════════════════════════════════════
+// RUNS OF THE API SERVER — how a run converged, its live curves, and running it again
+// ══════════════════════════════════════════
+const apiRoot=()=>window.GEOINV3D_API||'http://localhost:8000';
+let toastTimer=null;
+function toast(html,ms=9000){
+  const t=$v('toast'); t.innerHTML=html; t.hidden=false;
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.hidden=true;},ms);
+}
+$v('toast').addEventListener('click',e=>{
+  if(e.target.closest('[data-show-jobs]')){window.GeoUpload&&window.GeoUpload.showJobs(); $v('toast').hidden=true;}
+});
+
+// How a run ended against its target misfit (the worker's convergence record), as HTML
+function convergenceHTML(c,cls='det-conv'){
+  if(!c)return '';
+  const ok=c.status==='converged', what={converged:'Converged',at_limit:'Fits, but at the iteration limit',
+    not_converged:'Not converged',stopped:'Stopped early'}[c.status]||c.status;
+  return `<div class="${cls}${cls==='up-conv'?(ok?' ok':' no'):''}"><b class="${ok?'ok':'no'}">${ok?'✓':'⚠'} ${escH(what)}</b>: ${escH(c.reason||'')}`+
+    ((c.advice||[]).length?`<ul>${c.advice.map(a=>`<li>${escH(a)}</li>`).join('')}</ul>`:'')+'</div>';
+}
+
+// Live convergence curves of a running job: φd against its target, and β, both on log scales
+function liveChartSVG(hist,target,maxIter){
+  const W0=600,H0=150,pad={l:44,r:44,t:8,b:20}, pw=W0-pad.l-pad.r, ph=H0-pad.t-pad.b;
+  const pts=hist.filter(h=>h.phi_d>0);
+  if(pts.length<2)return '';
+  const n=Math.max(maxIter||0,pts[pts.length-1].i||pts.length);
+  const lg=v=>Math.log10(Math.max(v,1e-30));
+  const dv=pts.map(h=>lg(h.phi_d)).concat(target?[lg(target)]:[]);
+  const dlo=Math.floor(Math.min(...dv)), dhi=Math.ceil(Math.max(...dv))+(Math.ceil(Math.max(...dv))===Math.floor(Math.min(...dv))?1:0);
+  const bs=pts.filter(h=>h.beta>0).map(h=>lg(h.beta));
+  const blo=bs.length?Math.floor(Math.min(...bs)):0, bhi=bs.length?Math.max(Math.ceil(Math.max(...bs)),blo+1):1;
+  const X=i=>pad.l+pw*(i/(n||1)), Yd=v=>pad.t+ph*(1-(lg(v)-dlo)/(dhi-dlo)), Yb=v=>pad.t+ph*(1-(lg(v)-blo)/(bhi-blo));
+  const line=(arr,fy,c,w=1.8,dash='')=>`<polyline fill="none" stroke="${c}" stroke-width="${w}"${dash?` stroke-dasharray="${dash}"`:''} points="${arr.map(h=>X(h.i).toFixed(1)+','+fy(h).toFixed(1)).join(' ')}"/>`;
+  let g='';
+  for(let e=dlo;e<=dhi;e++){const y=pad.t+ph*(1-(e-dlo)/(dhi-dlo));
+    g+=`<line x1="${pad.l}" x2="${pad.l+pw}" y1="${y}" y2="${y}" stroke="#212b37"/><text x="${pad.l-4}" y="${y+3}" fill="#64B5F6" font-size="9" text-anchor="end">1e${e}</text>`;}
+  for(let e=blo;e<=bhi;e++){const y=pad.t+ph*(1-(e-blo)/(bhi-blo));
+    g+=`<text x="${pad.l+pw+4}" y="${y+3}" fill="#e8a95e" font-size="9">1e${e}</text>`;}
+  for(const i of [0,Math.round(n/2),n])g+=`<text x="${X(i)}" y="${H0-6}" fill="#57677a" font-size="9" text-anchor="middle">${i}</text>`;
+  if(target)g+=`<line x1="${pad.l}" x2="${pad.l+pw}" y1="${Yd(target)}" y2="${Yd(target)}" stroke="#81C784" stroke-dasharray="5 4" stroke-width="1.2"/>`;
+  g+=line(pts.filter(h=>h.beta>0),h=>Yb(h.beta),'#e8a95e',1.4);
+  g+=line(pts,h=>Yd(h.phi_d),'#64B5F6',2);
+  const last=pts[pts.length-1];
+  g+=`<circle cx="${X(last.i)}" cy="${Yd(last.phi_d)}" r="3" fill="#64B5F6"/>`;
+  return `<div class="up-live"><svg viewBox="0 0 ${W0} ${H0}" role="img" aria-label="Data misfit and beta by iteration">${g}</svg>`+
+    `<div class="up-live-k"><span><i style="border-color:#64B5F6"></i>φ<sub>d</sub> (left)</span>`+
+    (target?`<span><i style="border-color:#81C784;border-top-style:dashed"></i>target χ² = N</span>`:'')+
+    `<span><i style="border-color:#e8a95e"></i>β (right)</span><span>iteration ${last.i} of at most ${n}</span>`+
+    (target?`<span>χ²/N = ${(last.phi_d/target).toFixed(2)}</span>`:'')+'</div></div>';
+}
+
+// ── Run a job again on its own input files, with changed settings ──
+// The quick fields edit the parameters' JSON, which can also be edited as a whole.
+const RR={job:null,base:null};
+const RR_FIELDS=[
+  ['Iterations',[['max_iter','Max iterations','int'],['max_irls_iterations','Max IRLS iterations','int']]],
+  ['Regularization',[['norms','Norms p (s, x, y, z)','norms'],['alpha_s','α_s','num'],
+    ['depth_weighting','Cell weighting','sel',[['','(as before)'],['sensitivity','sensitivity'],['depth','depth']]],
+    ['depth_weighting_exponent','Depth weighting β','num'],['bounds_lower','Lower bound','num'],['bounds_upper','Upper bound','num']]],
+  ['Mesh',[['core_cell_m','Horizontal cell (m)','num'],['core_cell_z_m','Vertical cell (m)','num'],
+    ['depth_core_m','Core depth (m)','num'],['pad_distance_m','Padding (m)','num']]],
+];
+function rrGet(p,key){
+  if(key.startsWith('ds')){const [,i,k]=key.split(':');const d=(p.datasets||[])[+i];return d?d[k]:undefined;}
+  return p[key];
+}
+function rrSet(p,key,v){
+  if(key.startsWith('ds')){
+    const [,i,k]=key.split(':'), d=(p.datasets||[])[+i]; if(!d)return;
+    if(v===undefined)delete d[k]; else d[k]=v;
+    if((p.datasets||[]).length===1&&k in p){if(v===undefined)delete p[k]; else p[k]=v;}   // single jobs repeat them
+    return;
+  }
+  if(v===undefined)delete p[key]; else p[key]=v;
+}
+function rrShow(key,type,v){
+  if(v==null)return '';
+  if(type==='norms')return Array.isArray(v)?v.join(', '):'';
+  if(type==='pct')return +(v*100).toPrecision(6);
+  return v;
+}
+function rrRead(type,raw){
+  raw=String(raw).trim();
+  if(raw==='')return undefined;
+  if(type==='sel')return raw;
+  if(type==='norms'){const a=raw.split(/[\s,;]+/).filter(Boolean).map(Number);
+    if(a.length!==4||a.some(x=>!(x>=0&&x<=2)))throw new Error('Norms need four numbers between 0 and 2');return a;}
+  const v=Number(raw); if(!Number.isFinite(v))throw new Error(`“${raw}” is not a number`);
+  if(type==='int'&&!(Number.isInteger(v)&&v>0))throw new Error('Iterations must be whole numbers above 0');
+  return type==='pct'?v/100:v;
+}
+function rrParsed(){return JSON.parse($v('rr-json').value);}
+function rrSync(from){
+  const msg=$v('rr-msg');
+  try{
+    let p=rrParsed();
+    if(from){   // a quick field changed: write it into the JSON
+      rrSet(p,from.dataset.key,rrRead(from.dataset.type,from.value));
+      $v('rr-json').value=JSON.stringify(p,null,1);
+    }
+    $v('rr-json').classList.remove('bad');
+    document.querySelectorAll('#rr-body [data-key]').forEach(el=>{
+      if(el===from)return;
+      const v=rrGet(p,el.dataset.key); el.value=rrShow(el.dataset.key,el.dataset.type,v);
+    });
+    document.querySelectorAll('#rr-body [data-key]').forEach(el=>{
+      el.classList.toggle('changed',JSON.stringify(rrGet(p,el.dataset.key))!==JSON.stringify(rrGet(RR.base,el.dataset.key)));
+    });
+    const manual=RR.base.param_mode==='auto'&&RR_MANUAL.some(k=>JSON.stringify(p[k])!==JSON.stringify(RR.base[k]));
+    msg.innerHTML=manual?'This run was in <b>auto</b> mode: changing a regularization setting makes the new run a <b>manual</b> one, with the worker’s defaults for the settings not given.':'';
+    msg.style.color='';
+    return p;
+  }catch(err){
+    if(!from)$v('rr-json').classList.add('bad');
+    msg.textContent='⚠ '+err.message; msg.style.color='var(--red)';
+    return null;
+  }
+}
+const RR_MANUAL=['norms','alpha_s','alpha_x','alpha_y','alpha_z','bounds_lower','bounds_upper','depth_weighting',
+  'depth_weighting_exponent','beta0_ratio','cooling_factor','beta_selection','l1_ratio'];
+function rrWhere(w){
+  document.querySelectorAll('#rr-where button').forEach(b=>b.classList.toggle('active',b.dataset.where===w));
+  $v('rr-inst').hidden=w!=='aws'; RR.where=w;
+}
+async function openRerun(jobId,label,preset){
+  let d;
+  try{
+    const r=await fetch(`${apiRoot()}/api/inversion/${encodeURIComponent(jobId)}/params`);
+    d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+  }catch(err){toast(`⚠ Could not load the job's settings: ${escH(err.message)}`);return;}
+  const base=d.params; delete base.task_id;
+  RR.job=jobId; RR.base=JSON.parse(JSON.stringify(base));
+  const groups=RR_FIELDS.map(g=>[g[0],g[1]]);
+  const ds=(base.datasets||[]).map((x,i)=>[[`ds:${i}:noise_pct`,`${x.type||x.method} error (% of |d|)`,'pct'],[`ds:${i}:noise_floor`,`${x.type||x.method} noise floor`,'num']]).flat();
+  if(ds.length)groups.push(['Data errors',ds]);
+  const auto=base.param_mode==='auto';
+  $v('rr-sub').innerHTML=`${escH(label||jobId)} · on its own input files (${d.files.map(escH).join(', ')}). `+
+    'Change what you want to test; the new run joins this workspace, next to this one in the workflow.';
+  $v('rr-body').innerHTML=groups.map(([title,fields])=>`<div class="rr-g">${escH(title)}</div><div class="rr-grid">`+
+    fields.map(([key,lab,type,opts])=>`<div class="rr-f"><label class="up-lbl" for="rr-f-${escH(key)}">${escH(lab)}</label>`+
+      (type==='sel'?`<select id="rr-f-${escH(key)}" class="up-in" data-key="${escH(key)}" data-type="sel">${opts.map(([v,t])=>`<option value="${v}">${t}</option>`).join('')}</select>`
+        :`<input id="rr-f-${escH(key)}" class="up-in" data-key="${escH(key)}" data-type="${type}" type="text" inputmode="decimal" placeholder="${auto&&RR_MANUAL.includes(key)?'auto':'default'}">`)+
+      '</div>').join('')+'</div>').join('')+
+    `<details><summary>All parameters (JSON)</summary><textarea id="rr-json" class="rr-json" spellcheck="false"></textarea></details>`+
+    '<div class="rr-f-msg" id="rr-msg"></div>';
+  $v('rr-json').value=JSON.stringify(base,null,1);
+  rrSync();
+  if(preset)for(const [k,v] of Object.entries(preset)){const el=document.querySelector(`#rr-body [data-key="${k}"]`);if(el){el.value=v;rrSync(el);}}
+  rrWhere(d.backend==='local'?'local':'aws');
+  $v('rr-inst').value=d.instance_type&&d.instance_type!=='local'?d.instance_type:'c5.2xlarge';
+  $v('rr-note').value=(d.note?d.note+' · ':'')+'re-run';
+  $v('rr-dlg').showModal();
+}
+window.openRerun=openRerun;
+$v('rr-body').addEventListener('input',e=>{
+  if(e.target.id==='rr-json'){rrSync();return;}
+  if(e.target.dataset.key)rrSync(e.target);
+});
+$v('rr-body').addEventListener('change',e=>{if(e.target.tagName==='SELECT'&&e.target.dataset.key)rrSync(e.target);});
+$v('rr-where').addEventListener('click',e=>{const b=e.target.closest('[data-where]');if(b)rrWhere(b.dataset.where);});
+$v('rr-cancel').addEventListener('click',()=>$v('rr-dlg').close());
+$v('rr-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const p=rrSync(); if(!p)return;
+  const go=$v('rr-go'); go.disabled=true; go.textContent='⏳ Starting…';
+  try{
+    const body={params:p,backend:RR.where,instance_type:$v('rr-inst').value,note:$v('rr-note').value.trim()};
+    if(WS.id)body.workspace_id=WS.id;
+    const r=await fetch(`${apiRoot()}/api/inversion/${encodeURIComponent(RR.job)}/rerun`,
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    $v('rr-dlg').close();
+    toast(`▶ Started <code>${escH(d.job_id)}</code> ${RR.where==='local'?'on this computer':'on AWS'}. `+
+      'It appears in the workflow when it finishes. <a data-show-jobs>Follow it on the Jobs page</a>');
+    window.GeoUpload&&window.GeoUpload.jobStarted();
+  }catch(err){$v('rr-msg').textContent='⚠ '+err.message; $v('rr-msg').style.color='var(--red)';}
+  go.disabled=false; go.textContent='▶ Run';
+});
 
 // ══════════════════════════════════════════
 // MESH DESIGN — data spacing and recommended cells.
@@ -4815,7 +5432,123 @@ window.GeoPreview=GeoPreview;
   const fmtLen=m=>m==null||!isFinite(m)?'—':m>=1000?+(m/1000).toPrecision(4)+' km':+m.toPrecision(4)+' m';
   const fmtInt=n=>Math.round(n).toLocaleString('en-US');
   const fmtBytes=b=>b>=1e9?(b/1e9).toFixed(1)+' GB':(b/1e6).toFixed(b>=1e7?0:1)+' MB';
-  const ramBytes=()=>(INSTANCE_RAM_GB[$u('upload-instance').value]||16)*1e9;
+  // ── Where jobs run: this computer (the API server's own cores and memory) or AWS ──
+  const ENV={health:null,est:null};
+  let where='local';
+  try{where=localStorage.getItem('geoinv3d.where')==='aws'?'aws':'local';}catch(e){}
+  const localMem=()=>ENV.health&&ENV.health.local&&ENV.health.local.memory_gb;
+  const ramBytes=()=>(where==='local'?(localMem()||16):(INSTANCE_RAM_GB[$u('upload-instance').value]||16))*1e9;
+  async function loadEnv(){
+    try{const r=await fetch(apiBase()+'/api/health'); if(r.ok)ENV.health=await r.json();}catch(e){}
+    try{const r=await fetch(apiBase()+'/api/estimates'); if(r.ok)ENV.est=await r.json();}catch(e){}
+    if(ENV.health&&ENV.health.comparisons_dir)
+      $u('up-cmps-where').textContent=`several results in one workflow, kept on this machine (${ENV.health.comparisons_dir})`;
+    renderWhere();
+  }
+  function renderWhere(){
+    document.querySelectorAll('#up-where button').forEach(b=>b.classList.toggle('active',b.dataset.where===where));
+    $u('up-where-aws').hidden=where!=='aws';
+    const L=ENV.health&&ENV.health.local, aws=ENV.health;
+    $u('up-where-local').innerHTML=where==='local'
+      ?(L?`<b>${L.cpus} cores, ${L.memory_gb} GB</b> on the computer running the API server · free, starts at once`+
+          ` · ${L.max_jobs>1?`up to ${L.max_jobs} jobs at a time`:'jobs run one after another'}`:'The computer running the API server: free, starts at once.')
+      :(aws?`${escH(aws.backend==='batch'?'AWS Batch':'EC2')} in ${escH(aws.region||'')}`+(aws.aws_configured?'':' · <span class="up-warn">no AWS credentials found on this machine</span>')+
+          ' · billed per hour while the instance runs':'');
+    $u('up-compute-note').textContent=`The recommended mesh keeps the sensitivity matrix within half of the ${where==='local'?'computer’s':'instance’s'} memory.`;
+    if(analysis)recommend();
+    renderEstimate();
+  }
+  $u('up-where').addEventListener('click',e=>{
+    const b=e.target.closest('[data-where]'); if(!b)return;
+    where=b.dataset.where; try{localStorage.setItem('geoinv3d.where',where);}catch(err){}
+    renderWhere();
+    if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+  });
+  $u('up-preview').addEventListener('change',()=>{renderEstimate();if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}});
+
+  // ── Run time and cost: setup + rate × data × cells × iterations (× 2 for a joint run). The
+  // rates come from the server (/api/estimates: its finished jobs, else defaults). ──
+  const DEFAULT_RATE={local:6e-9,'c5.xlarge':3.2e-8,'c5.2xlarge':1.6e-8,'c5.4xlarge':8e-9,'c5.9xlarge':4e-9};
+  const PREVIEW_FACTOR=2;   // cells ×2 each way, data thinned ×2: 8 times fewer cells, 4 times fewer data
+  function machineRate(machine){
+    const r=ENV.est&&ENV.est.rates&&ENV.est.rates[machine];
+    return r?{rate:r.rate,n:r.n}:{rate:DEFAULT_RATE[machine]||1.6e-8,n:0};
+  }
+  function setupSeconds(kind){
+    const st=ENV.est&&ENV.est.setup&&ENV.est.setup[kind];
+    return st?st.seconds:{local:5,ec2:90,batch:240}[kind]||90;
+  }
+  const fmtSec=t=>t<60?Math.max(1,Math.round(t))+' s':t<3600?Math.round(t/60)+' min':(t/3600).toFixed(1)+' h';
+  const fmtRange=(a,b)=>{const A=fmtSec(a),B=fmtSec(b);return A===B?'≈ '+A:A.split(' ')[1]===B.split(' ')[1]?`${A.split(' ')[0]}–${B}`:`${A} – ${B}`;};
+  function currentMaxIter(){
+    const id=paramMode==='auto'?'up-auto-maxit':'up-maxit', v=+$u(id).value;
+    return Number.isFinite(v)&&v>0?v:30;
+  }
+  // One job's time on a machine, from its size estimate (null: not timed per iteration)
+  function jobSeconds(e,machine,kind,maxIter,joint,scale=1){
+    if(e.cda||e.gl)return null;
+    const r=machineRate(machine), work=e.entries*scale*(joint?(ENV.est&&ENV.est.joint_factor)||2:1);
+    const setup=setupSeconds(kind);
+    return {lo:setup+work*Math.max(1,Math.round(0.5*maxIter))*r.rate,hi:setup+work*maxIter*r.rate,setup,n:r.n};
+  }
+  function estimateHTML(jobs){
+    let e=null;
+    try{e=sizeEstimate(jobs);}catch(err){}
+    if(!e)return '';
+    const s=selection(), joint=s&&s.mode==='joint', n=jobs?jobs.length:1, maxIter=currentMaxIter();
+    const preview=$u('up-preview').checked, inst=$u('upload-instance').value;
+    const kind=where==='local'?'local':(ENV.health&&ENV.health.backend)||'ec2';
+    const machine=where==='local'?'local':inst;
+    const ram=where==='local'?localMem():INSTANCE_MEM_GB[inst];
+    const lines=[]; let level='';
+    const t=jobSeconds(e,machine,kind,maxIter,joint);
+    const where_=where==='local'?'on this computer':`on ${escH(inst)}`;
+    const cal=t&&t.n?` <span class="up-en">(timed on ${t.n} finished job${t.n>1?'s':''} ${where==='local'?'here':'of this type'})</span>`
+      :' <span class="up-en">(a default rate: finished jobs refine it)</span>';
+    if(t){
+      const many=n>1?(where==='local'?` for ${n} jobs, one after another`:` for each of ${n} jobs, in parallel`):'';
+      const lo=where==='local'?t.lo*n:t.lo, hi=where==='local'?t.hi*n:t.hi;
+      lines.push(`⏱ <b>${fmtRange(lo,hi)}</b> ${where_}${many}`+(where==='aws'?`, including ≈ ${fmtSec(t.setup)} to start the instance`:'')+cal);
+      if(where==='aws'){
+        const price=PRICE_PER_HOUR[inst]||0;
+        lines.push(`💲 ≈ $${(price*t.lo/3600*n).toFixed(2)}–${(price*t.hi/3600*n).toFixed(2)}${n>1?' in all':''} (${escH(inst)} at $${price}/h)`);
+      }
+    }else lines.push(`⏱ The run time of ${e.cda?'the L1–L2 coordinate-descent path':'the group-lasso sweep'} depends on its λ path: no estimate`);
+    if(ram){
+      const fits=e.gb<=ram;
+      lines.push(`💾 ≈ <b>${e.gb.toFixed(1)} GB</b> of the ${ram} GB ${where==='local'?'of this computer':'of '+escH(inst)}`+
+        (fits?'':` — <span class="up-err">too large${where==='local'?': run it on AWS, or preview it here first':''}</span>`));
+      if(!fits)level='bad'; else if(e.gb>0.75*ram)level='warn';
+    }
+    if(preview){
+      const tp=jobSeconds(e,'local','local',maxIter,joint,1/(PREVIEW_FACTOR**3*PREVIEW_FACTOR**2));
+      const gbp=e.gb/(PREVIEW_FACTOR**5);
+      lines.push(`👁 Preview (cells ×${PREVIEW_FACTOR}, data thinned to match): `+(tp?`<b>${fmtRange(tp.lo*n,tp.hi*n)}</b> on this computer`:'on this computer')+
+        `, ${gbp<0.1?'< 0.1':'≈ '+gbp.toFixed(1)} GB; then the full run ${where==='local'?'here':'on '+escH(inst)} from its card`);
+    }
+    return `<div class="up-estimate ${level}">${lines.join('<br>')}</div>`;
+  }
+  function renderEstimate(){
+    const box=$u('up-estimate'); if(!box)return;
+    if(!analysis||!analysis.extent){box.innerHTML='';return;}
+    let jobs=null; try{jobs=buildJobs();}catch(err){}
+    box.innerHTML=estimateHTML(jobs);
+  }
+  // A preview of a job: cells PREVIEW_FACTOR times larger each way, and its gravity and
+  // magnetic data thinned to PREVIEW_FACTOR times their spacing
+  function previewParams(p){
+    const q=JSON.parse(JSON.stringify(p)), f=PREVIEW_FACTOR;
+    q.core_cell_m=p.core_cell_m*f; q.core_cell_z_m=p.core_cell_z_m*f;
+    q.depth_core_m=Math.max(p.depth_core_m,q.core_cell_z_m);
+    (q.datasets||[]).forEach(d=>{
+      if(!['gravity','magnetic'].includes(d.type))return;
+      const c=analysis&&analysis.counts&&analysis.counts.find(x=>x.d.t.key===d.type);
+      const sp=d.decimate_spacing_m||(c&&c.spacing);
+      if(sp)d.decimate_spacing_m=+(sp*f).toPrecision(6);
+    });
+    if(q.mesh_design)q.mesh_design={...q.mesh_design,preview_factor:f};
+    return q;
+  }
 
   function selectionKey(){
     const s=selection(); if(!s)return '';
@@ -4890,7 +5623,7 @@ window.GeoPreview=GeoPreview;
         `core <b>${fmtLen(r.depth_core_m)}</b> deep, <b>${fmtLen(r.pad_distance_m)}</b> padding.<br>`+
         `<span class="up-en">Cells match the ${fmtLen(analysis.spacing)} data spacing${finest&&analysis.ds.length>1?' of '+finest.t.label.toLowerCase():''}; `+
         `core depth and padding are half the ${fmtLen(r.survey_width_m)} survey width.`+
-        (r.coarsened_from?` Cells were enlarged from ${fmtLen(r.coarsened_from)} to stay within the budget (≤ ${fmtInt(GeoMesh.MAX_CELLS)} cells, sensitivities ≤ half the instance RAM).`:'')+
+        (r.coarsened_from?` Cells were enlarged from ${fmtLen(r.coarsened_from)} to stay within the budget (≤ ${fmtInt(GeoMesh.MAX_CELLS)} cells, sensitivities ≤ half the memory).`:'')+
         (analysis.ds.length>1&&selection().mode==='separate'?' Separate jobs all use these settings.':'')+
         `</span></div><button type="button" class="up-btn" id="up-mesh-reset"${meshEdited?'':' disabled'}>Use recommended</button>`;
       $u('up-mesh-reset').onclick=()=>{meshEdited=false;setMeshInputs(recommended);renderMesh();};
@@ -4903,7 +5636,8 @@ window.GeoPreview=GeoPreview;
     const n=shape[0]*shape[1]*shape[2], g=analysis.nData*n*4, ram=ramBytes();
     const octree=$u('upload-mesh').value==='octree';
     const warn=[];
-    if(g>0.5*ram)warn.push(`the sensitivity matrix (${fmtBytes(g)}) exceeds half of the ${$u('upload-instance').value} RAM — use larger cells or a bigger instance`);
+    if(g>0.5*ram)warn.push(`the sensitivity matrix (${fmtBytes(g)}) exceeds half of the memory of ${where==='local'?'this computer':$u('upload-instance').value} — use larger cells, `+
+      (where==='local'?'a preview, or AWS':'or a bigger instance'));
     if(n>GeoMesh.MAX_CELLS)warn.push(`more than ${fmtInt(GeoMesh.MAX_CELLS)} cells — runs will be slow`);
     if(v.core_cell_m<0.5*analysis.spacing)warn.push('cells much finer than the data spacing add cost but little resolution');
     est.innerHTML=`${octree?'Tensor-equivalent size':'Mesh size'}: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `+
@@ -4911,6 +5645,7 @@ window.GeoPreview=GeoPreview;
       (octree?'<br><span class="up-en">OcTree keeps the finest cells only near the surface, so it uses fewer cells than this.</span>':'')+
       (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
       warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
+    renderEstimate();
   }
 
   function readMesh(){
@@ -5180,7 +5915,7 @@ window.GeoPreview=GeoPreview;
     STOPPED:{label:'Stopped — result not fetched',cls:'q',phase:4},
     SUCCEEDED:{label:'Finished',cls:'ok',phase:4}, FAILED:{label:'Failed',cls:'fail',phase:4},
     CANCELLED:{label:'Stopped',cls:'off',phase:4}, UNKNOWN:{label:'Unknown',cls:'off',phase:0}};
-  const STAGES={launching:'Launching the EC2 instance',bootstrapping:'Installing the software on the instance (a few minutes)',
+  const STAGES={queued:'Queued on this computer',launching:'Launching the EC2 instance',bootstrapping:'Installing the software on the instance (a few minutes)',
     sending_data:'Sending the code and data to the instance',starting:'Starting the worker',downloading:'Downloading data from S3',loading_data:'Reading the data',
     building_mesh:'Building the mesh',inverting:'Inverting',uploading:'Uploading results',
     collecting:'Downloading the result, then shutting the instance down',done:'Done',failed:'Failed'};
@@ -5189,7 +5924,7 @@ window.GeoPreview=GeoPreview;
   const OVERFIT=0.5;   // the overfitting alarm: φd below this share of its target (χ² = N)
   const fmtDur=ms=>{const s=Math.max(0,Math.round(ms/1000));
     return s<60?s+' s':s<3600?Math.floor(s/60)+' min '+(s%60)+' s':Math.floor(s/3600)+' h '+Math.floor(s%3600/60)+' min';};
-  let jobsTimer=null, jobsCache=[];
+  let jobsTimer=null, jobsCache=[], jobsSeen={};   // job id -> status at the last refresh
 
   async function loadJobs(){
     clearTimeout(jobsTimer);
@@ -5201,13 +5936,19 @@ window.GeoPreview=GeoPreview;
       if(!r.ok)throw new Error('HTTP '+r.status);
       jobsCache=(await r.json()).jobs||[];
       note.innerHTML=`<span style="color:var(--green)">●</span> ${escH(apiBase())} · updated ${new Date().toLocaleTimeString()}`;
+      // a job that ended since the last refresh: the workspace's runs and counts follow at once
+      const ended=jobsCache.some(j=>jobsSeen[j.job_id]&&ACTIVE(jobsSeen[j.job_id])&&!ACTIVE(j.display_status));
+      jobsSeen=Object.fromEntries(jobsCache.map(j=>[j.job_id,j.display_status]));
+      if(ended){wsRefresh(); loadEnv();}   // and a finished job refines the time estimates
       renderJobs();
       loadComparisons();
-      if(step===S.JOBS&&jobsCache.some(j=>ACTIVE(j.display_status)))jobsTimer=setTimeout(loadJobs,15000);
+      // jobs on this computer report every few seconds; AWS jobs are polled less often
+      const active=jobsCache.filter(j=>ACTIVE(j.display_status));
+      if(step===S.JOBS&&active.length)jobsTimer=setTimeout(loadJobs,active.some(j=>j.backend==='local')?3000:15000);
     }catch(err){
       note.innerHTML=`<span class="up-err">● API not reachable at ${escH(apiBase())}</span>`;
       $u('up-jobs').innerHTML=`<div class="up-card up-note">The job list comes from the GeoInv3D API server on this machine. `+
-        `Start it with <code>python -m geoinv3d.api</code> (it uses this machine's AWS credentials), then press Refresh.</div>`;
+        `Start it with <code>python -m geoinv3d.api</code> (jobs on AWS use this machine's AWS credentials), then press Refresh.</div>`;
     }
   }
 
@@ -5303,12 +6044,13 @@ window.GeoPreview=GeoPreview;
   $u('up-cmp-clear').addEventListener('click',()=>{picked.clear();renderJobs();});
 
   function jobCard(j){
-    const st=STATUS[j.display_status]||STATUS.UNKNOWN, now=Date.now();
+    const local=j.backend==='local';
+    const st=local&&j.display_status==='RUNNABLE'?{...STATUS.RUNNABLE,label:'Queued'}:STATUS[j.display_status]||STATUS.UNKNOWN, now=Date.now();
     const phases=PHASES.map((p,i)=>`<span class="up-ph${i<st.phase||(i===st.phase&&st.phase===4)?' done':''}${i===st.phase&&st.phase<4?' now':''}">${p}</span>`).join('');
     // EC2 jobs are billed from the instance launch, Batch jobs from the container start
     const started=j.backend==='ec2'?j.created:j.started, stopped=j.stopped;
-    const runMs=started?(stopped||now)-started:0, price=PRICE_PER_HOUR[j.instance_type];
-    const meta=[`Job <code>${escH(j.job_id)}</code>`, j.instance_type&&escH(j.instance_type),
+    const runMs=started?(stopped||now)-started:0, price=local?0:PRICE_PER_HOUR[j.instance_type];
+    const meta=[`Job <code>${escH(j.job_id)}</code>`, local?'this computer':j.instance_type&&escH(j.instance_type),
       j.submitted_at&&`submitted ${new Date(j.submitted_at).toLocaleString()}`,
       started&&`${stopped||!ACTIVE(j.display_status)?'ran':'running for'} ${fmtDur(runMs)}`+(price?` · ≈ $${(price*runMs/3.6e6).toFixed(2)}`:''),
       !started&&ACTIVE(j.display_status)&&j.created&&`waiting ${fmtDur(now-j.created)}`].filter(Boolean).join(' · ');
@@ -5323,6 +6065,8 @@ window.GeoPreview=GeoPreview;
           (cda?`λ point ${p.iteration} of ${p.max_iter}`:`iteration ${p.iteration} of at most ${p.max_iter}`)+
           (p.phi_d!=null?` · φ<sub>d</sub> = ${fmtN(p.phi_d)}`+(p.phi_d_target?` (target ${fmtN(p.phi_d_target)})`:''):'')+'</div>';
       }
+      // the curves so far: is the misfit still falling towards its target?
+      if(p.stage==='inverting'&&(p.history||[]).length>1&&!cda)body+=liveChartSVG(p.history,p.phi_d_target,p.max_iter);
       // Overfitting: the misfit far below its target means the model now fits the noise
       if(p.stage==='inverting'&&p.phi_d!=null&&p.phi_d_target&&p.phi_d<OVERFIT*p.phi_d_target&&!j.finish_requested){
         body+=`<div class="up-alarm"><b>⚠ Overfitting</b>: φ<sub>d</sub> = ${fmtN(Math.round(p.phi_d))} is `+
@@ -5346,12 +6090,13 @@ window.GeoPreview=GeoPreview;
         body+=`<div class="up-warn" style="font-size:11px">⏹ Stopped early at your request`+
           (e.at_iteration!=null?` after ${e.at_iteration}${e.of?' of '+e.of+' λ points':' iterations'}`:'')+' — the result was kept.</div>';
       }
+      body+=convergenceHTML(s.convergence,'up-conv');
       (s.notes||[]).forEach(n=>{body+=`<div class="up-warn" style="font-size:11px">⚠ ${escH(n)}</div>`;});
     }
     if(j.display_status==='FAILED'){
       body+=`<div class="up-err">${escH((s&&s.error)||j.reason||'The job failed')}</div>`;
     }
-    if(j.refresh_error)body+=`<div class="up-warn" style="font-size:11px">Could not refresh from AWS: ${escH(j.refresh_error)}</div>`;
+    if(j.refresh_error)body+=`<div class="up-warn" style="font-size:11px">Could not refresh the job: ${escH(j.refresh_error)}</div>`;
     const title=[j.inversion_mode==='joint'?'Joint':j.method, j.regularization_type, j.variant].filter(Boolean).join(' · ');
     const pick=j.display_status==='SUCCEEDED'?`<label class="up-pick"><input type="checkbox" data-pick="${escH(j.job_id)}"${picked.has(j.job_id)?' checked':''}> Compare</label>`:'';
     return `<div class="up-card up-job">
@@ -5361,13 +6106,19 @@ window.GeoPreview=GeoPreview;
       <div class="up-job-meta">${meta}</div>
       ${body}
       <div class="up-row">
-        ${j.display_status==='RUNNING'&&j.backend==='ec2'&&!j.finish_requested?`<button type="button" class="up-btn up-btn-sm up-btn-primary" data-finish="${escH(j.job_id)}" title="End the inversion after its current iteration and save the result">⏹ Stop &amp; keep result</button>`:''}
+        ${j.display_status==='RUNNING'&&(j.backend==='ec2'||local)&&!j.finish_requested?`<button type="button" class="up-btn up-btn-sm up-btn-primary" data-finish="${escH(j.job_id)}" title="End the inversion after its current iteration and save the result">⏹ Stop &amp; keep result</button>`:''}
         ${ACTIVE(j.display_status)?`<button type="button" class="up-btn up-btn-sm up-btn-danger" data-stop="${escH(j.job_id)}" title="Terminate the instance now: the result so far is lost">■ Terminate</button>`:''}
         <button type="button" class="up-btn up-btn-sm" data-logs="${escH(j.job_id)}">Log</button>
         ${j.display_status==='STOPPED'?`<button type="button" class="up-btn up-btn-sm" data-fetch="${escH(j.job_id)}">⟳ Fetch result</button>`:''}
         ${j.display_status==='SUCCEEDED'?`<button type="button" class="up-btn up-btn-sm up-btn-primary" data-view="${escH(j.job_id)}">📊 View in DAG</button>`:''}
         ${j.display_status==='SUCCEEDED'?`<a class="up-btn up-btn-sm" href="${escH(apiBase())}/api/inversion/${encodeURIComponent(j.job_id)}/result" download>⬇ Download result</a>`:''}
+        ${j.display_status==='SUCCEEDED'&&j.preview&&j.rerun?`<button type="button" class="up-btn up-btn-sm up-btn-primary" data-full="${escH(j.job_id)}" title="The settings this job previews, at full resolution">🚀 Run at full resolution</button>`:''}
+        ${!ACTIVE(j.display_status)&&j.rerun?`<button type="button" class="up-btn up-btn-sm" data-rerun-job="${escH(j.job_id)}" title="Same data, changed settings">↻ Run again with changes…</button>`:''}
+        ${j.display_status==='SUCCEEDED'&&s&&s.convergence&&s.convergence.at_iteration_limit&&s.convergence.status!=='converged'&&j.rerun
+          ?`<button type="button" class="up-btn up-btn-sm" data-rerun-job="${escH(j.job_id)}" data-more="${2*s.convergence.max_iter}">↻ With ${2*s.convergence.max_iter} iterations…</button>`:''}
       </div>
+      ${j.parent_job?`<div class="up-job-meta">from <code>${escH(j.parent_job)}</code>`+
+        (j.changes?': '+Object.entries(j.changes).slice(0,6).map(([k,v])=>`${escH(k)} = ${escH(JSON.stringify(v)).slice(0,40)}`).join(' · '):'')+'</div>':''}
       <pre class="up-logs" data-job="${escH(j.job_id)}" hidden></pre>
     </div>`;
   }
@@ -5387,9 +6138,11 @@ window.GeoPreview=GeoPreview;
   async function stopJob(id){
     const j=jobsCache.find(x=>x.job_id===id);
     const running=j&&['STARTING','RUNNING'].includes(j.display_status);
-    const ec2=j&&j.backend==='ec2';
-    const keep=ec2&&j.display_status==='RUNNING'?'\n\nTo keep the result so far, cancel and use “Stop & keep result” instead.':'';
-    if(!confirm(`Terminate job ${id}?\n\n`+(ec2
+    const ec2=j&&j.backend==='ec2', local=j&&j.backend==='local';
+    const keep=(ec2||local)&&j.display_status==='RUNNING'?'\n\nTo keep the result so far, cancel and use “Stop & keep result” instead.':'';
+    if(!confirm(`Terminate job ${id}?\n\n`+(local
+      ?(running?'The inversion on this computer stops now and its results so far are LOST.':'The job is taken off this computer’s queue.')
+      :ec2
       ?'The EC2 instance is terminated now: the inversion stops, its results so far are LOST, and billing stops.'
       :running
       ?'The running inversion is terminated and its results are lost. AWS stops charging once the instance shuts down.'
@@ -5446,7 +6199,26 @@ window.GeoPreview=GeoPreview;
     if(box.checked)picked.add(box.dataset.pick); else picked.delete(box.dataset.pick);
     renderPicked();
   });
+  // A preview's full-resolution run, where the preview was meant to go
+  async function runFull(id,btn){
+    const label=btn.textContent; btn.disabled=true; btn.textContent='⏳ Starting…';
+    try{
+      const body={full:true}; if(WS.id)body.workspace_id=WS.id;
+      const r=await fetch(`${apiBase()}/api/inversion/${encodeURIComponent(id)}/rerun`,
+        {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+      showStatus(`<div style="color:#81C784;">✓ Full-resolution run started: <code>${escH(d.job_id)}</code></div>`);
+      wsRefresh();
+    }catch(err){showStatus(`<div class="up-err">⚠ Could not start the full run: ${escH(err.message)}</div>`);}
+    btn.disabled=false; btn.textContent=label;
+    loadJobs();
+  }
+
   $u('up-jobs').addEventListener('click',e=>{
+    const full=e.target.closest('[data-full]'), rr=e.target.closest('[data-rerun-job]');
+    if(full)runFull(full.dataset.full,full);
+    if(rr){const j=jobsCache.find(x=>x.job_id===rr.dataset.rerunJob);
+      openRerun(rr.dataset.rerunJob,j&&([j.method,j.regularization_type,j.note].filter(Boolean).join(' · ')),rr.dataset.more?{max_iter:rr.dataset.more}:null);}
     const view=e.target.closest('[data-view]');
     if(view)viewInDag(view.dataset.view,view);
     const cmp=e.target.closest('[data-compare]'), save=e.target.closest('[data-save]');
@@ -5508,7 +6280,8 @@ window.GeoPreview=GeoPreview;
       ['Topography',topoFile?`DEM: ${escH(topoFile.name)}`:`Flat at ${escH(p.topography.flat_elevation)} m`],
       ['Mesh',`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
         (cells?` · ≈ ${fmtInt(cells)} cells`:'')+(meshEdited?' (edited)':recommended?' (recommended)':'')],
-      ['Compute',escH($u('upload-instance').selectedOptions[0].textContent)],
+      ['Compute',($u('up-preview').checked?'Preview on this computer first, then ':'')+
+        (where==='local'?'this computer':'AWS · '+escH($u('upload-instance').selectedOptions[0].textContent))],
       ['Regularization',regTxt],
       ['Iterations',s.gl?`ADMM max ${p.gl_max_iter??3000} per λ1, stopping on the primal and dual residuals (10⁻⁴)`
         :`max ${p.max_iter??30} · IRLS max ${p.max_irls_iterations??30}`],
@@ -5523,13 +6296,17 @@ window.GeoPreview=GeoPreview;
     }
     if(jobs.length>1){
       const inst=$u('upload-instance').value;
-      rows.push(['Jobs',`${jobs.length} in parallel · ${jobs.map(j=>escH(j.variant||j.method)).join(' · ')}`+
-        `<br><span class="up-en">${jobs.length} × ${escH(inst)} = ${(INSTANCE_VCPU[inst]||8)*jobs.length} of ${VCPU_LIMIT} vCPUs; `+
-        `≈ $${(PRICE_PER_HOUR[inst]*jobs.length).toFixed(2)} per hour while they run</span>`]);
+      rows.push(['Jobs',(where==='local'||$u('up-preview').checked
+        ?`${jobs.length} on this computer, one after another`:`${jobs.length} in parallel`)+` · ${jobs.map(j=>escH(j.variant||j.method)).join(' · ')}`+
+        (where==='aws'?`<br><span class="up-en">${jobs.length} × ${escH(inst)} = ${(INSTANCE_VCPU[inst]||8)*jobs.length} of ${VCPU_LIMIT} vCPUs; `+
+        `≈ $${(PRICE_PER_HOUR[inst]*jobs.length).toFixed(2)} per hour while they run</span>`:'')]);
     }
     $u('up-review').innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
-    $u('upload-submit').textContent=jobs.length>1?`🚀 Submit ${jobs.length} jobs to AWS`:'🚀 Submit inversion job to AWS';
+    const nj=jobs.length>1?`${jobs.length} jobs`:'';
+    $u('upload-submit').textContent=$u('up-preview').checked?`▶ Run the preview${nj?' of '+nj:''} on this computer`
+      :where==='local'?`▶ Run ${nj||'it'} on this computer`:`🚀 Submit ${nj||'the job'} to AWS (${$u('upload-instance').value})`;
     renderSizeCheck(jobs);
+    $u('up-estimate-review').innerHTML=estimateHTML(jobs);
   }
 
   // ── Size check: the dense sensitivity matrix of a potential-field job against the
@@ -5550,7 +6327,7 @@ window.GeoPreview=GeoPreview;
   }
   const bigCount=v=>v>=1e9?(v/1e9).toFixed(2)+' billion':v>=1e6?(v/1e6).toFixed(0)+' million':fmtInt(v);
   function sizeEstimate(jobs){
-    const s=selection(), p=jobs[0].params, m=meshParams();
+    const s=selection(), p=jobs&&jobs[0]?jobs[0].params:{}, m=meshParams();
     if(!s||!analysis||!analysis.extent||!analysis.counts)return null;
     const pf=s.types.filter(t=>t.key==='gravity'||t.key==='magnetic');
     if(!pf.length)return null;
@@ -5775,9 +6552,9 @@ window.GeoPreview=GeoPreview;
     }else if(jobs.length>1){   // separate inversions of several data types
       jobs.forEach(j=>{j.variant=j.method;j.params.group={id:gid,label:'Separate inversions',variant:j.method};});
     }
-    // All the jobs run at once, one instance each: stay within the vCPU limit
+    // On AWS the jobs run at once, one instance each: stay within the vCPU limit
     const inst=$u('upload-instance').value, vcpu=(INSTANCE_VCPU[inst]||8)*out.length;
-    if(vcpu>VCPU_LIMIT)throw new Error(`${out.length} jobs on ${inst} need ${vcpu} vCPUs, more than the ${VCPU_LIMIT} allowed — use fewer values or a smaller instance`);
+    if(where==='aws'&&!$u('up-preview').checked&&vcpu>VCPU_LIMIT)throw new Error(`${out.length} jobs on ${inst} need ${vcpu} vCPUs, more than the ${VCPU_LIMIT} allowed — use fewer values or a smaller instance`);
     return out;
   }
 
@@ -5822,19 +6599,25 @@ window.GeoPreview=GeoPreview;
     const btn=$u('upload-submit'), label=btn.textContent;
     btn.disabled=true; btn.textContent='⏳ Uploading...';
     showStatus(`<span style="color:#64B5F6;">Submitting ${jobs.length} job${jobs.length>1?'s':''}...</span>`);
-    const apiBase=window.GEOINV3D_API||'http://localhost:8000';
-    const rows=[];
+    const rows=[], inst=$u('upload-instance').value, preview=$u('up-preview').checked;
     for(const job of jobs){
       const fd=new FormData();
       job.files.forEach(f=>fd.append('files',f));
+      let params={...job.params,mesh_type:$u('upload-mesh').value}, note=$u('upload-note').value;
+      if(preview){   // a coarse run here; the full run is kept for its card's button
+        const full=JSON.parse(JSON.stringify(params)); delete full.group;
+        params={...previewParams(params),preview_of:{params:full,backend:where,instance_type:inst}};
+        note=(note?note+' · ':'')+`preview (cells ×${PREVIEW_FACTOR})`;
+      }
       fd.append('method',job.method);
       fd.append('mesh_type',$u('upload-mesh').value);
-      fd.append('instance_type',$u('upload-instance').value);
-      fd.append('note',$u('upload-note').value);
-      fd.append('params_json',JSON.stringify({...job.params,mesh_type:$u('upload-mesh').value}));
+      fd.append('backend',preview?'local':where);
+      fd.append('instance_type',inst);
+      fd.append('note',note);
+      fd.append('params_json',JSON.stringify(params));
       if(WS.id)fd.append('workspace_id',WS.id);   // the job joins the workspace on screen
       try{
-        const resp=await fetch(apiBase+'/api/inversion/submit',{method:'POST',body:fd});
+        const resp=await fetch(apiBase()+'/api/inversion/submit',{method:'POST',body:fd});
         if(!resp.ok)throw new Error('HTTP '+resp.status+([403,409,500].includes(resp.status)?': '+((await resp.json().catch(()=>({}))).detail||''):''));
         const r=await resp.json();
         rows.push(`<div style="color:#81C784;">✓ ${escH(job.variant||job.method)} — Job ID <span style="color:var(--accent);">${escH(r.job_id||'N/A')}</span></div>`);
@@ -5844,13 +6627,19 @@ window.GeoPreview=GeoPreview;
     }
     const failed=rows.some(r=>r.includes('up-err')), anyOk=rows.some(r=>!r.includes('up-err'));
     btn.textContent=label; btn.disabled=false;
-    if(anyOk){await goTo(S.JOBS); wsRefresh();}
-    const where=anyOk&&WS.id?`<div style="font-size:11px;color:var(--text3);margin-top:6px;">Saved in the workspace “${escH(WS.name)}”: finished runs appear in its Workflow tab.</div>`:'';
-    showStatus(rows.join('')+where+(failed?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Make sure the backend API is running (python -m geoinv3d.api)</div>':''));
+    if(anyOk){await goTo(S.JOBS); wsRefresh(); loadEnv();}
+    const saved=anyOk&&WS.id?`<div style="font-size:11px;color:var(--text3);margin-top:6px;">Saved in the workspace “${escH(WS.name)}”: finished runs appear in its Workflow tab.</div>`:'';
+    showStatus(rows.join('')+saved+(failed?'<div style="font-size:11px;color:var(--text3);margin-top:6px;">Make sure the backend API is running (python -m geoinv3d.api)</div>':''));
   });
 
   refresh();
   showStep(S.DATA);
+  loadEnv();
+  // for the rest of the page: the Jobs page, and a job started elsewhere (a re-run)
+  window.GeoUpload={
+    showJobs:()=>{switchTab('upload'); goTo(S.JOBS);},
+    jobStarted:()=>{wsRefresh(); if(step===S.JOBS)loadJobs();},
+  };
 })();
 </script>
 </body>

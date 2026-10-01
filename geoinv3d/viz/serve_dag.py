@@ -59,8 +59,10 @@ def _compact_workflow(data: dict) -> dict:
                 compact_node[key] = node[key]
         nodes.append(compact_node)
     result = {"version": data.get("version", 1), "nodes": nodes}
-    if "created" in data:
-        result["created"] = data["created"]
+    # created; map layers drawn over the results; the runs that could not be shown
+    for key in ("created", "map_layers", "skipped"):
+        if key in data:
+            result[key] = data[key]
     return result
 
 

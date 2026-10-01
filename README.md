@@ -169,6 +169,30 @@ python examples/lambda_selection_benchmark.py     # discrepancy vs L-curve vs GC
 The generated `*_viewer.html` files open directly in a browser (no server needed).
 Outputs go to `examples/output/<example>/` (tables, JSON and figures).
 
+## The Upload Page: Inversions from the Browser
+
+```bash
+python -m geoinv3d.api            # then open http://127.0.0.1:8000/
+```
+
+Drop the data on the page, check the area, mesh and model, choose the inversion, and run
+it **on this computer** (free, no set-up; jobs queue one at a time, `--local-jobs N` for
+more) or **on AWS** (EC2 or Batch, with this machine's AWS credentials). Before
+submitting, the page estimates the run time, the memory and (on AWS) the cost; the rates
+come from the jobs that finished here, so the estimates improve with use. *Preview first*
+runs the job with cells twice as large on this computer, and its card then starts the
+full-resolution run, here or on AWS, with one click.
+
+While a job runs, its card draws the data misfit against its target (chi^2 = N) and beta
+at every iteration; at the end it says whether the run converged or why not (iteration
+limit, IRLS limit) and offers the fix. Any finished job can be run again on its own files
+with changed settings (iterations, norms, weighting, bounds, mesh, data errors, or all
+parameters as JSON), from its card or from its node in the workflow; the new run joins the
+workspace's workflow next to the old one. Map layers (GeoJSON or CSV: mines, towns,
+geological outlines) are drawn over the 3D view, the depth slice, the sections and the
+data-fit maps; a workspace keeps them for all its runs, and a workflow file can carry its
+own (`map_layers`).
+
 ## How the DAG Works
 
 The DAG pattern is adapted from [jif3d_visualization](https://git.tu-berlin.de/applied-geophysics/jif3d_visualization.git). The core idea:

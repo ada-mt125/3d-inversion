@@ -27,6 +27,8 @@ sys.path.insert(0, str(OUT.parents[1]))
 from geoinv3d.methods.coupling import coupling_label   # noqa: E402
 from geoinv3d.viz.result_workflow import build_workflow, load_result   # noqa: E402
 from geoinv3d.viz.serve_dag import generate_viewer   # noqa: E402
+sys.path.insert(0, str(HERE.parent / "shared"))
+import literature   # noqa: E402  (the localities and the schematic geology, as map layers)
 
 GRAVITY = {"original_sparse": "original sparse (α_s=1e-4, sensitivity)", "l1l2_irls": "L1–L2 (IRLS)",
            "as1_beta0.5": "sparse α_s=1, β=0.5", "as1_beta1": "sparse α_s=1, β=1",
@@ -172,7 +174,10 @@ def build(study, with_2km=False):
     """The workflow and viewer of one study, in its folder; returns the viewer's path."""
     runs = STUDIES[study](with_2km)
     dest = DEST[study]
-    dest.write_text(json.dumps(build_workflow(runs), separators=(",", ":")), encoding="utf-8")
+    workflow = build_workflow(runs)
+    # the mines, towns and schematic geology, drawn over every run (3D view, slices, data maps)
+    workflow["map_layers"] = literature.map_layers()
+    dest.write_text(json.dumps(workflow, separators=(",", ":")), encoding="utf-8")
     viewer = generate_viewer(str(dest))
     print(f"{study}: {len(runs)} runs ->", viewer, f"{Path(viewer).stat().st_size / 1e6:.0f} MB")
     return viewer

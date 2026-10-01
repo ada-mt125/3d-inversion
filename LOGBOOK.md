@@ -1351,3 +1351,46 @@ The magnetic sheets are 1-5 km wide at 1 km cells; their susceptibility x width 
 up to 2 SI·km) would need 3.6-13.5 SI in a single 150 m layer: several bands, and the thickness
 of one is below the resolution (the 37.5 m survey grid, 80 m AGL, 300 m NE-SW lines across the
 belt, could resolve them).
+
+---
+
+## 2026-10-01 — The upload page runs inversions on this machine; previews, estimates, live curves, re-runs, map layers
+
+An end-to-end check of the upload page (drop a file, set up, submit, view) worked, but only
+through a test harness: jobs could only go to AWS. Changes, as agreed with the user:
+
+- **Local backend** (`geoinv3d/cloud/local.py`): a job is a child process
+  (`python -m geoinv3d.cloud.local <job dir>`) running the same worker as EC2; jobs queue (one
+  at a time by default, `--local-jobs N`), the server follows them through their files, so they
+  outlive a restart; cancel, stop-and-keep and failure without an exit code are handled. The
+  server routes each request by the job's `backend` (local, ec2, batch); `/api/health` reports
+  this machine's cores and memory. On the page: *This computer* or *AWS* in the Compute card.
+- **Previews**: *Preview first* runs the job here with cells ×2 (data thinned ×2); the
+  full-resolution settings go with it (`preview_of`) and its card starts them, here or on AWS.
+  The server now keeps every job's inputs (`~/.geoinv3d/inputs/<task>/`).
+- **Estimates** (`/api/estimates`): time ≈ setup + rate × data × cells × iterations (×2 joint),
+  rates per machine from finished jobs (defaults from the Karnataka EC2 runs: 8e-9 s on
+  c5.4xlarge), memory against the machine's, cost on AWS; shown in the Compute card and Review.
+- **Convergence** (`worker.assess_convergence`): a discrepancy-principle run converged when
+  chi^2/N <= 1.1 before its iteration limit. "Converged: Yes" was set for every run that the
+  user did not stop (the Karnataka auto run ended at 30 iterations with chi^2/N 1.41); now
+  `result["convergence"]` says why not (iteration limit, IRLS limit) with advice, shown on the
+  job card and the node, with a one-click run with twice the iterations. L-curve/GCV, the CDA
+  path, the group lasso and PGI keep their own flags.
+- **Live curves**: progress.json carries the iterations so far (`history`); the card draws φd
+  against chi^2 = N and β while the job runs (local jobs report every 2 s).
+- **Re-runs**: `/api/inversion/{id}/rerun` runs a job again on its kept files with changed
+  parameters (quick fields for iterations, norms, weighting, bounds, mesh, data errors, or the
+  whole JSON), from its card or its node; a changed regularization makes an auto job manual.
+  On the test data: 2 km, 30 iterations χ²/N 1.41 → 1 km, 60 iterations, converged at 0.96.
+- **Map layers**: GeoJSON/CSV points and outlines (degrees projected to UTM, km read as m) over
+  the 3D view, the depth slice, the sections (where they cross) and the data-fit maps; kept per
+  workspace (`/api/workspaces/{id}/layers`) or carried by a workflow (`map_layers`). The
+  Karnataka viewers carry the mines, towns, belt outline and ridges
+  (`literature.map_layers()`, `karnataka_inputs/shared/karnataka_map_layers.geojson`).
+- **Page fixes**: the header counts follow at once when a job ends (the workspace refresh
+  adapts: 4 s with local jobs running, 20 s with AWS jobs, 60 s idle, and stops for a deleted
+  workspace); the texts no longer assume AWS; results show where they ran; narrow windows
+  stack the side panels; a workflow laid out while its tab was hidden is redrawn when shown;
+  the depth slice starts at the top layer that holds rock (it opened in the air above a flat
+  earth); the re-run dialog is centred.

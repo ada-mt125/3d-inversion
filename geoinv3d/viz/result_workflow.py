@@ -378,7 +378,7 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
     every cell of the first run's mesh; a dict {method: model} (e.g. "gravity",
     "magnetics") gives each property of a joint study its own true model.  Each run needs ``_data`` with
     stations, observed, std and predicted data; ``_backend`` (default "ec2")
-    labels where it ran, ``_study`` (optional) the study it belongs to (see :func:`_data_key`).
+    labels where it ran, ``_job_id`` (with ``_rerun``: its inputs were kept) the API job, ``_study`` (optional) the study it belongs to (see :func:`_data_key`).
     ``_overlay`` = {"model": values on the run's cells, "label", "unit"} adds a second layer
     to the run's 3D view, drawn on its own scale (another property on the same mesh); the two
     models of a joint run get each other as overlay.  A joint run with per-dataset data shows as one run per
@@ -514,6 +514,8 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
         out = {
             "type": "InversionResult", "method": run_method,
             "converged": run.get("converged", True), "n_iterations": run.get("n_iterations"),
+            # how the run ended against its target misfit (worker.assess_convergence)
+            **({"convergence": run["convergence"]} if run.get("convergence") else {}),
             "iterations": run.get("iterations", []), "regularization": run.get("regularization"),
             "final_model": {"prop": prop, "unit": model_unit, "n_cells": int(len(run["_model"])),
                             "min": float(run["_model"].min()), "max": float(run["_model"].max()),
@@ -568,6 +570,9 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             params["notes"] = run["notes"]
         node = {"id": 10 + i, "order": next(order), "type": "RegularizedInversionNode", "name": name,
                 "inputs": inputs, "params": params, "output": out}
+        if run.get("_job_id"):   # a job of the API server: the page can run it again with changes
+            node["job"] = {"id": run["_job_id"], "rerun": bool(run.get("_rerun")),
+                           "backend": run.get("_backend", "ec2")}
         if path is not None:
             node["branch"] = {"level": "run", "label": name, "path": path}
         nodes.append(node)

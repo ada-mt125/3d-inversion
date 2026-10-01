@@ -15,7 +15,9 @@ each study folder holds the code, the runs and the figures of its report.
 
 `shared/`: `kmodel.py` (models on the mesh with terrain and their measures), `style.py` (the report
 page), `literature.py` (the references, the mine and occurrence positions and the schematic map of the
-mineral report).
+mineral report, also as map layers of the viewers), `karnataka_map_layers.geojson` (the same layers
+for the upload page: add it in a workspace's 3D view with *＋ Add map layer*;
+`scripts/export_map_layers.py` writes it).
 
 ## Running it on another machine
 
@@ -51,7 +53,8 @@ The variants of each case are in `deploy/ec2_multi_run.py` (gravity, magnetics) 
 (`karnataka_gravity_terrain/karnataka_gravity_terrain.geoinv3d_viewer.html`, 20 MB;
 `karnataka_magnetic/karnataka_magnetic.geoinv3d_viewer.html`, 29 MB;
 `karnataka_joint/karnataka_joint.geoinv3d_viewer.html`, 101 MB) are not in the repository; the
-scripts above make them from the results.
+scripts above make them from the results. They carry the mines, towns, the schist belt and its
+ridges as map layers, drawn over the 3D view, the depth slice, the sections and the data maps.
 
 ## Preparing the inputs again (`scripts/prepare_inputs.py`)
 
