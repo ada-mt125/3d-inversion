@@ -23,6 +23,3 @@ examples/output/karnataka_joint/*_viewer.html
 # leftovers of unfinished local tests (30 September)
 examples/output/karnataka_joint/figures_test/
 examples/output/karnataka_joint/data/lowres_runs/log_g*.txt
-# the runs of the three Karnataka studies, a viewer each (build_all_workflow.py)
-examples/output/karnataka_inputs/karnataka_*_runs.geoinv3d.json
-examples/output/karnataka_inputs/karnataka_*_runs_viewer.html

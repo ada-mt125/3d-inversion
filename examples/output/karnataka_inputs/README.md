@@ -31,14 +31,21 @@ Everything the inversions need is in this folder (the prepared inputs are in the
     py examples/output/karnataka_gravity_terrain/scripts/run_lowres.py
     py examples/output/karnataka_joint/scripts/run_lowres.py none cross_gradient
 
-    # figures, report and PDF (headless Chrome or Edge), and the interactive viewer of all runs
+    # figures, report and PDF (headless Chrome or Edge)
     py examples/output/karnataka_joint/scripts/make_figures.py
     py examples/output/karnataka_joint/scripts/build_report.py --pdf
+
+    # the interactive viewers, one per study, each in its folder (the 1 km runs; --with-2km
+    # adds the 2 km studies): all three, or one study's with its scripts/build_workflow.py
+    py examples/output/karnataka_inputs/build_all_workflow.py
     py examples/output/karnataka_joint/scripts/build_workflow.py
 
 The variants of each case are in `deploy/ec2_multi_run.py` (gravity, magnetics) and in
-`karnataka_joint/scripts/joint_params.py` (joint).  The workflow viewers (`*_viewer.html`, 25-30 MB
-each) are not in the repository; `build_workflow.py` makes them from the results.
+`karnataka_joint/scripts/joint_params.py` (joint).  The workflow viewers
+(`karnataka_gravity_terrain/karnataka_gravity_terrain.geoinv3d_viewer.html`, 20 MB;
+`karnataka_magnetic/karnataka_magnetic.geoinv3d_viewer.html`, 29 MB;
+`karnataka_joint/karnataka_joint.geoinv3d_viewer.html`, 101 MB) are not in the repository; the
+scripts above make them from the results.
 
 ## Preparing the inputs again (`prepare_inputs.py`)
 
