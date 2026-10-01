@@ -265,9 +265,13 @@ def figures(S, segs, N):
     for i, s in enumerate(segs[:8], 1):
         ax.annotate(f"F{i}", (s["easting"], s["northing"]), fontsize=8, fontweight="bold", color="#7b241c",
                     xytext=(6, 6), textcoords="offset points", path_effects=halo)
+    if S["remanent_main"].any():
+        Y, X = np.meshgrid(S["yc"], S["xc"], indexing="ij")
+        ax.annotate("R1", (float(X[S["remanent_main"]].mean()), float(Y[S["remanent_main"]].min())), fontsize=8,
+                    fontweight="bold", color="#4a235a", xytext=(-14, -10), textcoords="offset points", path_effects=halo)
     ax.legend(handles=[Patch(fc="#8c8c8c", label=f"iron-formation horizon within {MINE_KM:g} km of a located mine"),
                        Patch(fc="#c0392b", label=f"iron-formation horizon farther from them (F1, F2, …)"),
-                       Patch(fc="#6c3483", label="remanent zone south of Kumaraswamy (MVI)"),
+                       Patch(fc="#6c3483", label="remanent zone south of Kumaraswamy (R1, MVI)"),
                        Patch(fc="#e9f2e4", ec="#2d4f2a", label="schist belts (schematic)")],
               loc="lower right", fontsize=7.5, framealpha=0.93)
     ax.set_aspect("equal")
@@ -281,6 +285,10 @@ def main():
     S = screens()
     segs = segments(S)
     N = numbers(S, segs)
+    # how the models sit against the published localities and the schematic map (validation.py)
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from validation import numbers as validation
+    N["validation"] = validation()
     figures(S, segs, N)
     (FIGS / "numbers.json").write_text(json.dumps(N, indent=1), encoding="utf-8")
     print("figures and numbers in", FIGS)

@@ -4,8 +4,7 @@
     py examples/output/karnataka_magnetic/scripts/build_report.py [--pdf]
 
 Every number in the text comes from figures/numbers.json, except the table of the synthetic
-test of 28 September (LOGBOOK.md) and the published values of Section 6 (the sources cited there;
-localities and references in karnataka_inputs/shared/literature.py).
+test of 28 September (LOGBOOK.md).
 """
 
 from __future__ import annotations
@@ -17,8 +16,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "shared"))
 from style import Figures, esc, page, table, to_pdf  # noqa: E402
-from literature import (GOLD, LEGEND, LIT_CSS, MINES, RIDGE_MIN_M, RIDGE_RELIEF_M, cite,  # noqa: E402
-                        references_html)
 
 FIGS = ROOT / "figures"
 N = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
@@ -34,9 +31,6 @@ KEYS = [k for k, _ in FULL]
 SHALLOW = ["beta0.5", "beta1", "l1l2_irls"]
 OUT = ROOT / "karnataka_magnetic_report_en.html"
 RUNS = N["runs"]
-LIT = N["literature"]
-REF_KEYS = ["MM93", "GSI", "IJERT", "MEAI", "ROM", "IBMK", "IBMN", "GEM", "SK18", "SB14", "SIN20", "BHAT25", "NMET",
-            "MGR23"]
 
 
 def label(key):
@@ -53,11 +47,6 @@ def pct(x):
 
 def span(values, fmt="{:.2f}"):
     return f"{fmt.format(min(values))}–{fmt.format(max(values))}"
-
-
-def km(x):
-    """A distance in the text: 1 decimal, without a trailing .0."""
-    return f"{x:.1f}".removesuffix(".0")
 
 
 def warn(text, bad):
@@ -146,98 +135,6 @@ SYNTHETIC = table(
      ["L1–L2 (IRLS)", "1.00", "0.60", "3.9 km", "6.7 km", "65°"]], compact=True)
 
 
-def localities_table():
-    """Section 6.2: distances from the published localities to strong columns of the models."""
-    head = ["Locality", "Source", "E, N (km)", "To strong susceptibility (km)", "Area as close",
-            "To dense column (km)", "Area as close", "To strong MVI amplitude (km)", "Area as close"]
-    what = {**{n: f"iron, {op}" if op else "iron" for n, _, _, _, op in MINES},
-            "Joga": "gold in BIF quartz veins", "Taranagar": "gold in sulphidic chert"}
-    source = {n: k for n, _, _, k, *_ in MINES + GOLD}
-    rows = []
-    for i, r in enumerate(LIT["distances"]["chi"]):
-        cells = [f"{r['name']} ({what[r['name']]})", cite(source[r["name"]]), f"{r['x']:.1f}, {r['y']:.1f}"]
-        for k in ("chi", "rho", "mvi"):
-            q = LIT["distances"][k][i]
-            cells += [f"{q['distance_km']:.1f}", pct(q["area_as_close"])]
-        rows.append(cells)
-    return table(head, rows, numeric_from=2)
-
-DIST = {k: {r["name"]: r for r in LIT["distances"][k]} for k in ("chi", "rho", "mvi")}
-FAR, RG, MINE_NAMES = LIT["farthest_mine"], LIT["ridges"], LIT["mines"]
-GOLD_NAMES = [r["name"] for r in LIT["distances"]["chi"] if r["kind"] == "gold"]
-GOLD_WHAT = {n: w for n, _, _, _, w in GOLD}
-WORDS = {0: "none", 1: "one", 2: "two", 3: "three", 4: "all four"}
-
-
-def area_range(k, names):
-    """The share of the area as close to a strong column as the closest and the farthest of ``names``."""
-    a = [DIST[k][n]["area_as_close"] for n in names]
-    return f"{pct(min(a))} to {pct(max(a))}" if pct(min(a)) != pct(max(a)) else pct(a[0])
-
-
-def geology(fig):
-    """Section 6, the literature cross-check of 1 October: the models against the published geology."""
-    th, W, K, C, U = LIT["thresholds"], LIT["within_dense"], LIT["kumaraswamy"], LIT["belt_contrast"], LIT["underfit"]
-    on_ridge = max(LIT["mine_to_ridge_km"].values())
-    on_ridge = "them" if on_ridge < 0.45 else f"or within {km(on_ridge)} km of them"     # 0.45 km: one DEM cell
-    outside_far = 1 - RG["chi"]["outside_within_2km"]
-    mvi_ok = [m for m in MINE_NAMES if DIST["mvi"][m]["distance_km"] <= FAR["chi"] + 1e-9]
-    mvi_out = [m for m in MINE_NAMES if m not in mvi_ok]
-    mvi = (f"The MVI amplitude, which has fewer strong columns ({RG['mvi']['n']} against {RG['chi']['n']}), puts "
-           f"{WORDS[len(mvi_ok)]} of them within {km(FAR['chi'])} km of one ({area_range('mvi', mvi_ok)} of the area)"
-           + ("" if not mvi_out else " and " + ", ".join(f"{m} {km(DIST['mvi'][m]['distance_km'])} km" for m in mvi_out)
-              + " away") + ".")
-    gold_far = [g for g in GOLD_NAMES if DIST["chi"][g]["distance_km"] > FAR["chi"] + 1e-9]
-    gold_head = ("Gold is not where the magnetic rock is." if len(gold_far) == len(GOLD_NAMES)
-                 else "The gold is only partly where the magnetic rock is." if gold_far
-                 else "The gold is where the magnetic rock is, too.")
-    jo, ta = (DIST["chi"][g] for g in GOLD_NAMES)
-    gold_dense = max(DIST["rho"][g]["distance_km"] for g in GOLD_NAMES)
-    gold_dense = "in the dense belt" if gold_dense == 0 else f"in, or within {km(gold_dense)} km of, the dense belt"
-    ratio = C["chi_near"] / C["chi_between"]
-    chi_word = ("higher at the ridges" if ratio >= 1.25 else "slightly higher at the ridges" if ratio > 1.02
-                else "about the same at the ridges" if ratio >= 0.98 else "lower at the ridges")
-    centroids = [box(k)["centroid_km"] for k in SHALLOW]
-    mag = LIT["mvi"]
-    return f"""
-<h2><span class="no">6</span>Comparison with the published geology</h2>
-<div class="added">Added 1 October 2026 · literature cross-check</div>
-<div class="prose">
-<p>The models were built without the geological map. This section asks whether the magnetic rock of the models is where the iron formation of the Sandur belt is mapped and mined, and what the published work says about the parts of the models that cannot be checked from the data.</p>
-</div>
-<h3><span class="no">6.1</span>Where the iron formation is mapped</h3>
-<div class="prose">
-<p>The Sandur belt is a ring of elongated hills, 900 to 1,050 m above sea level, around a lower centre: the Copper Mountain range in the east and the Sandur range in the west {cite('MEAI')}. The hills are held up by the banded iron formation, which carries the iron ore of six ranges (Donimalai, Kumaraswamy, Ramandurg, Kanavehalli, Devagiri and Thimmappanagudi) and, with it, the manganese ore of the Deogiri Formation, discontinuous over about 40 km of strike {cite('GSI', 'IJERT')}. The Donimalai iron formation is made of amphibole, hematite, magnetite and chert {cite('ROM')}.</p>
-<p>In Figure {fig.ref('localities')} the narrow highs and lows of the anomaly as flown follow the ridges of the DEM, and every mine lies on {on_ridge}. The two limbs and the south-eastern closure of Section 2.4 are the western range, the eastern range and the Kumaraswamy–Donimalai hills.</p>
-</div>
-{fig('localities', f"Published localities on the ground elevation (left) and on the magnetic anomaly as flown, 80 m above the ground (right). {LEGEND} Sources: {cite('IBMK', 'IBMN', 'GEM', 'SB14', 'SIN20', 'NMET')}.")}
-<div class="prose">
-<p>Figure {fig.ref('schematic')} draws the ridges of the DEM as a schematic map and lays its outline over the anomaly and the model. The magnetic rock of the model is drawn to the ridges but not confined to them. Of its strongly magnetic columns (integrated susceptibility ≥ {th['chi']:g} SI·km, the 5 km edge band left out), {pct(RG['chi']['near'])} lie within {km(RG['near_km'])} km of a ridge, where {pct(RG['area_near'])} of the area does, and {pct(RG['chi']['in_belt'])} inside the envelope of the ridges, which covers {pct(RG['area_in_belt'])} of the area; for the MVI amplitude the two shares are {pct(RG['mvi']['near'])} and {pct(RG['mvi']['in_belt'])}. {"Most" if outside_far > 0.5 else "Part"} of the rest lies away from the belt ({pct(outside_far)} of the strongly magnetic columns outside the envelope are more than 2 km from it): the north–south sheets and the corner bodies of Section 2.4.</p>
-</div>
-{fig('schematic', f"(a) A schematic drawn for this report from the 450 m DEM of the inputs; it is not a geological map. The ridges (dark green) are where the ground stands more than {RIDGE_RELIEF_M:.0f} m above the median of a 12 km window, and above {RIDGE_MIN_M:.0f} m; they are read as ridges of iron formation because the iron formation holds up the hills of the belt {cite('MEAI')}. The outline of the schist belt (light green) is the envelope of the ridges, and the central metavolcanic terrane between them is labelled after the structural study of the belt {cite('MM93')}. The mapped belt continues north-west beyond the envelope. (b) The magnetic anomaly as flown, 80 m above the ground, and (c) the vertically integrated susceptibility (β = 1), with the envelope (solid line) and the ridges (dotted) of (a). {LEGEND}")}
-
-<h3><span class="no">6.2</span>Do the models put magnetic rock under the mines?</h3>
-{fig('localities_models', f"The published localities on the vertically integrated density contrast (left, gravity with terrain, β = 1) and susceptibility (right, β = 1) of Figure {fig.ref('gravity')}. Green lines: the thresholds of the table below, {th['rho']:g} g/cc·km and {th['chi']:g} SI·km. {LEGEND}")}
-{localities_table()}
-<p class="note">Distance from each locality to the nearest 1 km column with integrated susceptibility ≥ {th['chi']:g} SI·km (β = 1, Figure {fig.ref('gravity')}), integrated density contrast ≥ {th['rho']:g} g/cc·km (gravity with terrain, β = 1) and integrated MVI amplitude ≥ {th['mvi']:g} SI·km (the magnetization-vector run with β = 1 of the joint report, <code>data/ec2_runs/beta1_mvi</code>). "Area as close" is the share of the area ({LIT['edge_km']:.0f} km edge band excluded) that lies at least as close to such a column: a small share means the locality is not where a random point would fall. The distances are computed from the models, between the centres of the 1 km columns, so they are good to one cell; the positions are good to about 1 km.</p>
-<div class="prose"><ul class="plain">
-  <li><b>All four iron-ore mines lie on or within {km(FAR['chi'])} km of a strongly magnetic column</b>, a condition met by only {area_range('chi', MINE_NAMES)} of the area, and on or within {km(FAR['rho'])} km of a dense column ({area_range('rho', MINE_NAMES)} of the area). {mvi} Kumaraswamy, at the south-eastern closure, sits on a column of {K['value']:.1f} SI·km, stronger than {pct(K['share_box_below'])} of the columns of the Sandur belt box of Section 2.2; at 5 km resolution the strongest magnetic rock of the belt lies {km(K['smooth_max_km'])} km from it.</li>
-  <li><b>Within the belt the test is weaker.</b> Of the cells within {km(W['dense_km'])} km of a dense column (edge band excluded), {pct(W['share'])} are also within {km(W['magnetic_km'])} km of a strongly magnetic one. The mines confirm that the models place the magnetic rock in the right belt and on its margins; at 1 km cells they cannot show that the models pick the mined ridge rather than its neighbour.</li>
-  <li><b>{gold_head}</b> The Joga occurrence ({GOLD_WHAT['Joga']}) is {km(jo['distance_km'])} km from the nearest strongly magnetic column, a distance within which {pct(jo['area_as_close'])} of the area lies, and the Taranagar occurrence ({GOLD_WHAT['Taranagar']}) {km(ta['distance_km'])} km ({pct(ta['area_as_close'])}) {cite('SB14', 'SIN20')}. Both lie {gold_dense}. Sulphide-facies iron formation, which hosts this gold, carries little magnetite, so a weak magnetic response there is expected.</li>
-</ul></div>
-
-<h3><span class="no">6.3</span>What the published work says about the rest</h3>
-<div class="prose"><ul class="plain">
-  <li><b>The synform.</b> Section 2.3 reads the bowl of magnetic rock as a synform with iron formation on its limbs, the traditional view of the belt. A structural study disputes it: two metasedimentary belts flank a central metavolcanic terrane and do not join at either end, bedding is steep (strike 115° to 150° in the east), and the early folds are near-isoclinal and plunge about 45° to the north {cite('MM93')}. The stratigraphy points the same way. The iron formation is a layer of the greenstone succession, not a body enclosed by it: a greenstone belt is the whole Archaean supracrustal pile of mafic and ultramafic volcanics, minor felsic volcanics and sediments, and its iron formation, mostly of Algoma type (single layers a few metres to a few hundred metres thick and kilometres to tens of kilometres long), is a chemical sediment interbedded with volcanics, chert and clastics, typically laid down at the end of a volcanic cycle. It lies conformably in the upper part of the succession and hosts the ore: the supergene iron ore of Kumaraswamy and Donimalai, and the gold of Joga and Taranagar in iron formation or sulphidic chert. In the west of the Sandur belt the sequence runs from metabasalt at the base through quartzite, carbonate, greywacke and argillite to manganiferous phyllite with chert, with the iron formation at the top {cite('MM93')}, and the Geological Survey places the assemblage in the Bababudan type, iron formation over mafic volcanics and quartzite {cite('GSI')}. Stratigraphically above is not shallower, though: with steep bedding and near-isoclinal D1 folds, the iron formation appears in section as thin, near-vertical sheets on both sides of the belt, not as a layer over the greenstone. In a simple synform the youngest unit, the iron formation, would lie in the core of the belt and the older metabasalt outside it. The models show the reverse, more clearly in the dense rock than in the magnetic: inside the envelope of the Sandur belt (Figure {fig.ref('schematic')}) the integrated density contrast is higher between the ridges than within {km(RG['near_km'])} km of them ({C['rho_between']:.1f} against {C['rho_near']:.1f} g/cc·km), the integrated susceptibility is {chi_word} ({C['chi_near']:.2f} against {C['chi_between']:.2f} SI·km), and the magnetic sheets reach the surface at the ridges (Section 2.3). This fits the reading of Mukhopadhyay &amp; Matin, two iron-bearing metasedimentary belts flanking a central metavolcanic terrane, better than a simple synform: in plan the models are consistent with the stratigraphy. The base of the bowl should still not be interpreted; the steep sheets reaching the surface are the reliable part.</li>
-  <li><b>Depth of the ore.</b> The ore bodies are shallow: at Kumaraswamy two E–W bands 1.2 and 3.5 km long with a mean drilled depth of 62 to 70 m {cite('IBMK')}; at Donimalai supergene enrichment reaches ore grade in the upper 170 m {cite('ROM')}. A ground magnetic survey in the western part of the belt put the tops of two iron-formation bands at about 70 and 130 m {cite('SK18')}. All of this lies within the top cell of the mesh (250 m). The centroid depths of Section 2 ({min(centroids):.1f} to {max(centroids):.1f} km for the three recommended settings) describe the belt of iron formation as a whole, not the ore.</li>
-  <li><b>Remanence.</b> The underfitted high of Section 2.1 lies at and south of the Kumaraswamy leases, the richest part of the belt: of the {U['n']} nodes the β = 1 model underfits by more than {U['threshold_nT']:.0f} nT, {U['within_5km_of_kumaraswamy']} lie within 5 km of the mine, {U['south_of_kumaraswamy']} of them south of it. The ore is a hematite and magnetite assemblage altered from the iron formation {cite('ROM', 'BHAT25')}. No palaeomagnetic measurements from the belt were found, so the magnetization direction of the MVI run of the joint report (I {mag['inclination']:.0f}°, D {nt(mag['declination'])}°) is untested.</li>
-  <li><b>The north-eastern belt.</b> It runs south-east into the Mincheri block, where a reconnaissance survey mapped narrow ridges of banded hematite quartzite, ferruginous chert and magnetite quartzite of low grade, with sporadic copper (up to 4,767 ppm in one sample) {cite('NMET')}. Maurya et al. report a previously unmapped arm of the schist belt from gravity and magnetic data {cite('MGR23')}; whether it is this belt cannot be told from the abstract.</li>
-  <li><b>The north–south sheets and the corner bodies</b> of Section 2.4 have no counterpart in the sources found, and they lie outside the envelope of the ridges (Figure {fig.ref('schematic')}). This supports the caution given there.</li>
-</ul></div>
-<div class="callout"><b>For this report.</b> The magnetic models find the iron formation where it is mapped and mined: both ranges, the south-eastern closure and every iron mine. What they add beyond the map (depth, the base of the bowl, cell values) is not confirmed by the literature, and the ore itself is far below their resolution.</div>
-"""
-
-
 # ---------------------------------------------------------------- text
 
 def body(fig):
@@ -248,7 +145,7 @@ def body(fig):
     res = N["residual"]
     return f"""
 <header>
-  <div class="eyebrow">GeoInv3D · field-data test · 30 September 2026 · literature cross-check 1 October 2026</div>
+  <div class="eyebrow">GeoInv3D · field-data test · 30 September 2026</div>
   <h1>Karnataka Magnetic Inversion: Comparing Regularizations</h1>
   <p class="lede">The airborne magnetic data of the area of the gravity comparison, continued upwards and inverted at full resolution on AWS EC2, with the terrain in the mesh. Seven regularization settings are compared for data fit, lateral structure and depth, and six further runs test the choices made in preparing the data.</p>
   <dl class="meta">
@@ -269,7 +166,6 @@ def body(fig):
     <li><b>The residuals are not random.</b> Every model leaves the positive anomaly on the southern side of the Sandur belt underfitted by more than 150 nT. A model magnetized only along the present field does not explain the belt completely; remanent magnetization of the iron formation is the likely reason.</li>
     <li><b>Susceptibility values are not rock values.</b> The compact models hold most magnetic cells at the 1 SI bound; with a bound of 0.3 SI the same data are fitted by a body {box('beta1_ub0.3')['volume_half_km3'] / box('beta1')['volume_half_km3']:.1f} times the size. What the data constrain is the product: {V['moment']} SI·km³ in the Sandur belt for β ≤ 2 and L1–L2.</li>
     <li><b>The magnetic and the dense rock are related but not the same.</b> The magnetic sheets lie along the margins of the dense belt and inside it; column by column the two integrated models correlate at only {G['corr_integrated']:.2f}.</li>
-    <li><b>Against the published geology</b> (Section 6). All four iron-ore mines of the belt lie on or within {km(FAR['chi'])} km of a strongly magnetic column, which only {area_range('chi', MINE_NAMES)} of the area does. Of the strongly magnetic columns, {pct(RG['chi']['near'])} lie within {km(RG['near_km'])} km of a ridge held up by the iron formation, against {pct(RG['area_near'])} of the area. The ore bodies themselves are less than 200 m deep and far below the resolution of the models.</li>
     <li><b>Recommendation.</b> Continue the data upwards to about one cell above the ground; sparse with α<sub>s</sub> = 1 and depth weighting β between 0.5 and 1, with L1–L2 as an independent check; report the depth as a range and the susceptibility as a product with volume.</li>
   </ul>
 </section>
@@ -331,7 +227,7 @@ def body(fig):
   <li><b>β sets the depth monotonically.</b> The centroid of the belt's magnetic rock lies at {box('beta0.5')['centroid_km']:.1f}, {box('beta1')['centroid_km']:.1f}, {box('beta1.5')['centroid_km']:.1f}, {box('beta2')['centroid_km']:.1f} and {box('beta3')['centroid_km']:.1f} km for β = 0.5, 1, 1.5, 2 and 3; 80% of it lies between {box('beta1')['d10_km']:.1f} and {box('beta1')['d90_km']:.1f} km for β = 1 and between {box('beta3')['d10_km']:.1f} and {box('beta3')['d90_km']:.1f} km for β = 3.</li>
   <li><b>A deeper model needs more magnetic rock:</b> {box('beta0.5')['total']:.0f}, {box('beta1')['total']:.0f}, {box('beta1.5')['total']:.0f}, {box('beta2')['total']:.0f} and {box('beta3')['total']:.0f} SI·km³ in the box.</li>
   <li><b>L1–L2 is smooth and does not reach the bound</b> (largest value {box('l1l2_irls')['max']:.2f} SI): a bowl from the surface to about 5 km with its centroid at {box('l1l2_irls')['centroid_km']:.1f} km, between β = 1 and β = 1.5, and {box('l1l2_irls')['total']:.0f} SI·km³.</li>
-  <li><b>The shape.</b> In every model the magnetic rock of the belt forms a bowl that is open upwards, with sheets reaching the surface at the ridges on both sides. This is the shape of a synform with iron formation on its limbs, the traditional reading of the Sandur belt, which a structural study disputes {cite('MM93')} (Section 6.3); and the bowl also resembles the way a compact inversion closes a body at depth, so the base of the bowl is no more certain than its depth.</li>
+  <li><b>The shape.</b> In every model the magnetic rock of the belt forms a bowl that is open upwards, with sheets reaching the surface at the ridges on both sides. This is the shape of a synform with iron formation on its limbs, which is how the Sandur belt is mapped; but the bowl also resembles the way a compact inversion closes a body at depth, so the base of the bowl is no more certain than its depth.</li>
 </ul>
 </div>
 
@@ -391,8 +287,8 @@ def body(fig):
 <p>This is what a greenstone belt with iron formation should look like: thin, strongly magnetic iron formation on the limbs, and a thick pile of dense, weakly magnetic metavolcanic rock in the core (the amphibolite and metabasalt samples: 2.9–3.0 g/cc, 0.0002–0.004 SI). For a joint inversion it means that the two models share boundaries rather than values, which favours a structural coupling; the joint inversion of these two datasets is the subject of a separate report.</p>
 </div>
 {fig('gravity', "Left: vertically integrated density contrast of the gravity model with terrain (β = 1). Centre: vertically integrated susceptibility (β = 1). Right: the susceptibility, smoothed over 5 km, as contours on the density.")}
-{geology(fig)}
-<h2><span class="no">7</span>Recommendations</h2>
+
+<h2><span class="no">6</span>Recommendations</h2>
 <div class="prose">
 <ul class="plain">
   <li><b>Preparation:</b> continue gridded magnetic data upwards to about one cell size above the ground before thinning them, and place the receivers there. Thinning alone is not enough.</li>
@@ -411,18 +307,15 @@ def body(fig):
   <li>The 13 full-resolution results: <code>data/</code>; launched with <code>deploy/ec2_multi_run.py karnataka-magnetic</code></li>
   <li>All runs in one interactive workflow (DAG viewer): <code>karnataka_magnetic.geoinv3d_viewer.html</code></li>
   <li>The gravity comparison with terrain: <code>examples/output/karnataka_gravity_terrain/</code></li>
-  <li>The published localities, the references and the schematic map of Section 6: <code>examples/output/karnataka_inputs/shared/literature.py</code></li>
 </ul>
 </div>
-{references_html(REF_KEYS)}
-<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_report.py; every number comes from the runs above, except the table of Section 3 (LOGBOOK.md, 28 September) and the published values of Section 6, which come from the sources cited there.</footer>
+<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_report.py; every number comes from the runs above, except the table of Section 3 (LOGBOOK.md, 28 September).</footer>
 """
 
 
 def main():
     fig = Figures("en", FIGS)
-    OUT.write_text(page("en", "Karnataka Magnetic Comparison", body(fig), extra_css=LIT_CSS),
-                   encoding="utf-8")
+    OUT.write_text(page("en", "Karnataka Magnetic Comparison", body(fig)), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")
     if "--pdf" in sys.argv:
         print(to_pdf(OUT))

@@ -4,12 +4,8 @@ from __future__ import annotations
 
 import base64
 import html
-import sys
 
-from common import FIGS, ROOT
-
-sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "shared"))
-from literature import LIT_CSS  # noqa: E402  (citations, references; shared by the Karnataka reports)
+from common import FIGS
 
 LIGHT = """--bg: #f4f6f7; --surface: #ffffff; --ink: #1b232c; --muted: #56626e; --rule: #d6dde3;
   --accent: #1f5f8b; --accent-soft: #e3edf5; --warn-bg: #fbeae7; --warn: #9c3326;
@@ -106,7 +102,7 @@ footer { border-top: 1px solid var(--rule); margin-top: 56px; padding-top: 16px;
 def page(lang, title, body):
     link, sans, serif, bodyfont = FONTS[lang]
     css = (CSS.replace("@@LIGHT@@", LIGHT).replace("@@DARK@@", DARK).replace("@@SANS@@", sans)
-           .replace("@@SERIF@@", serif).replace("@@BODY@@", bodyfont)) + LIT_CSS
+           .replace("@@SERIF@@", serif).replace("@@BODY@@", bodyfont))
     return (f'<!doctype html>\n<html lang="{"zh-CN" if lang == "zh" else "en"}">\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n"
