@@ -351,6 +351,9 @@ def main():
         # the constraints from the rock samples (Section 5)
         from constraint_figures import constraints
         numbers["constraints"] = constraints(FIGS)
+        # the assessment against the published geology (Section 7)
+        from literature_figures import literature
+        numbers["literature"] = literature(FIGS, numbers["constraints"])
     (FIGS / "numbers.json").write_text(json.dumps(numbers, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
     print("figures and numbers written to", FIGS, "for", keys)
 

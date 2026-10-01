@@ -6,18 +6,25 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+from scipy import ndimage as ndi  # noqa: E402
 
-from common import (AOI, DATA, FIGS, FULL, LOWRES, MAIN_HIGH, NW_HIGH, body, column, data_fit,  # noqa: E402
+from common import (AOI, DATA, FIGS, FULL, LOWRES, MAIN_HIGH, NW_HIGH, ROOT, body, column, data_fit,  # noqa: E402
                     grids, load_full, load_lowres, metrics, simpeg_8km)
 
+sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "shared"))
+import literature as lit  # noqa: E402  (the published geology, shared by the Karnataka reports)
+
 L = {
-    "zh": {"font": ["Microsoft YaHei", "DejaVu Sans"], "E": "东向 (km)", "N": "北向 (km)", "EU": "东向 (km, UTM 43N)",
+    "zh": {"font": ["Microsoft YaHei", "Arial Unicode MS", "DejaVu Sans"], "E": "东向 (km)", "N": "北向 (km)",
+           "EU": "东向 (km, UTM 43N)",
            "depth": "深度 (km)", "rho": "密度差 (g/cc)", "raw": "布格重力异常（1 km 抽稀）", "reg": "二阶趋势面（区域场）",
            "res": "剩余异常（反演输入）", "resid": "残差 观测 − 预测 (mGal)", "at": "深度 {d:.1f} km",
            "share": "|质量| 占比（%/km，核心区下方）", "core": "核心网格底界 10 km", "sec": "北向 {n:.1f} km",
@@ -26,7 +33,11 @@ L = {
            "wn": "波数 (周期/km)", "spec_pts": "径向平均功率谱", "deep": "深部", "mid": "中部", "shallow": "浅部",
            "centre_t": "主布格高值正下方的密度", "deep8": "SimPEG 8 km 深网格（9 月 24 日，α_s=0.05）",
            "floor": "8 km 网格的最深单元（{z:.1f} km）", "lv_t": "主高值下方的半峰值深度范围：2 km 实验与 1 km 结果",
-           "lv_2": "2 km 网格（1,295 个数据）", "lv_1": "1 km 网格（5,040 个数据）"},
+           "lv_2": "2 km 网格（1,295 个数据）", "lv_1": "1 km 网格（5,040 个数据）",
+           "geo_a": "(a) 示意地质图（由 450 m DEM 绘制）", "geo_b": "(b) 剩余异常（反演输入）\n与示意片岩带轮廓",
+           "geo_c": "(c) 垂向积分密度\n{run}",
+           "units": ["铁建造支撑的山脊（DEM）", "Sandur 片岩带（山脊的包络）", "花岗岩和片麻岩"],
+           "lines": ["示意片岩带轮廓", "山脊"]},
     "en": {"font": ["DejaVu Sans"], "E": "Easting (km)", "N": "Northing (km)", "EU": "Easting (km, UTM 43N)",
            "depth": "Depth (km)", "rho": "Density contrast (g/cc)", "raw": "Bouguer anomaly (1 km)",
            "reg": "Second-order trend surface (regional)", "res": "Residual anomaly (inverted)",
@@ -39,12 +50,18 @@ L = {
            "centre_t": "Density under the main Bouguer high", "deep8": "SimPEG, 8 km deep mesh (24 Sep, α_s=0.05)",
            "floor": "deepest cell of the 8 km mesh ({z:.1f} km)",
            "lv_t": "Half-maximum depth range under the main high: 2 km study and 1 km runs",
-           "lv_2": "2 km mesh (1,295 data)", "lv_1": "1 km mesh (5,040 data)"},
+           "lv_2": "2 km mesh (1,295 data)", "lv_1": "1 km mesh (5,040 data)",
+           "geo_a": "(a) Schematic geology (from the 450 m DEM)", "geo_b": "(b) Residual anomaly (inverted)\nwith the schematic outline",
+           "geo_c": "(c) Integrated density\n{run}",
+           "units": None,                       # the English labels of literature.draw_schematic
+           "lines": ["schematic belt outline", "ridges"]},
 }
 SLICE_RUNS = ["original_sparse", "l1l2_irls", "as1_beta0.5", "as1_beta1", "as1_beta1.5"]
 LOW_PROFILES = [("base", "α_s=1e-4, [0,2,2,1], sens", "#7f7f7f", "-"), ("as1_p0222", "α_s=1, [0,2,2,2], sens", "#d68910", "-"),
                 ("as1_p0222_dw2", "α_s=1, β=2", "#8e44ad", "-"), ("as1_p0222_dw1", "α_s=1, β=1", "#2e9c6a", "-"),
                 ("as1_p0222_dw0.5", "α_s=1, β=0.5", "#1f5f8b", "-")]
+REF = "as1_beta1"                 # the reference model set against the published geology
+EDGE_KM = 5.0                     # band along the edges of the area left out of the overlap statistics
 
 
 def gridded(locs, values):
@@ -100,16 +117,39 @@ def spectrum():
     return kb, lnp, fits
 
 
+def elongation(x, y, mask, step=1.0):
+    """Length along strike, the largest width across it, the strike (degrees) and the area of a region
+    on a grid in km (rows y, columns x), measured as literature.belt_stats measures the schematic belt."""
+    X, Y = np.meshgrid(x, y)
+    c = np.c_[X[mask], Y[mask]]
+    c = c - c.mean(axis=0)
+    v = np.linalg.eigh(np.cov(c.T))[1]
+    s, t = c @ v[:, 1], c @ v[:, 0]
+    width = max((np.ptp(t[(s >= a) & (s < a + step)]) if ((s >= a) & (s < a + step)).sum() > 1 else 0.0)
+                for a in np.arange(s.min(), s.max() + step, step))
+    dx = float(np.median(np.diff(x)))
+    return {"length_km": float(np.ptp(s)), "width_km": float(width),
+            "strike_deg": float((np.degrees(np.arctan2(v[0, 1], v[1, 1])) + 360) % 180),
+            "area_km2": float(mask.sum() * dx * dx)}
+
+
+def on_columns(mask, xg, yg, x, y):
+    """A boolean grid (rows yg, columns xg) sampled at its nearest node to the column centres (x, y), all in km."""
+    return mask[np.ix_(np.abs(yg[:, None] - y[None, :]).argmin(axis=0), np.abs(xg[:, None] - x[None, :]).argmin(axis=0))]
+
+
 def crop_gravity(path, title):
     im = Image.open(path).convert("RGB")
     w, h = im.size
     g = im.crop((0, int(0.075 * h), int(0.505 * w), h))
     canvas = Image.new("RGB", (g.width, g.height + 44), "white")
     canvas.paste(g, (0, 44))
-    try:
-        font = ImageFont.truetype("arialbd.ttf", 26)
-    except OSError:
-        font = ImageFont.load_default()
+    for name in ("arialbd.ttf", "Arial Bold.ttf", "DejaVuSans-Bold.ttf"):   # Windows, macOS, elsewhere
+        try:
+            font = ImageFont.truetype(name, 26)
+            break
+        except OSError:
+            font = ImageFont.load_default()
     ImageDraw.Draw(canvas).text((16, 8), title, fill="black", font=font)
     return canvas
 
@@ -152,6 +192,35 @@ def main():
         numbers["full"][k]["corr_integrated_vs_data"] = float(np.corrcoef(
             integ[k].T[:g_res.shape[0], :g_res.shape[1]][np.isfinite(g_res)], g_res[np.isfinite(g_res)])[0, 1]) \
             if integ[k].T.shape == g_res.shape else None
+
+    # numbers: the models against the published geology (the schematic belt of literature.py)
+    gx, gy, _, ridge, belt, _ = lit.schematic()
+    near = ndi.distance_transform_edt(~belt) * float(np.median(np.diff(gx))) <= 2.0     # within 2 km of the outline
+    lab = ndi.label(np.nan_to_num(g_res) >= np.nanmax(g_res) / 2)[0]
+    high = lab == lab[np.abs(ys - MAIN_HIGH[1] / 1e3).argmin(), np.abs(xs - MAIN_HIGH[0] / 1e3).argmin()]
+    lab5 = ndi.label(np.nan_to_num(g_res) >= 5.0)[0]
+    high5 = lab5 == lab5[np.abs(ys - MAIN_HIGH[1] / 1e3).argmin(), np.abs(xs - MAIN_HIGH[0] / 1e3).argmin()]
+    mine = {n: (x, y) for n, x, y, *_ in lit.MINES}
+    geo = {"run": REF, "edge_km": EDGE_KM, "belt": lit.belt_stats(),
+           "residual_high": {"threshold_mgal": float(np.nanmax(g_res) / 2), **elongation(xs, ys, high)},
+           "residual_5mgal": elongation(xs, ys, high5), "dense": {},
+           "main_high_to": {"donimalai_west_km": mine["Donimalai"][0] - MAIN_HIGH[0] / 1e3,
+                            "kumaraswamy_north_km": MAIN_HIGH[1] / 1e3 - mine["Kumaraswamy"][1]}}
+    for k in keys:   # strongly dense columns: integrated density above half its maximum, away from the edges
+        mesh, m, depth, sx, sy, _ = core_view(runs[k])
+        xc, yc = mesh.cell_centers_x[sx] / 1e3, mesh.cell_centers_y[sy] / 1e3
+        inner = ((xc[None, :] >= xc.min() + EDGE_KM) & (xc[None, :] <= xc.max() - EDGE_KM)
+                 & (yc[:, None] >= yc.min() + EDGE_KM) & (yc[:, None] <= yc.max() - EDGE_KM))
+        I, B = integ[k].T, on_columns(belt, gx, gy, xc, yc)
+        dense = (I >= I.max() / 2) & inner
+        geo["dense"][k] = {"threshold": float(I.max() / 2), "n": int(dense.sum()),
+                           "inside": float((dense & B).sum() / dense.sum()),
+                           "within_2km": float((dense & on_columns(near, gx, gy, xc, yc)).sum() / dense.sum())}
+        if k == REF:
+            R = on_columns(ridge, gx, gy, xc, yc)
+            geo["outline_area_share"] = float(B[inner].mean())
+            geo["integ_on_ridges"], geo["integ_off_ridges"] = float(I[B & R].mean()), float(I[B & ~R].mean())
+    numbers["geology"] = geo
     for k in LOWRES:
         meta = low[k]
         numbers["low"][k] = {**metrics(meta), **data_fit(meta), "settings": meta["settings"],
@@ -183,6 +252,47 @@ def main():
             plt.colorbar(im, ax=ax, shrink=0.78, label="mGal")
         axs[0].set_ylabel(t["N"])
         fig.savefig(out / "data.png"); plt.close(fig)
+
+        # published localities on the Bouguer and the residual anomaly (the grids of the data figure)
+        fig, axs = plt.subplots(1, 2, figsize=(9.6, 3.9), gridspec_kw={"wspace": 0.35})
+        for ax, g, tt, cm, lim in [(axs[0], g_raw, t["raw"], "viridis", None), (axs[1], g_res, t["res"], "RdBu_r", (-v, v))]:
+            im = ax.imshow(g, origin="lower", extent=(xs[0] - .5, xs[-1] + .5, ys[0] - .5, ys[-1] + .5), cmap=cm,
+                           vmin=lim[0] if lim else None, vmax=lim[1] if lim else None)
+            ax.set_title(tt); ax.set_xlabel(t["EU"]); ax.set_aspect("equal")
+            plt.colorbar(im, ax=ax, shrink=0.85, pad=0.13, label="mGal")
+        lit.plot_localities(axs[0], labels=False)
+        lit.plot_localities(axs[1])
+        axs[0].set_ylabel(t["N"])
+        fig.savefig(out / "localities.png"); plt.close(fig)
+
+        # the schematic geology (large, left) against the residual anomaly and the integrated density of the
+        # reference model (right)
+        fig = plt.figure(figsize=(12, 8.4))
+        gs = fig.add_gridspec(2, 2, width_ratios=[2, 1], wspace=0.12, hspace=0.32)
+        axs = [fig.add_subplot(gs[:, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1])]
+        units = lit.draw_schematic(axs[0])
+        for h, name in zip(units, t["units"] or []):
+            h.set_label(name)
+        im = axs[1].imshow(g_res, origin="lower", extent=(xs[0] - .5, xs[-1] + .5, ys[0] - .5, ys[-1] + .5),
+                           cmap="RdBu_r", vmin=-v, vmax=v)
+        mesh, m, depth, sx, sy, n_pad = core_view(runs[REF])
+        nx, ny, _ = m.shape
+        pc = axs[2].pcolormesh(mesh.nodes_x[n_pad:nx - n_pad + 1] / 1e3, mesh.nodes_y[n_pad:ny - n_pad + 1] / 1e3,
+                               integ[REF].T, cmap="RdBu_r", vmin=-1.5, vmax=1.5)
+        for ax, tt in zip(axs, [t["geo_a"], t["geo_b"], t["geo_c"].format(run=label(REF, lang))]):
+            if ax is not axs[0]:
+                lit.outline(ax)
+            lit.plot_localities(ax, labels=ax is axs[0])
+            ax.set_title(tt, loc="left", fontsize=9.5); ax.set_aspect("equal")
+        axs[0].set_xlabel(t["EU"]); axs[0].set_ylabel(t["N"]); axs[2].set_xlabel(t["EU"])
+        for ax in axs[1:]:
+            ax.tick_params(labelsize=7)
+        axs[0].legend(handles=units + [Line2D([], [], color="k", lw=0.9, label=t["lines"][0]),
+                                       Line2D([], [], color="k", lw=0.54, ls=":", label=t["lines"][1])],
+                      loc="upper center", bbox_to_anchor=(0.5, -0.07), frameon=False, fontsize=8.5, ncol=2)
+        fig.colorbar(im, ax=axs[1], shrink=0.85, label="mGal")
+        fig.colorbar(pc, ax=axs[2], shrink=0.85, label=t["integ"])
+        fig.savefig(out / "geology_comparison.png"); plt.close(fig)
 
         # spectrum
         fig, ax = plt.subplots(figsize=(6.5, 4))

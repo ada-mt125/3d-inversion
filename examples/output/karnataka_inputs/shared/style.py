@@ -99,10 +99,11 @@ footer { border-top: 1px solid var(--rule); margin-top: 56px; padding-top: 16px;
 """
 
 
-def page(lang, title, body):
+def page(lang, title, body, extra_css=""):
+    """The whole HTML page; ``extra_css`` (e.g. literature.LIT_CSS) is appended to the style."""
     link, sans, serif, bodyfont = FONTS[lang]
     css = (CSS.replace("@@LIGHT@@", LIGHT).replace("@@DARK@@", DARK).replace("@@SANS@@", sans)
-           .replace("@@SERIF@@", serif).replace("@@BODY@@", bodyfont))
+           .replace("@@SERIF@@", serif).replace("@@BODY@@", bodyfont)) + extra_css
     return (f'<!doctype html>\n<html lang="{"zh-CN" if lang == "zh" else "en"}">\n<meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
             f"<title>{title}</title>\n"

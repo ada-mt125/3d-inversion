@@ -1,0 +1,204 @@
+{
+ "thresholds": {
+  "dense": 0.75,
+  "magnetic": 0.5,
+  "weak": 0.2,
+  "ridge_km": 1.5,
+  "mine_km": 3.0,
+  "gold_dense_km": 2.0,
+  "gold_bif_km": 3.0
+ },
+ "bif_km2": 141,
+ "bif_share": 0.028775510204081634,
+ "unmined_km2": 100,
+ "gold_km2": 220,
+ "gold_share": 0.044897959183673466,
+ "remanent_km2": 46,
+ "remanent_all_km2": 55,
+ "belt_km2": 434,
+ "gold_in_belt_share": 0.4032258064516129,
+ "ne_belt_km2": 52,
+ "ne_belt_magnetic_km2": 2,
+ "ne_belt_dense_share": 0.0,
+ "ne_belt_mean_density": 0.15593543293080753,
+ "mincheri": {
+  "km2": 70,
+  "mean_density": 0.08971797352005086,
+  "max_density": 0.3563878686141416,
+  "dense_share": 0.0,
+  "outside_dense_share": 0.02680599727396638,
+  "mean_susceptibility": 0.04970383034659439,
+  "max_susceptibility": 0.20153385756312162,
+  "dense_centroid_km": 0.6903432376450539
+ },
+ "remanent_south_km": 6.210000000000036,
+ "remanent_extent": [
+  662.5,
+  680.5,
+  1653.5,
+  1666.5
+ ],
+ "segments": [
+  {
+   "easting": 667.96875,
+   "northing": 1664.625,
+   "cells": 32,
+   "length_km": 8.372638805006229,
+   "mean_susceptibility": 1.2698128582610364,
+   "max_susceptibility": 3.503468114557771,
+   "in_belt": 1.0,
+   "dense_share": 0.9375,
+   "nearest_mine_km": 3.104834939251993,
+   "town": "Sandur",
+   "town_km": 3.9958230144113913,
+   "edge": false
+  },
+  {
+   "easting": 658.1666666666666,
+   "northing": 1675.7857142857142,
+   "cells": 21,
+   "length_km": 12.395188336560388,
+   "mean_susceptibility": 0.7776882055730946,
+   "max_susceptibility": 1.298046248921065,
+   "in_belt": 1.0,
+   "dense_share": 0.8095238095238095,
+   "nearest_mine_km": 3.5355339059327378,
+   "town": "Sandur",
+   "town_km": 11.127609633031017,
+   "edge": false
+  },
+  {
+   "easting": 675.4230769230769,
+   "northing": 1669.3461538461538,
+   "cells": 13,
+   "length_km": 6.378375744813367,
+   "mean_susceptibility": 1.6410719331361794,
+   "max_susceptibility": 2.719055109065469,
+   "in_belt": 0.6923076923076923,
+   "dense_share": 0.3076923076923077,
+   "nearest_mine_km": 3.2000000000000455,
+   "town": "Sandur",
+   "town_km": 9.08352107002488,
+   "edge": false
+  },
+  {
+   "easting": 679.0,
+   "northing": 1662.4,
+   "cells": 10,
+   "length_km": 9.244263045575305,
+   "mean_susceptibility": 1.1846402959327769,
+   "max_susceptibility": 1.6377079040949878,
+   "in_belt": 0.2,
+   "dense_share": 0.0,
+   "nearest_mine_km": 3.006659275674585,
+   "town": "Sandur",
+   "town_km": 13.912943613771995,
+   "edge": false
+  },
+  {
+   "easting": 662.375,
+   "northing": 1679.125,
+   "cells": 8,
+   "length_km": 5.0381029093191225,
+   "mean_susceptibility": 1.4671560098163559,
+   "max_susceptibility": 2.4662121687527985,
+   "in_belt": 0.75,
+   "dense_share": 0.25,
+   "nearest_mine_km": 3.2649655434628433,
+   "town": "Sandur",
+   "town_km": 11.549080049943406,
+   "edge": false
+  },
+  {
+   "easting": 653.7,
+   "northing": 1683.7,
+   "cells": 5,
+   "length_km": 4.134976681349217,
+   "mean_susceptibility": 1.0064972830600043,
+   "max_susceptibility": 1.4036532330798732,
+   "in_belt": 0.8,
+   "dense_share": 0.4,
+   "nearest_mine_km": 12.675172582651438,
+   "town": "Hosapete",
+   "town_km": 6.444377394287221,
+   "edge": false
+  },
+  {
+   "easting": 662.25,
+   "northing": 1671.5,
+   "cells": 4,
+   "length_km": 3.0,
+   "mean_susceptibility": 0.6832243133321217,
+   "max_susceptibility": 1.176325491848128,
+   "in_belt": 1.0,
+   "dense_share": 1.0,
+   "nearest_mine_km": 3.5355339059327378,
+   "town": "Sandur",
+   "town_km": 5.240467536394067,
+   "edge": false
+  }
+ ],
+ "localities": {
+  "Kumaraswamy": {
+   "kind": "iron",
+   "bif_within_1_5km": true,
+   "gold_screen": false,
+   "gold_within_1km": true,
+   "remanent_within_2km": true,
+   "density": 1.107178729159118,
+   "susceptibility": 1.168519449581901
+  },
+  "Donimalai": {
+   "kind": "iron",
+   "bif_within_1_5km": true,
+   "gold_screen": true,
+   "gold_within_1km": true,
+   "remanent_within_2km": false,
+   "density": 1.1979767084416932,
+   "susceptibility": 0.007199523333857399
+  },
+  "Ramandurg": {
+   "kind": "iron",
+   "bif_within_1_5km": true,
+   "gold_screen": true,
+   "gold_within_1km": true,
+   "remanent_within_2km": true,
+   "density": 0.5558756416988233,
+   "susceptibility": 0.008856790806891338
+  },
+  "NEB Range": {
+   "kind": "iron",
+   "bif_within_1_5km": true,
+   "gold_screen": true,
+   "gold_within_1km": true,
+   "remanent_within_2km": false,
+   "density": 1.1756928658962689,
+   "susceptibility": 0.12421257960472187
+  },
+  "Joga": {
+   "kind": "gold",
+   "bif_within_1_5km": false,
+   "gold_screen": false,
+   "gold_within_1km": false,
+   "remanent_within_2km": false,
+   "density": 0.3050752143815044,
+   "susceptibility": 0.0723683451223581
+  },
+  "Taranagar": {
+   "kind": "gold",
+   "bif_within_1_5km": false,
+   "gold_screen": true,
+   "gold_within_1km": true,
+   "remanent_within_2km": false,
+   "density": 0.8002633777007976,
+   "susceptibility": 0.043545166167028214
+  }
+ },
+ "schematic": {
+  "length_km": 41.970557682946875,
+  "width_km": 15.599947888660296,
+  "strike_deg": 135.5356848018202,
+  "area_km2": 385.56
+ },
+ "area_km2": 4900
+}

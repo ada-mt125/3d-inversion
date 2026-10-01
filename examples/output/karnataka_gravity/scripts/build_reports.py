@@ -13,17 +13,22 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-from common import FIGS, FULL, LOWRES, ROOT
+from common import FIGS, FULL, LOWRES, MAIN_HIGH, NW_HIGH, ROOT
 from report_style import Figures, esc, page, table
+# the published geology (karnataka_inputs/shared, put on the path by report_style)
+from literature import LEGEND, POSITIONS_NOTE, RIDGE_MIN_M, RIDGE_RELIEF_M, cite, references_html
 
 N = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
-F, LOW, S8, SP, D = N["full"], N["low"], N["simpeg_8km"], N["spectrum"], N["data"]
+F, LOW, S8, SP, D, G = N["full"], N["low"], N["simpeg_8km"], N["spectrum"], N["data"], N["geology"]
 KEYS = [k for k, *_ in FULL]
 NEW = KEYS[1:]                      # everything except the original settings
 DW = ["as1_beta0.5", "as1_beta1", "as1_beta1.5", "as0.1_beta1"]
 OUT = {"zh": ROOT / "karnataka_gravity_report_zh.html", "en": ROOT / "karnataka_gravity_report_en.html"}
+REFS = ["MM93", "GSI", "IJERT", "MEAI", "MGR23", "IBMK", "IBMN", "GEM", "SB14", "SIN20", "NMET"]
+LOC_REFS = ["IBMK", "IBMN", "GEM", "SB14", "SIN20", "NMET"]      # sources of the mine and occurrence positions
 
 
 def label(key, lang):
@@ -60,6 +65,26 @@ def warn(text, bad):
     return (text, "n warn" if bad else "n")
 
 
+def half(x):
+    """A distance rounded to the nearest half kilometre."""
+    return f"{round(2 * x) / 2:g}"
+
+
+def xy(p, sep=", "):
+    return f"{p[0] / 1e3:.1f}{sep}{p[1] / 1e3:.1f} km"
+
+
+def cite_zh(*keys, **kw):
+    """literature.cite with Chinese parentheses and separators."""
+    return "（" + cite(*keys, **kw)[1:-1].replace("</a>; <a", "</a>；<a") + "）"
+
+
+def refs_zh():
+    note = ("矿山和矿点的位置已换算到 UTM 43N（EPSG:32643）。取自 GEM.wiki 和论文中经纬度范围的位置是近似的，误差约 1 km，"
+            "Mincheri 区块的轮廓也是近似的。Kumaraswamy 和 NEB Range 的坐标采用 IBM 检查报告中印出的数值，按 UTM 43N 读取。")
+    return references_html(REFS).replace("<h2>References</h2>", "<h2>参考文献</h2>").replace(POSITIONS_NOTE, note)
+
+
 # numbers quoted in the text
 C = N["integrated_corr"]
 _ix = {k: i for i, k in enumerate(C["keys"])}
@@ -77,7 +102,12 @@ V = dict(
     as01gap=abs(lc("as0.1_p0222_dw1") - cen("as0.1_beta1")),
     dw_lat=f"{pct(min(_dw_lat))}–{pct(max(_dw_lat))}",
     time8=S8["time_s"] / 60,
+    # against the schematic belt of literature.py (Section 6)
+    dense_ref=pct(G["dense"][G["run"]]["inside"]),
+    dense_all=f"{pct(min(v['inside'] for v in G['dense'].values()))}–{pct(max(v['inside'] for v in G['dense'].values()))}",
+    outline_share=pct(G["outline_area_share"]),
 )
+BELT, RH, R5 = G["belt"], G["residual_high"], G["residual_5mgal"]
 
 
 # ---------------------------------------------------------------- tables
@@ -166,7 +196,7 @@ def body_zh(fig):
     o, t = F["original_sparse"], F
     return f"""
 <header>
-  <div class="eyebrow">GeoInv3D · 野外数据测试 · 2026 年 9 月 28 日</div>
+  <div class="eyebrow">GeoInv3D · 野外数据测试 · 2026 年 9 月 28 日 · 文献对照 2026 年 10 月 1 日</div>
   <h1>Karnataka 重力反演：不同正则化的对比</h1>
   <p class="lede">同一套布格重力数据、同一个网格，六组正则化设置在 AWS EC2 上做了全分辨率反演。本报告比较它们的数据拟合、横向结构和深度，与 9 月 24 日 SimPEG 8 km 深网格和 Tomofast-x 的结果交叉检验，并检查 2 km 粗网格实验能否代替全分辨率计算。</p>
   <dl class="meta">
@@ -186,6 +216,7 @@ def body_zh(fig):
     <li><b>不同的设置给出相同的深度。</b>9 月 24 日 SimPEG 在 8 km 深网格上的结果（α<sub>s</sub> = 0.05，灵敏度加权），主体半峰值范围 {rng(S8['main'])} km、质心 {S8['main']['centroid_km']:.1f} km，与本报告 β = 1 的 {rng(t['as1_beta1']['main'])} km、{cen('as1_beta1'):.1f} km 一致。Tomofast-x 拟合更紧（χ = 0.65），但模型没有底，并且用了约 2.7 小时，SimPEG 只用了 {V['time8']:.0f} 分钟。</li>
     <li><b>2 km 粗网格实验可以用来筛选参数。</b>三个 β 值下，粗网格预测的主体质心与 1 km 结果相差不超过 {V['lowgap']:.1f} km；α<sub>s</sub> = 0.1 相差 {V['as01gap']:.1f} km。粗网格每次约 25 秒，全分辨率每次约 5 分钟。</li>
     <li><b>建议。</b>α<sub>s</sub> = 1（已是流程默认值），Li &amp; Oldenburg 深度加权，β 取 0.5–1，给出一个深度范围而不是单一模型：β = 0.5 与 L1–L2 一致，β = 1 与 8 km 深网格的结果一致。</li>
+    <li><b>与已发表的地质资料对照（第 6 节）。</b>高密度带与地质图上的 Sandur 片岩带重合，带内的四个铁矿山都在这条带上。本报告的深度范围包含了唯一一个已发表的估计，即深约 6 km 的盆地{cite_zh('MGR23')}。</li>
     <li><b>注意。</b>仅凭重力数据不能确定深度，本报告中的深度是正则化选择的结果。实际深度需要岩石密度、地质剖面或地震资料来约束。</li>
   </ul>
 </section>
@@ -346,7 +377,27 @@ def body_zh(fig):
 <p>2 km 实验把这三个因素分开了：只改深度加权（<code>base_dw1</code>，α<sub>s</sub> 仍为 10⁻⁴）时 10 km 以下仍有 {pct(LOW['base_dw1']['below'])}；只把 p<sub>z</sub> 改为 2（<code>as1e-4_p0222</code>）也是 {pct(LOW['as1e-4_p0222']['below'])}；只把 α<sub>s</sub> 改为 1 降到 {pct(LOW['as1']['below'])}；α<sub>s</sub> = 1 再加深度加权降到 {pct(LOW['as1_p0222_dw1']['below'])}。第一个原因是主要的。流程的默认 α<sub>s</sub> 已改为 1。</p>
 </div>
 
-<h2><span class="no">6</span>建议</h2>
+<h2><span class="no">6</span>与已发表地质资料的对照</h2>
+<div class="added">2026 年 10 月 1 日补充 · 文献对照</div>
+<div class="prose">
+<p>本报告的反演没有参考地质图。本节把其中可靠的结果，即高密度带的位置，与该区已发表的资料对照，并把第 2.3 节的深度与唯一一个已发表的估计相比较。</p>
+<ul class="plain">
+  <li><b>高密度带就是 Sandur 片岩带。</b>地质图上，Sandur 片岩带是一条 NW–SE 向的绿岩带，长约 60 km，中部宽可达 18 km，四周为花岗岩{cite_zh('MM93', 'GSI')}。图 {fig.ref('data')} 中剩余异常高值带的长度、宽度和走向与之相同，它的西北端（西北高值，{xy(NW_HIGH, '，')}）指向 Hosapete（Hospet），地质图上片岩带正是向那里延伸{cite_zh('IJERT')}。</li>
+  <li><b>铁矿山都在这条带上。</b>Kumaraswamy、Donimalai、Ramandurg 和 NEB Range 开采的是片岩带中的铁建造{cite_zh('GSI', 'MEAI')}，它们都位于剩余异常高值带上或其边缘（图 {fig.ref('localities')}）。主布格高值（{xy(MAIN_HIGH, '，')}）在 Donimalai 以西 {G['main_high_to']['donimalai_west_km']:.0f} km、Kumaraswamy 矿区以北约 {half(G['main_high_to']['kumaraswamy_north_km'])} km，位于片岩带东南部，也就是已发表资源量集中的地方：整条片岩带约有 1,876 Mt 铁矿石，品位约 63% Fe{cite_zh('GSI')}。</li>
+  <li><b>密度相符。</b>Maurya 等在片岩带的镁铁质和超镁铁质岩石上测得 2.86–3.56 g/cc 的密度，并发现强重力异常位于片岩带之上，弱异常位于花岗岩之上{cite_zh('MGR23')}。这与联合反演报告中用作上下界的岩样一致（变玄武岩 2.94–2.98 g/cc，铁建造 3.39 g/cc，花岗岩约 2.63 g/cc）。</li>
+  <li><b>低密度带是花岗岩。</b>高密度带以东的几条低密度带，位于较年轻的花岗岩（2.5–2.6 Ga）叠覆在片岩带东缘之上的地方{cite_zh('MM93')}。</li>
+  <li><b>深度相容，但没有得到证实。</b>Maurya 等根据重磁联合解释，认为片岩带是一个深约 6 km 的盆地{cite_zh('MGR23')}。这个深度落在本报告的范围之内：主体（半峰值）的底界在 β = 0.5 时为 {t['as1_beta0.5']['main']['bottom_km']:.1f} km，β = 1 时为 {t['as1_beta1']['main']['bottom_km']:.1f} km，β = 1.5 时为 {t['as1_beta1.5']['main']['bottom_km']:.1f} km。他们的深度同样依赖假定的密度差，摘要中也没有给出剖面，所以这种一致只能说明第 7 节建议的 β 范围是合理的，不能说明哪个 β 是对的。有约束的联合反演把范围缩小了（底界约 5.5 km，见联合反演报告第 5 节）。</li>
+  <li><b>重力分辨不了带内的形态。</b>片岩带传统上被解释为一个复向斜；一项构造研究则认为，它是中央变火山岩带两侧的两条变沉积岩带，两端都不相连，层理陡立，褶皱倾伏约 45°{cite_zh('MM93')}。本报告每个模型中都只有一个高密度体，与两种解释都相容。不过地层层序给出了一点倾向。铁建造位于层序的顶部：西部层序自下而上从变玄武岩到铁建造{cite_zh('MM93')}，属于 Bababudan 型组合，即铁建造覆于镁铁质火山岩和石英岩之上{cite_zh('GSI')}。经过陡倾的近等斜褶皱（D1），铁建造在片岩带两侧边缘表现为近于直立的薄层，厚度不足以主导重力异常，因此模型中的高密度体更可能是中央的变火山岩。这与两翼的解释更吻合；如果是简单的向形，核部应当是层位最新的铁建造。</li>
+</ul>
+</div>
+{fig('localities', f"已发表的地点叠加在布格异常（左）和反演用的剩余异常（右）上。白色方块：铁矿山（Kumaraswamy 旁的两个小矩形是它的 B、C 开发区块）；黄色星号：金矿点；虚线框：Mincheri 铜矿普查区块（在测区边缘被截断）；黑点：城镇。来源：{cite_zh(*LOC_REFS)}。")}
+<div class="prose">
+<p>图 {fig.ref('geology_comparison')} 把模型与由 DEM 绘制的片岩带示意图对照。用同样的方法沿主轴量测，示意图中主片岩带的轮廓长 {BELT['length_km']:.0f} km、宽 {BELT['width_km']:.0f} km，走向 {BELT['strike_deg']:.0f}°；剩余异常超过其最大值一半（{RH['threshold_mgal']:.1f} mGal）的部分长 {RH['length_km']:.0f} km、宽 {RH['width_km']:.0f} km，走向 {RH['strike_deg']:.0f}°（超过 5 mGal 的部分长 {R5['length_km']:.0f} km，与地质图上的长度相当）。去掉测区边缘 {G['edge_km']:.0f} km 宽的条带后，参考模型（{label(G['run'], 'zh')}）垂向积分密度超过其最大值一半的单元列中，有 {V['dense_ref']} 位于轮廓之内（六个模型为 {V['dense_all']}），而轮廓只占这部分面积的 {V['outline_share']}。在轮廓内，参考模型的积分密度在山脊以外平均为 {G['integ_off_ridges']:.1f} g/cc·km，在山脊上为 {G['integ_on_ridges']:.1f} g/cc·km；但单元为 1 km，山脊又位于轮廓边缘，任何位于带中央的密度体都会给出这样的结果，所以这只说明与上面的解释相容，并不是对它的检验。</p>
+</div>
+{fig('geology_comparison', f"(a) 本报告由输入数据中的 450 m DEM 绘制的片岩带示意图，叠加图 {fig.ref('localities')} 中的地点。山脊（深绿）是地面比 12 km 窗口内的中值高出 {RIDGE_RELIEF_M:.0f} m 以上（且海拔高于 {RIDGE_MIN_M:.0f} m）的地方；铁建造支撑着片岩带的山丘{cite_zh('MEAI')}，所以把它们看作铁建造山脊。片岩带轮廓（浅绿）是山脊的包络，西、东两条山脉之间的中央变火山岩带按 Mukhopadhyay 和 Matin{cite_zh('MM93', text='1993')}标注。图中英文标注：western (Sandur) range、eastern range 为西、东两条山脉，central metavolcanic terrane 为中央变火山岩带，north-eastern belt 为东北的片岩带，granite and gneiss 为花岗岩和片麻岩。这不是地质图：地质图上的片岩带（约 60 km，向西北延伸到 Hosapete 方向）比这个包络（{BELT['length_km']:.0f} × {BELT['width_km']:.0f} km）长。(b) 反演用的剩余异常（同图 {fig.ref('data')}），叠加 (a) 中的轮廓（实线）和山脊（点线）。(c) 参考模型 {label(G['run'], 'zh')} 的垂向积分密度（同图 {fig.ref('robust')} 上排），叠加同一轮廓。符号同图 {fig.ref('localities')}。")}
+<div class="callout"><b>对本报告而言。</b>重力结果中可靠的部分，即高密度带的位置和走向，与地质图上的绿岩带及其铁矿区一致。第 2.3 节的深度范围包含了唯一一个已发表的估计（约 6 km），但并没有被它证实。</div>
+
+<h2><span class="no">7</span>建议</h2>
 <div class="prose">
 <ol class="steps">
   <li><b>默认设置：</b>sparse，α<sub>s</sub> = 1，p = [0,2,2,2] 或 [0,2,2,1]，深度加权 <code>depth</code>，β 在 0.5–1 之间。把 β = 0.5 和 β = 1 两个模型作为深度范围一起给出（主体质心约 {cen('as1_beta0.5'):.1f}–{cen('as1_beta1'):.1f} km），L1–L2 作为独立的检查。</li>
@@ -364,7 +415,8 @@ def body_zh(fig):
 </ul>
 </div>
 
-<footer>GeoInv3D · SimPEG 0.25.2 · 由 build_reports.py 生成，所有数字来自上述运行。</footer>
+{refs_zh()}
+<footer>GeoInv3D · SimPEG 0.25.2 · 由 build_reports.py 生成，所有数字来自上述运行，第 6 节中引自文献的数值除外，其来源见该节的引用。</footer>
 """
 
 
@@ -374,7 +426,7 @@ def body_en(fig):
     o, t = F["original_sparse"], F
     return f"""
 <header>
-  <div class="eyebrow">GeoInv3D · field-data test · 28 September 2026</div>
+  <div class="eyebrow">GeoInv3D · field-data test · 28 September 2026 · literature cross-check 1 October 2026</div>
   <h1>Karnataka Gravity Inversion: Comparing Regularizations</h1>
   <p class="lede">The same Bouguer gravity data on the same mesh, inverted at full resolution on AWS EC2 with six regularization settings. This report compares their data fit, lateral structure and depth, cross-checks them against the 24 September SimPEG run on an 8 km deep mesh and against Tomofast-x, and tests whether a coarse 2 km study can stand in for full-resolution runs.</p>
   <dl class="meta">
@@ -394,6 +446,7 @@ def body_en(fig):
     <li><b>A different set-up gives the same depth.</b> The 24 September SimPEG run on an 8 km deep mesh (α<sub>s</sub> = 0.05, sensitivity weighting) put the main body at {rng(S8['main'])} km (half maximum), centroid {S8['main']['centroid_km']:.1f} km; this report's β = 1 run gives {rng(t['as1_beta1']['main'])} km and {cen('as1_beta1'):.1f} km. Tomofast-x fitted the data more closely (chi 0.65) but its model has no base, and it took about 2.7 hours against SimPEG's {V['time8']:.0f} minutes.</li>
     <li><b>The coarse 2 km study is good for screening.</b> For three values of β it predicted the full-resolution centroid of the main body to within {V['lowgap']:.1f} km; for α<sub>s</sub> = 0.1 it was {V['as01gap']:.1f} km off. A coarse run takes about 25 s, a full-resolution run about 5 minutes.</li>
     <li><b>Recommendation.</b> α<sub>s</sub> = 1 (now the pipeline default) with Li &amp; Oldenburg depth weighting, β between 0.5 and 1, reporting a range of depths rather than a single model: β = 0.5 agrees with L1–L2, β = 1 with the 8 km deep mesh.</li>
+    <li><b>Against the published geology</b> (Section 6). The dense belt coincides with the mapped Sandur schist belt, and the four iron-ore mines of the belt lie on it. The depth range brackets the one published estimate, a basin about 6 km deep {cite('MGR23')}.</li>
     <li><b>Caveat.</b> Gravity data alone do not determine depth; the depths in this report are a consequence of the regularization. The actual depths need constraints from rock densities, geological sections or seismic data.</li>
   </ul>
 </section>
@@ -554,7 +607,27 @@ def body_en(fig):
 <p>The 2 km study separates the three: changing only the depth weighting (<code>base_dw1</code>, α<sub>s</sub> still 10⁻⁴) leaves {pct(LOW['base_dw1']['below'])} of the mass below 10 km; changing only p<sub>z</sub> to 2 (<code>as1e-4_p0222</code>) leaves {pct(LOW['as1e-4_p0222']['below'])}; changing only α<sub>s</sub> to 1 brings it down to {pct(LOW['as1']['below'])}, and α<sub>s</sub> = 1 with depth weighting to {pct(LOW['as1_p0222_dw1']['below'])}. The first reason dominates. The pipeline default is now α<sub>s</sub> = 1.</p>
 </div>
 
-<h2><span class="no">6</span>Recommendations</h2>
+<h2><span class="no">6</span>Comparison with the published geology</h2>
+<div class="added">Added 1 October 2026 · literature cross-check</div>
+<div class="prose">
+<p>The inversions of this report were run without reference to the geological map. This section compares their robust result, the position of the dense belt, with what is published about the area, and sets the depths of Section 2.3 against the one published estimate.</p>
+<ul class="plain">
+  <li><b>The dense belt is the Sandur schist belt.</b> The belt is mapped as a NW–SE greenstone belt about 60 km long and up to 18 km wide in its centre, enclosed by granite {cite('MM93', 'GSI')}. The residual high of Figure {fig.ref('data')} has the same length, width and strike, and its north-western end (the north-western high, {xy(NW_HIGH)}) points at Hosapete (Hospet), where the belt is mapped to continue {cite('IJERT')}.</li>
+  <li><b>The iron-ore mines sit on it.</b> Kumaraswamy, Donimalai, Ramandurg and NEB Range, which work the iron formation of the belt {cite('GSI', 'MEAI')}, all lie on or at the edge of the residual high (Figure {fig.ref('localities')}). The main Bouguer high ({xy(MAIN_HIGH)}) lies {G['main_high_to']['donimalai_west_km']:.0f} km west of Donimalai and about {half(G['main_high_to']['kumaraswamy_north_km'])} km north of the Kumaraswamy leases, in the south-eastern part of the belt where the published resource is concentrated: about 1,876 Mt of iron ore at about 63% Fe in the belt as a whole {cite('GSI')}.</li>
+  <li><b>The densities agree.</b> Maurya et al. measured 2.86 to 3.56 g/cc on the mafic and ultramafic rocks of the belt and found the strong gravity anomalies over the schist belts, the weak ones over the granites {cite('MGR23')}. This matches the samples used as bounds in the joint report (metabasalt 2.94 to 2.98 g/cc, iron formation 3.39 g/cc, granite about 2.63 g/cc).</li>
+  <li><b>The light belts are granite.</b> The low-density belts east of the dense belt lie where younger granites (2.5 to 2.6 Ga) override the eastern margin of the belt {cite('MM93')}.</li>
+  <li><b>The depth is consistent but not confirmed.</b> From a joint gravity–magnetic interpretation Maurya et al. describe the belt as a basin about 6 km deep {cite('MGR23')}. That lies inside the range of this report: the main body ends at {t['as1_beta0.5']['main']['bottom_km']:.1f} km for β = 0.5, {t['as1_beta1']['main']['bottom_km']:.1f} km for β = 1 and {t['as1_beta1.5']['main']['bottom_km']:.1f} km for β = 1.5 (half maximum). Their depth also rests on an assumed density contrast, and the abstract gives no profiles, so the agreement shows that the β range of Section 7 is reasonable, not which β is right. The constrained joint inversion narrows it (base at about 5.5 km, joint report Section 5).</li>
+  <li><b>The shape inside the belt is not resolved by gravity.</b> The belt is traditionally read as a synclinorium; a structural study finds instead two metasedimentary belts on either side of a central metavolcanic terrane that do not join at either end, with steep bedding and folds plunging about 45° {cite('MM93')}. A single dense body, as in every model here, is compatible with either reading. The stratigraphy gives a weak preference, however. The iron formation is a layer at the top of the succession: the western sequence runs from metabasalt at the base to iron formation at the top {cite('MM93')}, a Bababudan-type assemblage of iron formation over mafic volcanics and quartzite {cite('GSI')}. Folded steeply (near-isoclinal D1 folds), it stands as thin, near-vertical sheets on the margins of the belt, too thin to dominate the gravity, so the dense body of the models is more likely the metavolcanic core in the centre. That fits the two-flank reading better than a simple synform, whose youngest unit, the iron formation, would lie in its core.</li>
+</ul>
+</div>
+{fig('localities', f"Published localities on the Bouguer anomaly (left) and the residual anomaly that was inverted (right). {LEGEND} Sources: {cite(*LOC_REFS)}.")}
+<div class="prose">
+<p>Figure {fig.ref('geology_comparison')} sets the models against a schematic of the belt drawn from the DEM. Measured the same way, along the principal axes, the outline of its main belt is {BELT['length_km']:.0f} km long and {BELT['width_km']:.0f} km wide with a strike of {BELT['strike_deg']:.0f}°, and the residual anomaly above half its maximum ({RH['threshold_mgal']:.1f} mGal) {RH['length_km']:.0f} km, {RH['width_km']:.0f} km and {RH['strike_deg']:.0f}° (above 5 mGal it is {R5['length_km']:.0f} km long, about the mapped length). Leaving out a {G['edge_km']:.0f} km band along the edges of the area, {V['dense_ref']} of the columns where the integrated density of the reference model ({label(G['run'], 'en')}) exceeds half its maximum lie inside the outline ({V['dense_all']} in the six models), which covers {V['outline_share']} of that area. Inside the outline the reference model averages {G['integ_off_ridges']:.1f} g/cc·km off the ridges and {G['integ_on_ridges']:.1f} g/cc·km on them; with 1 km cells and the ridges along the margins, any body centred in the belt would show this, so it is consistent with the reading above, not a test of it.</p>
+</div>
+{fig('geology_comparison', f"(a) A schematic of the belt drawn for this report from the 450 m DEM of the inputs, with the localities of Figure {fig.ref('localities')}. Ridges (dark green) are where the ground stands more than {RIDGE_RELIEF_M:.0f} m above the median of a 12 km window (and above {RIDGE_MIN_M:.0f} m); they are read as the iron-formation ridges because the iron formation holds up the hills of the belt {cite('MEAI')}. The belt outline (light green) is the envelope of the ridges, and the central metavolcanic terrane between the western and eastern ranges is placed after Mukhopadhyay &amp; Matin {cite('MM93', text='1993')}. It is not a geological map: the mapped belt is longer (about 60 km, continuing NW towards Hosapete) than the envelope ({BELT['length_km']:.0f} × {BELT['width_km']:.0f} km). (b) The residual anomaly that was inverted (as in Figure {fig.ref('data')}), with the outline (solid) and the ridges (dotted) of panel a. (c) The vertically integrated density contrast of the reference model, {label(G['run'], 'en')} (as in the top row of Figure {fig.ref('robust')}), with the same outline. Symbols as in Figure {fig.ref('localities')}.")}
+<div class="callout"><b>For this report.</b> The robust part of the gravity result, the position and strike of the dense belt, matches the mapped greenstone belt and its iron-ore district. The depth range of Section 2.3 brackets the one published estimate (about 6 km) but is not confirmed by it.</div>
+
+<h2><span class="no">7</span>Recommendations</h2>
 <div class="prose">
 <ol class="steps">
   <li><b>Default settings:</b> sparse, α<sub>s</sub> = 1, p = [0,2,2,2] or [0,2,2,1], depth weighting <code>depth</code> with β between 0.5 and 1. Report the β = 0.5 and β = 1 models together as a depth range (main-body centroid about {cen('as1_beta0.5'):.1f}–{cen('as1_beta1'):.1f} km), with L1–L2 as an independent check.</li>
@@ -572,17 +645,28 @@ def body_en(fig):
 </ul>
 </div>
 
-<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_reports.py; every number comes from the runs above.</footer>
+{references_html(REFS)}
+<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_reports.py; every number comes from the runs above, except the published values of Section 6, which come from the sources cited there.</footer>
 """
 
 
 def find_chrome():
-    for p in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              r"C:\Program Files\Google\Chrome\Application\chrome.exe",
               r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
               shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chrome")):
         if p and Path(p).exists():
             return p
     return None
+
+
+def complete(pdf):
+    """True once Chrome has finished writing the PDF (its last bytes hold the %%EOF marker)."""
+    if not pdf.exists() or pdf.stat().st_size < 1024:
+        return False
+    with pdf.open("rb") as f:
+        f.seek(-1024, 2)
+        return b"%%EOF" in f.read()
 
 
 def main():
@@ -596,10 +680,20 @@ def main():
         if not chrome:
             sys.exit("Chrome not found; the PDF needs headless Chrome")
         pdf = OUT["en"].with_suffix(".pdf")
-        with tempfile.TemporaryDirectory() as profile:
-            subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                            "--virtual-time-budget=15000", f"--user-data-dir={profile}", f"--print-to-pdf={pdf}",
-                            OUT["en"].resolve().as_uri()], check=True, capture_output=True, timeout=180)
+        pdf.unlink(missing_ok=True)
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as profile:
+            proc = subprocess.Popen([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
+                                     "--virtual-time-budget=15000", f"--user-data-dir={profile}", f"--print-to-pdf={pdf}",
+                                     OUT["en"].resolve().as_uri()], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # headless Chrome on macOS can stay alive after printing: wait for a complete PDF, then stop it
+            start = time.time()
+            while proc.poll() is None and not complete(pdf) and time.time() - start < 180:
+                time.sleep(0.5)
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=30)
+        if not complete(pdf):
+            sys.exit("Chrome did not write the PDF")
         print(pdf, f"{pdf.stat().st_size / 1e6:.2f} MB")
 
 

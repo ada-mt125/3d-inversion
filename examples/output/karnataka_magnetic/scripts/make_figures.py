@@ -17,11 +17,18 @@ import numpy as np  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "shared"))
 from kmodel import AOI, Grid, box_stats, data_fit, gridded, load, prep  # noqa: E402
+import literature as lit  # noqa: E402
 
 DATA, FIGS = ROOT / "data" / "ec2_runs", ROOT / "figures"
 if not DATA.exists():
     DATA = ROOT / "data" / "ec2_trials"
 GRAVITY = ROOT.parent / "karnataka_gravity_terrain" / "data" / "ec2_runs" / "as1_beta1"
+MVI = DATA / "beta1_mvi"                  # the magnetization-vector run (amplitude), of the joint report
+# Section 6: a 1 km column is strongly magnetic, dense, or of strong MVI amplitude above these
+# (integrated over depth: SI·km, g/cc·km, SI·km)
+STRONG = {"chi": 0.5, "rho": 0.75, "mvi": 0.5}
+NEAR_RIDGE_KM = 1.0
+UNDERFIT_NT = 150.0
 FULL = [
     # key, label, colour, line style
     ("sens", "sparse, sensitivity weighting", "#7f7f7f", "-"),
@@ -71,6 +78,126 @@ def boxes(ax):
     for b in BOXES.values():
         ax.plot(np.array([b[0], b[1], b[1], b[0], b[0]]) / 1e3, np.array([b[2], b[2], b[3], b[3], b[2]]) / 1e3,
                 color="k", lw=0.7, ls="--")
+
+
+def published_geology(gref, integ, gi, smooth, ref, pz, xe, ye):
+    """Section 6: the models against the mapped mines, occurrences and the schematic map of the
+    ridges (shared/literature.py).  Draws localities.png, schematic.png and localities_models.png
+    and returns the numbers of the section."""
+    from scipy import ndimage as ndi
+    x = gref.mesh.cell_centers_x[gref.sx] / 1e3          # the 1 km core columns
+    y = gref.mesh.cell_centers_y[gref.sy] / 1e3
+    gv = Grid(load(MVI))
+    vi, _ = gv.integrated()
+    # integrated maps indexed [row = northing, column = easting]
+    maps = {"chi": integ["beta1"].T, "rho": gi.T, "mvi": vi.T}
+    table = {k: lit.distance_table(x, y, v, STRONG[k]) for k, v in maps.items()}
+    dist = {k: ndi.distance_transform_edt(~(v >= STRONG[k])) * float(np.median(np.diff(x))) for k, v in maps.items()}
+    inner = ((x[None, :] >= x.min() + 5) & (x[None, :] <= x.max() - 5)
+             & (y[:, None] >= y.min() + 5) & (y[:, None] <= y.max() - 5))       # as in distance_table
+    mines = [r["name"] for r in table["chi"] if r["kind"] == "iron"]
+    far = {k: max(r["distance_km"] for r in table[k] if r["kind"] == "iron") for k in maps}
+    # within the dense belt: how often a column as close to dense rock as the mines is also as close
+    # to strongly magnetic rock as the mines
+    near_dense = inner & (dist["rho"] <= far["rho"] + 1e-9)
+    within = {"dense_km": far["rho"], "magnetic_km": far["chi"], "n_cells": int(near_dense.sum()),
+              "share": float(np.mean(dist["chi"][near_dense] <= far["chi"] + 1e-9))}
+    # Kumaraswamy against the strongest magnetic rock of the Sandur belt box
+    kx, ky = next((e, n) for name, e, n, *_ in lit.MINES if name == "Kumaraswamy")
+    w, e, s, n = (v / 1e3 for v in BOXES["sandur"])
+    inbox = (x[None, :] >= w) & (x[None, :] <= e) & (y[:, None] >= s) & (y[:, None] <= n)
+    ki, kj = int(np.argmin(np.abs(y - ky))), int(np.argmin(np.abs(x - kx)))
+    sm = smooth["beta1"].T
+    si, sj = np.unravel_index(np.argmax(np.where(inbox, sm, -np.inf)), sm.shape)
+    kum = {"value": float(maps["chi"][ki, kj]), "share_box_below": float(np.mean(maps["chi"][inbox] < maps["chi"][ki, kj])),
+           "box_max": float(maps["chi"][inbox].max()),
+           "smooth_value": float(sm[ki, kj]), "smooth_max": float(sm[si, sj]),
+           "smooth_max_xy": [float(x[sj]), float(y[si])], "smooth_max_km": float(np.hypot(x[sj] - kx, y[si] - ky))}
+    # the schematic map: ridges and the envelope of the ridges, looked up at the 1 km columns
+    xr, yr, _, ridge, belt, belts = lit.schematic()
+    rdist = ndi.distance_transform_edt(~ridge) * float(np.median(np.abs(np.diff(xr))))
+    iy, ix = np.abs(yr[:, None] - y[None, :]).argmin(0), np.abs(xr[:, None] - x[None, :]).argmin(0)
+    R, B, B1 = rdist[np.ix_(iy, ix)], belt[np.ix_(iy, ix)], belts[np.ix_(iy, ix)] == 1
+    to_belt = (ndi.distance_transform_edt(~belt) * float(np.median(np.abs(np.diff(xr)))))[np.ix_(iy, ix)]
+    near = R <= NEAR_RIDGE_KM + 1e-9
+    ridges = {"near_km": NEAR_RIDGE_KM, "area_near": float(near[inner].mean()), "area_in_belt": float(B[inner].mean())}
+    for k, v in maps.items():
+        s = inner & (v >= STRONG[k])
+        ridges[k] = {"n": int(s.sum()), "near": float(near[s].mean()), "in_belt": float(B[s].mean()),
+                     # of the columns outside the envelope, those within 2 km of it
+                     "outside_within_2km": float(np.mean(to_belt[s & ~B] <= 2.0)) if (s & ~B).any() else None}
+    # inside the main belt: the columns within 1 km of a ridge against those between the ridges
+    nb, bt = inner & B1 & near, inner & B1 & ~near
+    contrast = {"n_near": int(nb.sum()), "n_between": int(bt.sum()),
+                **{f"{k}_near": float(maps[k][nb].mean()) for k in ("chi", "rho")},
+                **{f"{k}_between": float(maps[k][bt].mean()) for k in ("chi", "rho")}}
+    mine_ridge = {name: float(rdist[int(np.abs(yr - n).argmin()), int(np.abs(xr - e).argmin())])
+                  for name, e, n, *_ in lit.MINES}
+    # the stations the induced model underfits, against the Kumaraswamy mine
+    dd = ref["_data"]
+    bad = dd["observed"] - dd["predicted"] > UNDERFIT_NT
+    lx, ly = dd["locations"][bad, 0] / 1e3, dd["locations"][bad, 1] / 1e3
+    close = np.hypot(lx - kx, ly - ky) <= 5.0
+    underfit = {"threshold_nT": UNDERFIT_NT, "n": int(bad.sum()), "within_5km_of_kumaraswamy": int(close.sum()),
+                "south_of_kumaraswamy": int((close & (ly < ky)).sum()),
+                "median_northing_km": float(np.median(ly[close])) if close.any() else None}
+    info = gv.meta.get("magnetization") or {}
+
+    # ── Figure: the localities on the ground and on the anomaly as flown ──
+    fig, axs = plt.subplots(1, 2, figsize=(11.5, 4.4), layout="constrained")
+    im = imshow(axs[0], pz["dem"], pz["dem_x"] / 1e3, pz["dem_y"] / 1e3, cmap="terrain", vmin=300, vmax=1100)
+    fig.colorbar(im, ax=axs[0], shrink=0.85, label="m"); axs[0].set_title("Ground elevation")
+    lit.plot_localities(axs[0], labels=False)
+    im = imshow(axs[1], pz["tmi_raw"], pz["tmi_x"] / 1e3, pz["tmi_y"] / 1e3, cmap="RdBu_r", vmin=-1500, vmax=1500)
+    fig.colorbar(im, ax=axs[1], shrink=0.85, label="nT", extend="both")
+    axs[1].set_title("TMI anomaly as flown (80 m above the ground)")
+    lit.plot_localities(axs[1])
+    for ax in axs:
+        ax.set_aspect("equal"); ax.set_xlabel("Easting (km, UTM 43N)")
+    axs[0].set_ylabel("Northing (km)")
+    fig.savefig(FIGS / "localities.png"); plt.close(fig)
+
+    # ── Figure: the schematic map, and its outline on the anomaly and on the model ──
+    fig, axs = plt.subplots(1, 3, figsize=(17, 5.6), layout="constrained")
+    handles = lit.draw_schematic(axs[0])
+    lit.plot_localities(axs[0])
+    axs[0].legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.11), frameon=False, fontsize=7.5)
+    axs[0].set_title("(a) Schematic geology drawn from the DEM", loc="left")
+    im = imshow(axs[1], pz["tmi_raw"], pz["tmi_x"] / 1e3, pz["tmi_y"] / 1e3, cmap="RdBu_r", vmin=-1500, vmax=1500)
+    fig.colorbar(im, ax=axs[1], shrink=0.8, label="nT", extend="both")
+    axs[1].set_title("(b) TMI anomaly as flown (80 m above the ground)", loc="left")
+    im = axs[2].pcolormesh(xe, ye, integ["beta1"].T, cmap="Oranges", vmin=0, vmax=1.0)
+    fig.colorbar(im, ax=axs[2], shrink=0.8, label="SI·km", extend="max")
+    axs[2].set_title("(c) Integrated susceptibility (β = 1)", loc="left")
+    for ax in axs[1:]:
+        lit.outline(ax)
+        lit.plot_localities(ax, labels=False)
+    for ax in axs:
+        ax.set_aspect("equal"); ax.set_xlabel("Easting (km, UTM 43N)")
+    axs[0].set_ylabel("Northing (km)")
+    fig.savefig(FIGS / "schematic.png"); plt.close(fig)
+
+    # ── Figure: the localities on the integrated models ──
+    fig, axs = plt.subplots(1, 2, figsize=(13, 5.0), layout="constrained")
+    a = axs[0].pcolormesh(xe, ye, gi.T, cmap="RdBu_r", vmin=-1.5, vmax=1.5)
+    fig.colorbar(a, ax=axs[0], shrink=0.85, label="g/cc·km")
+    axs[0].set_title("Integrated density contrast\n(gravity with terrain, β = 1)")
+    b = axs[1].pcolormesh(xe, ye, integ["beta1"].T, cmap="Oranges", vmin=0, vmax=1.0)
+    fig.colorbar(b, ax=axs[1], shrink=0.85, label="SI·km", extend="max")
+    axs[1].set_title("Integrated susceptibility\n(magnetics, β = 1)")
+    for ax, k in ((axs[0], "rho"), (axs[1], "chi")):
+        ax.contour(x, y, (maps[k] >= STRONG[k]).astype(float), levels=[0.5], colors="#2d4f2a", linewidths=0.8)
+        ax.set_aspect("equal"); ax.set_xlabel("Easting (km, UTM 43N)")
+    lit.plot_localities(axs[0], labels=False)
+    lit.plot_localities(axs[1])
+    axs[0].set_ylabel("Northing (km)")
+    fig.savefig(FIGS / "localities_models.png"); plt.close(fig)
+
+    return {"thresholds": STRONG, "edge_km": 5.0, "mines": mines, "distances": table, "farthest_mine": far,
+            "within_dense": within, "kumaraswamy": kum, "ridges": ridges, "belt_contrast": contrast,
+            "mine_to_ridge_km": mine_ridge, "underfit": underfit, "belt": lit.belt_stats(),
+            "mvi": {"inclination": info.get("resultant_inclination"), "declination": info.get("resultant_declination"),
+                    "max": float(gv.m.max())}}
 
 
 def main():
@@ -261,6 +388,9 @@ def main():
         ax.set_aspect("equal"); ax.set_xlabel("Easting (km, UTM 43N)")
     axs[0].set_ylabel("Northing (km)")
     fig.savefig(FIGS / "gravity.png"); plt.close(fig)
+
+    # ── Section 6: against the published geology ──
+    numbers["literature"] = published_geology(gref, integ, gi, smooth, ref, pz, xe, ye)
 
     (FIGS / "numbers.json").write_text(json.dumps(numbers, indent=1, ensure_ascii=False), encoding="utf-8")
     print("figures and numbers written to", FIGS)

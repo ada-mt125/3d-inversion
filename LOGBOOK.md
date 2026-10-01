@@ -1322,3 +1322,32 @@ settings" folds the setting columns (the result cards, wider, still name every s
 run; remembered in localStorage).  A mesh shared by several trees is drawn once per tree
 (dashed copies) instead of with edges across the page.  Scrolling moves the tree and stops at
 its ends, ctrl/cmd + scroll zooms; +/- zoom about the centre; double-click a result to open it.
+
+---
+
+## 2026-10-01 — Karnataka reports: the published geology, a schematic map, a mineral assessment
+
+The literature cross-check of three HTML reports made outside the repository (gravity Section 6,
+magnetics Section 6, joint Section 7: references, the iron mines, gold occurrences and the
+Mincheri copper block) is now produced by the builder scripts, from the shared module
+karnataka_inputs/shared/literature.py (15 references, the localities in UTM 43N with the
+Kumaraswamy B/C blocks from the IBM report, `cite`/`citet`/`references_html`, LIT_CSS; style.page
+takes `extra_css`).  The distances from the localities to the strong columns are computed from
+the models (they matched the hand-read ones; a few statements changed with the numbers, e.g. not
+"Kumaraswamy on the strongest magnetic rock").  No published figure is copied: a schematic map is
+drawn from the 450 m DEM (ridges > 80 m above a 12 km median, read as the iron-formation ridges;
+the belt = their envelope, 42 x 16 km, strike 136°) and shown beside the models in each report.
+With a 5 km edge band left out, 34 % of the strong magnetic columns lie within 1 km of a ridge
+(11 % of the area) and 86 % of the dense columns of the constrained joint model inside the
+outline (12 %).  The user's stratigraphic argument (iron formation at the top of the succession,
+steep near-isoclinal folds, so a dense core with steep magnetic sheets on its flanks, the
+two-flank reading of Mukhopadhyay & Matin rather than a simple synform) is in all three; in plan
+it is clear in the dense rock, weaker in the magnetic (a magnetic body also in the centre).
+New: examples/output/karnataka_minerals (make_figures.py, build_report.py): a mineral assessment
+of the area from the three reports and the record: iron-formation horizons (141 km2; 100 km2
+more than 3 km from the four located mines, segments F1-F7), the remanent zone south of
+Kumaraswamy (46 km2), and why manganese, gold and copper are below what these data resolve.
+The magnetic sheets are 1-5 km wide at 1 km cells; their susceptibility x width (median 0.54,
+up to 2 SI·km) would need 3.6-13.5 SI in a single 150 m layer: several bands, and the thickness
+of one is below the resolution (the 37.5 m survey grid, 80 m AGL, 300 m NE-SW lines across the
+belt, could resolve them).

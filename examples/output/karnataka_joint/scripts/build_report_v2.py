@@ -19,12 +19,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "shared"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from style import Figures, page, table, to_pdf  # noqa: E402
+import literature as L  # noqa: E402
 
 FIGS = ROOT / "figures_v2"
 N = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
 F, LOW, S, RUNS, M, MAG = N["full"], N["low"], N["single"], N["runs"], N["mesh"], N.get("magnetic", {})
 GL = N.get("gl_info", {})
 C = N.get("constraints", {})
+LIT = N.get("literature", {})
 DS = N.get("depth_sensitivity", [])
 KEYS = N["keys"]
 GLK, CTRL = "group_lasso_depth", "group_lasso_depth_uncoupled"
@@ -338,6 +340,75 @@ def constraints_full_table():
     return table(head, rows, compact=True)
 
 
+LIT_REFS = ["MM93", "MK12", "GSI", "IJERT", "MEAI", "MGR23", "IBMK", "ROM", "SK18", "SB14", "SIN20", "GEM", "IBMN",
+            "NMET"]
+
+
+def lit_table(fig):
+    """Each result of the inversions against the published geology (Section 7)."""
+    if not LIT:
+        return ""
+    k = C["full_key"]
+    sh = LIT["shape"]
+    u, c_ = sh["density_unconstrained"], sh["density_constrained"]
+    far = max(r["distance_km"] for r in LIT["distances"]["susceptibility_single"] if r["kind"] == "iron")
+    base = max(x["main"]["dense_bottom_km"] for x in C["full"][k].values())
+    gb = LIT["gravity_base_km"]
+    a, b = MAG["induced"], MAG["mvi"]
+    z = b.get("magnetization") or {}
+    m0, m1 = LIT["magnetic_centroid_km"]
+    tag = {"Confirmed": "ok", "Supported": "ok", "Consistent, not independent": "mid", "Plausible, untested": "mid",
+           "Disputed": "no", "Below resolution": "na"}
+    rows = [
+        ("Position and outline of the greenstone belt",
+         f"Dense belt, NW–SE (strike {u['strike_deg']:.0f}°), about {u['length_km']:.0f} × {u['width_km']:.0f} km "
+         f"({c_['length_km']:.0f} × {c_['width_km']:.0f} km with the constraints); the same in every model and coupling.",
+         f"Sandur schist belt, about 60 km long and up to 18 km wide, NW–SE, enclosed by granite {L.cite('MM93', 'GSI')}.",
+         "Confirmed"),
+        ("Iron formation on the margins of the belt",
+         "Thin, strongly magnetic sheets on both sides and at the south-eastern closure.",
+         f"Iron-formation ridges of the Copper Mountain and Sandur ranges; all four iron mines lie on or within {far:.1f} km "
+         f"of a strongly magnetic column (magnetic report, Section 6.2) {L.cite('MEAI', 'GSI')}.", "Confirmed"),
+        ("Two rocks: dense greenstone, dense and magnetic iron formation",
+         f"Low cell-by-cell correlation of density and susceptibility ({c('none')['corr_cells']:.2f}); structural coupling "
+         "preferred (Section 4.3).",
+         f"Metabasalt core with iron formation in the metasedimentary belts {L.cite('MM93', 'MK12')}; measured densities of "
+         f"2.86 to 3.56 g/cc for the mafic rocks {L.cite('MGR23')}.", "Supported"),
+        ("Iron formation at the top of the succession, on the margins in plan",
+         "Dense metavolcanic rock in the centre; steep magnetic sheets reaching the surface at the ridges of both "
+         "flanks, with a magnetic body in the centre as well (Section 7.2).",
+         f"Western sequence from metabasalt at the base to iron formation at the top {L.cite('MM93')}; a Bababudan-type "
+         f"assemblage {L.cite('GSI')}; steep, near-isoclinal folds bring the iron formation up on both flanks.",
+         "Supported"),
+        ("The belt crops out",
+         "With sample bounds and β = 0.5 the dense body reaches the ground from easting 660 to 677 km (Section 5.3).",
+         f"The belt forms hills of 900 to 1,050 m with mines at the surface {L.cite('MEAI')}.", "Confirmed"),
+        ("Depth of the base",
+         f"About {base:.1f} km under the main high with the constraints; {min(gb.values()):.1f} to {max(gb.values()):.0f} km "
+         "without, depending on β (gravity report).",
+         f"A basin about 6 km deep from a joint gravity–magnetic interpretation {L.cite('MGR23')}.",
+         "Consistent, not independent"),
+        ("Remanent magnetization in the south of the belt",
+         f"MVI lowers the RMS from {a['rms']:.0f} to {b['rms']:.0f} nT; strong cells at I "
+         f"{z.get('resultant_inclination', 0):.0f}°, D {z.get('resultant_declination', 0):.0f}° under and south of "
+         f"Kumaraswamy (Figure {fig.ref('lit_mvi')}).".replace("-", "−"),
+         f"Hematite and magnetite ore of the richest part of the belt {L.cite('IBMK', 'ROM')}; no palaeomagnetic data "
+         "found.", "Plausible, untested"),
+        ("A synform closing at depth",
+         "The magnetic models form a bowl open upwards.",
+         f"Two metasedimentary belts flank a central metavolcanic terrane and do not join; steep bedding, folds plunging "
+         f"about 45° N {L.cite('MM93')}. A simple synform would put the youngest iron formation in the core.", "Disputed"),
+        ("Ore bodies and gold",
+         f"Cells 1 km wide and {LIT['cell_thickness_m']:.0f} m thick; the magnetic rock is centred {m0:.1f} to {m1:.1f} km "
+         "deep.",
+         f"Ore within about 70 to 170 m of the surface {L.cite('IBMK', 'ROM', 'SK18')}; gold in sulphidic chert and quartz "
+         f"veins at 0.05 to 1.5 g/t {L.cite('SIN20', 'SB14')}.", "Below resolution"),
+    ]
+    return table(["Result of the inversions", "What the inversions show", "What the published work shows", "Verdict"],
+                 [[(f"<b>{r}</b>", "wrap"), (shows, "wrap"), (pub, "wrap"),
+                   (f'<span class="tag {tag[v]}">{v}</span>', "")] for r, shows, pub, v in rows], numeric_from=9)
+
+
 def body(fig, notes):
     n = len(KEYS)
     cost = sum(r["cost_usd"] for r in RUNS.values())
@@ -348,7 +419,7 @@ def body(fig, notes):
     c_cost = sum(r["cost_usd"] for r in c_runs)
     return f"""
 <header>
-  <div class="eyebrow">GeoInv3D · field-data test · 30 September 2026 · second series</div>
+  <div class="eyebrow">GeoInv3D · field-data test · 30 September 2026 · second series · literature cross-check 1 October 2026</div>
   <h1>Karnataka Joint Gravity–Magnetic Inversion: Couplings, Remanence and Rock-Sample Constraints</h1>
   <p class="lede">The gravity and the magnetic data of the same area inverted together on one mesh with terrain, once for each coupling of the joint inversion, and the magnetic data alone with a magnetization vector per cell. The report shows what each coupling does to the two models, what it costs in data fit, which assumption suits this belt, what the magnetic data say about the direction of magnetization, and how the measured densities of the rocks, used as bounds, change the models.</p>
   <dl class="meta">
@@ -363,6 +434,7 @@ def body(fig, notes):
 <section class="summary" aria-labelledby="sum">
   <h2 id="sum">Summary</h2>
   <ul>
+@@LIT_SUMMARY@@
 @@SUMMARY@@
   </ul>
 </section>
@@ -486,9 +558,32 @@ def body(fig, notes):
 @@LOWTEXT@@
 </div>
 
-<h2><span class="no">7</span>Conclusions and recommendations</h2>
+<h2><span class="no">7</span>How well did the inversions work? An assessment against the published geology</h2>
+<div class="added">Added 1 October 2026 · literature cross-check</div>
+<div class="prose">
+@@LIT_INTRO@@
+</div>
+{lit_table(fig)}
+<p class="note"><span class="tag ok">Confirmed</span> matches published mapping or mining records. <span class="tag ok">Supported</span> consistent with them and with the rock samples. <span class="tag mid">Consistent, not independent</span> agrees, but the published value also rests on a model. <span class="tag mid">Plausible, untested</span> no published data bear on it. <span class="tag no">Disputed</span> the published structural work contradicts it. <span class="tag na">Below resolution</span> the question is finer than the mesh.</p>
+{fig('lit_mvi', '@@LIT_MVI_CAPTION@@') if LIT else ''}
+
+<h3><span class="no">7.1</span>The scales the inversions can and cannot see</h3>
+{fig('lit_depths', '@@LIT_DEPTHS_CAPTION@@') if LIT else ''}
+<div class="prose">
+@@LIT_SCALES@@
+</div>
+
+<h3><span class="no">7.2</span>The schematic geology and the stratigraphy of the belt</h3>
+{fig('lit_geology', '@@LIT_GEOLOGY_CAPTION@@') if LIT else ''}
+<div class="prose">
+@@LIT_GEOLOGY@@
+</div>
+@@LIT_VERDICT@@
+
+<h2><span class="no">8</span>Conclusions and recommendations</h2>
 <div class="prose">
 <ul class="plain">
+@@LIT_CONCLUSION@@
 @@RECOMMEND@@
 </ul>
 </div>
@@ -499,26 +594,34 @@ def body(fig, notes):
   <li>Parameters of every run: <code>examples/output/karnataka_joint/scripts/joint_params.py</code> (joint) and <code>deploy/ec2_multi_run.py</code> (the magnetic runs <code>beta1</code> and <code>beta1_mvi</code>); launched with <code>deploy/ec2_multi_run.py</code> and <code>scripts/run_lowres.py --out data/lowres_runs_fixed</code></li>
   <li>This report and its figures: <code>scripts/make_figures.py --set v2</code> (with <code>scripts/constraint_figures.py</code>), <code>scripts/build_report_v2.py</code>, <code>scripts/report_text_v2.py</code>; results in <code>data/ec2_runs_fixed/</code>, <code>data/lowres_runs_fixed/</code> and <code>karnataka_magnetic/data/ec2_runs/</code></li>
   <li>The constraints (Section 5): the variants of <code>joint_params.VARIANTS</code>, run with <code>scripts/run_lowres.py --bounds KEY</code> (2 km, <code>data/lowres_bounds/</code>) and <code>deploy/ec2_multi_run.py karnataka-joint --only none_rho35_gb05,joint_total_variation_rho35_gb05</code> (<code>data/ec2_runs_bounds/</code>); compared by <code>scripts/compare_bounds.py [--full]</code>; the rock samples in <code>data/rock_properties/</code></li>
+  <li>The assessment against the published geology (Section 7): <code>scripts/literature_figures.py</code>; the references, localities and the schematic map in <code>karnataka_inputs/shared/literature.py</code></li>
   <li>The single-method reports: <code>examples/output/karnataka_gravity_terrain/</code>, <code>examples/output/karnataka_magnetic/</code></li>
 </ul>
 </div>
-<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_report_v2.py; every number comes from the runs above.</footer>
+{L.references_html(LIT_REFS) if LIT else ''}
+<footer>GeoInv3D · SimPEG 0.25.2 · Generated by build_report_v2.py; every number comes from the runs above, except the published values of Section 7, which come from the sources cited there.</footer>
 """
 
 
 def main():
     from report_text_v2 import (c_full, c_intro, c_limits, c_low, c_rocks, coupling_notes, discussion, fit_text,
-                                low_text, mvi_text, recommend, summary, why)
+                                lit_conclusion, lit_depths_caption, lit_geology, lit_geology_caption, lit_intro,
+                                lit_mvi_caption, lit_scales, lit_summary, lit_verdict, low_text, mvi_text, recommend,
+                                summary, why)
     fig = Figures("en", FIGS)
     ctx = dict(F=F, LOW=LOW, S=S, MAG=MAG, GL=GL, DS=DS, KEYS=KEYS, g=g, m=m, c=c, has=has, pct=pct,
-               rng=rng, GLK=GLK, CTRL=CTRL, C=C)
+               rng=rng, GLK=GLK, CTRL=CTRL, C=C, LIT=LIT, figref=fig.ref)
     html = body(fig, coupling_notes(**ctx))
     for tag, fn in (("@@SUMMARY@@", summary), ("@@FITTEXT@@", fit_text), ("@@MVITEXT@@", mvi_text),
                     ("@@DISCUSSION@@", discussion), ("@@WHY@@", why), ("@@LOWTEXT@@", low_text),
                     ("@@RECOMMEND@@", recommend), ("@@C_INTRO@@", c_intro), ("@@C_ROCKS@@", c_rocks),
-                    ("@@C_LOW@@", c_low), ("@@C_FULL@@", c_full), ("@@C_LIMITS@@", c_limits)):
+                    ("@@C_LOW@@", c_low), ("@@C_FULL@@", c_full), ("@@C_LIMITS@@", c_limits),
+                    ("@@LIT_SUMMARY@@", lit_summary), ("@@LIT_INTRO@@", lit_intro), ("@@LIT_MVI_CAPTION@@", lit_mvi_caption),
+                    ("@@LIT_DEPTHS_CAPTION@@", lit_depths_caption), ("@@LIT_SCALES@@", lit_scales),
+                    ("@@LIT_GEOLOGY_CAPTION@@", lit_geology_caption), ("@@LIT_GEOLOGY@@", lit_geology),
+                    ("@@LIT_VERDICT@@", lit_verdict), ("@@LIT_CONCLUSION@@", lit_conclusion)):
         html = html.replace(tag, fn(**ctx))
-    OUT.write_text(page("en", "Karnataka Joint Inversion", html), encoding="utf-8")
+    OUT.write_text(page("en", "Karnataka Joint Inversion", html, extra_css=L.LIT_CSS), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")
     if "--pdf" in sys.argv:
         print(to_pdf(OUT))
