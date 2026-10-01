@@ -48,7 +48,7 @@ ASSUMES = {
     "group_lasso_std": "The group lasso with the data weighted by their errors and λ₁ chosen for χ² = N, like the other runs.",
     "group_lasso_std_uncoupled": "The control of the row above: no pairing.",
 }
-OUT = ROOT / "karnataka_joint_report_en.html"
+OUT = ROOT / "archive" / "karnataka_joint_report_en.html"   # the first series, superseded by v2
 
 
 def pct(x):
@@ -270,6 +270,7 @@ def main():
     for tag, fn in (("@@SUMMARY@@", summary), ("@@DISCUSSION@@", discussion), ("@@LOWTEXT@@", low_text),
                     ("@@PROBLEMS@@", problems), ("@@RECOMMEND@@", recommend)):
         html = html.replace(tag, fn(**ctx))
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(page("en", "Karnataka Joint Inversion", html), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")
     if "--pdf" in sys.argv:

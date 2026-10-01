@@ -117,7 +117,7 @@ SYNTHETIC_MAGNETIC = {
     },
 }
 
-# Karnataka with terrain (examples/output/karnataka_inputs/prepare_inputs.py): the ground from
+# Karnataka with terrain (examples/output/karnataka_inputs/scripts/prepare_inputs.py): the ground from
 # the Copernicus DEM, 250 m layers so that the relief (380-1090 m) is more than two steps, the
 # Bouguer grid with the terrain correction added, TMI continued upwards to 1 km above the ground
 _KI = REPO / "examples" / "output" / "karnataka_inputs"

@@ -31,7 +31,7 @@ SYN_LABEL = {"none": "No coupling (L1–L2)", "cross_gradient": "Cross-gradient"
              "group_lasso_balanced": "Group lasso, paper weights + balance",
              "group_lasso_sv": "Group lasso, weights × cell volume + balance",
              "group_lasso_depth": "Group lasso, depth weights (β = 1) + balance"}
-OUT = ROOT / "karnataka_joint_fixes_en.html"
+OUT = ROOT / "archive" / "karnataka_joint_fixes_en.html"   # what changed against the first series
 LABEL = {"none": "No coupling", "cross_gradient": "Cross-gradient",
          "joint_total_variation": "Joint total variation",
          "linear_correspondence": "Linear correspondence", "pgi": "PGI (rock units)",
@@ -257,6 +257,7 @@ def main():
              "<li>This page: <code>scripts/fixes_summary.py</code>, <code>scripts/fixes_figures.py</code>, "
              "<code>scripts/build_fixes_report.py</code></li></ul>",
              '<p class="note">GeoInv3D · SimPEG 0.25.2 · every number comes from the runs above.</p>']
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(page("en", "Karnataka Section 5 Fixes", "\n".join(body)), encoding="utf-8")
     print(OUT)
     if "--pdf" in sys.argv:

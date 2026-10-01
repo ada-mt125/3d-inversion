@@ -28,7 +28,8 @@ M = json.loads((FIGS / "numbers.json").read_text(encoding="utf-8"))
 J = json.loads((OUTPUT / "karnataka_joint" / "figures_v2" / "numbers.json").read_text(encoding="utf-8"))
 C, MAG = J["constraints"], J["magnetic"]
 V = M["validation"]
-OUT = ROOT / "karnataka_mineral_report_en.html"
+# the report goes with the other three of the study (karnataka_reports/)
+OUT = ROOT.parent / "karnataka_reports" / "4_mineral_prospectivity.html"
 REFS = ["MM93", "MK12", "GSI", "IJERT", "MEAI", "MGR23", "IBMK", "IBMN", "GEM", "ROM", "SK18", "SB14", "SIN20",
         "BHAT25", "NMET"]
 cite, citet = L.cite, L.citet
@@ -356,6 +357,7 @@ def body(fig):
 def main():
     fig = Figures("en", FIGS)
     html = body(fig)
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(page("en", "Sandur Mineral Prospectivity", html, extra_css=L.LIT_CSS + EXTRA_CSS), encoding="utf-8")
     print(OUT, f"{OUT.stat().st_size / 1e6:.2f} MB")
     if "--pdf" in sys.argv:

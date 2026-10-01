@@ -1,5 +1,10 @@
 # Karnataka gravity: comparing regularizations
 
+> **Superseded.** This is the flat-earth comparison of 28 September, the first stage of the study. The
+> gravity report of the study is now the one with terrain and terrain correction,
+> `../karnataka_reports/1_gravity_inversion.html` (code and runs in `../karnataka_gravity_terrain/`).
+> This folder is kept for reference.
+
 Everything needed to rebuild the comparison report, independent of any session folder. Run from the
 repository root:
 

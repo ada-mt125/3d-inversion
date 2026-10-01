@@ -13,9 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    """Built by karnataka_inputs/build_all_workflow.py, which builds the three studies'
+    """Built by karnataka_inputs/scripts/build_all_workflow.py, which builds the three studies'
     viewers alike (their run lists, names and the overlays of the reference runs)."""
-    sys.path.insert(0, str(ROOT.parent / "karnataka_inputs"))
+    sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "scripts"))
     import build_all_workflow
     build_all_workflow.build("magnetic", "--with-2km" in sys.argv)
 

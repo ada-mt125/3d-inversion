@@ -3,7 +3,7 @@ karnataka_joint.geoinv3d.json and its viewer.
 
     py examples/output/karnataka_joint/scripts/build_workflow.py [--with-2km]
 
-Built by karnataka_inputs/build_all_workflow.py, which builds the gravity, magnetic and joint
+Built by karnataka_inputs/scripts/build_all_workflow.py, which builds the gravity, magnetic and joint
 viewers alike: the first series (data/ec2_runs), the second (data/ec2_runs_fixed, report v2)
 and the runs with the rock-sample constraints (data/ec2_runs_bounds), each in trees of its own;
 --with-2km adds the local 2 km runs of each.
@@ -36,7 +36,7 @@ def _study_settings(r):
 
 
 def main():
-    sys.path.insert(0, str(ROOT.parent / "karnataka_inputs"))
+    sys.path.insert(0, str(ROOT.parent / "karnataka_inputs" / "scripts"))
     import build_all_workflow
     build_all_workflow.build("joint", "--with-2km" in sys.argv)
 

@@ -23,3 +23,6 @@ examples/output/karnataka_joint/*_viewer.html
 # leftovers of unfinished local tests (30 September)
 examples/output/karnataka_joint/figures_test/
 examples/output/karnataka_joint/data/lowres_runs/log_g*.txt
+
+# macOS Finder metadata
+.DS_Store

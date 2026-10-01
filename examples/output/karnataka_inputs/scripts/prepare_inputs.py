@@ -1,6 +1,6 @@
 """Inputs of the Karnataka inversions with terrain: DEM, complete Bouguer anomaly, TMI at 1 km.
 
-    py examples/output/karnataka_inputs/prepare_inputs.py [DESKTOP]
+    py examples/output/karnataka_inputs/scripts/prepare_inputs.py [DESKTOP]
 
 Reads, from DESKTOP (default ~/OneDrive - Imperial College London/Desktop):
   karnataka_ap_gravity/DEM/Copernicus_DSM_COG_30_*.tif   Copernicus GLO-90 tiles (lon/lat)
@@ -41,7 +41,7 @@ from rasterio.warp import Resampling, reproject
 from rasterio.windows import from_bounds
 from scipy.interpolate import RBFInterpolator, RegularGridInterpolator
 
-HERE = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parents[1]     # karnataka_inputs/: the prepared inputs go there
 sys.path.insert(0, str(HERE.parents[2]))
 from geoinv3d.io.crs import project                                   # noqa: E402
 from geoinv3d.methods.continuation import upward_continue            # noqa: E402

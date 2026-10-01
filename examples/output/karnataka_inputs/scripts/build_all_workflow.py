@@ -1,7 +1,7 @@
 """The DAG viewers of the three Karnataka studies with terrain: gravity, magnetics and the joint
 inversion, each in its own folder.
 
-    py examples/output/karnataka_inputs/build_all_workflow.py [--with-2km] [--only gravity,magnetic,joint]
+    py examples/output/karnataka_inputs/scripts/build_all_workflow.py [--with-2km] [--only gravity,magnetic,joint]
 
 Writes, for each study, its workflow and self-contained viewer into the study's folder:
 karnataka_gravity_terrain/karnataka_gravity_terrain.geoinv3d.json (and _viewer.html),
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE.parent
+OUT = HERE.parents[1]      # examples/output: the study folders
 sys.path.insert(0, str(OUT.parents[1]))
 from geoinv3d.methods.coupling import coupling_label   # noqa: E402
 from geoinv3d.viz.result_workflow import build_workflow, load_result   # noqa: E402
