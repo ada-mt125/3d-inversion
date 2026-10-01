@@ -239,9 +239,16 @@ def split_joint_runs(runs: list[dict]) -> tuple[list[dict], list[str]]:
             ds = runs_datasets[k] if k is not None and k < len(runs_datasets) else next(
                 (d for d in runs_datasets if d.get("method") == label), {"method": label})
             prop = UNITS.get(ds.get("method"), UNITS.get(name, (name,)))[0]
-            out.append({**run, "_model": models[name], "_data": datas[label], "datasets": [ds],
-                        "method": ds.get("method", name), "_joint_part": prop,
-                        "_name": f"{run.get('_name')} · {name if name not in UNITS else prop}"})
+            part = {**run, "_model": models[name], "_data": datas[label], "datasets": [ds],
+                    "method": ds.get("method", name), "_joint_part": prop,
+                    "_name": f"{run.get('_name')} · {name if name not in UNITS else prop}"}
+            # two models of one run: each is shown with the other as an overlay in the 3D view
+            others = [n for n, _ in parts if n != name]
+            if len(parts) == 2 and not run.get("_overlay"):
+                o_prop, o_unit, _ = UNITS.get(others[0], (others[0], "", ""))
+                part["_overlay"] = {"model": models[others[0]], "label": f"{o_prop.capitalize()} (same run)",
+                                    "unit": o_unit}
+            out.append(part)
     return out, skipped
 
 
@@ -331,8 +338,10 @@ def _mesh_key(run) -> str:
 
 
 def _data_key(run) -> tuple:
+    """Runs on the same data share a Survey node and a tree; a run's ``_study`` label
+    (optional) keeps the runs of different studies of the same data in trees of their own."""
     d = run["_data"]
-    return (len(d["observed"]), round(float(np.sum(d["locations"][:, :2])), 3),
+    return (run.get("_study"), len(d["observed"]), round(float(np.sum(d["locations"][:, :2])), 3),
             round(float(np.sum(d["observed"])), 6))
 
 
@@ -345,7 +354,10 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
     every cell of the first run's mesh; a dict {method: model} (e.g. "gravity",
     "magnetics") gives each property of a joint study its own true model.  Each run needs ``_data`` with
     stations, observed, std and predicted data; ``_backend`` (default "ec2")
-    labels where it ran.  A joint run with per-dataset data shows as one run per
+    labels where it ran, ``_study`` (optional) the study it belongs to (see :func:`_data_key`).
+    ``_overlay`` = {"model": values on the run's cells, "label", "unit"} adds a second layer
+    to the run's 3D view, drawn on its own scale (another property on the same mesh); the two
+    models of a joint run get each other as overlay.  A joint run with per-dataset data shows as one run per
     property model (see :func:`split_joint_runs`); one without is left out and
     named in the workflow's ``skipped``.
     """
@@ -397,7 +409,8 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             observed = d["observed"]
             nodes.append({
                 "id": node_id, "type": "SurveyCreateNode",
-                "name": f"{rds['method']} · {len(observed)} stations", "inputs": [],
+                "name": (f"{run['_study']} · " if run.get("_study") else "")
+                + f"{rds['method']} · {len(observed)} stations", "inputs": [],
                 "params": {"method": rds["method"], "component": rds.get("component"),
                            "files": rds.get("files"), "noise_pct": rds.get("noise_pct"),
                            "noise_floor": rds.get("noise_floor")},
@@ -489,6 +502,13 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             ref_full = full_model({**run, "_model": run["_reference"]}, mesh)
             out["model_3d"]["true_values"] = _round(grid.values(ref_full), 4)
             out["model_3d"]["true_label"] = "Geology reference"
+        elif run.get("_overlay") and len(run["_overlay"]["model"]) == len(run["_model"]):
+            # another property on the same cells (e.g. the susceptibility of a joint run over
+            # its density): a second layer of the 3D view, on its own scale
+            ov = run["_overlay"]
+            ov_full = full_model({**run, "_model": np.asarray(ov["model"], dtype=float)}, mesh)
+            out["model_3d"].update(true_values=_round(grid.values(ov_full), 4), true_other=True,
+                                   true_label=ov.get("label") or "Overlay", true_unit=ov.get("unit") or "")
         topo = run.get("_topography")
         if topo is not None:   # the ground, drawn over the model in the 3D view
             out["model_3d"]["surface"] = {"x": _round(topo["x"], 7), "y": _round(topo["y"], 7),
@@ -533,8 +553,10 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
     for i, run in enumerate(runs):
         mesh_id = mesh_node(run)[0]
         groups.setdefault((mesh_id, survey_node(run)), []).append((i, run))
-    extra_keys = _extra_keys(runs)
     for (mesh_id, survey_id), group in groups.items():
+        # the columns of this tree: the settings that differ among its own runs (settings that
+        # differ only between studies, e.g. the bounds of two methods, say nothing within one)
+        extra_keys = _extra_keys([run for _, run in group])
         tid = true_ids.get(truth_key(group[0][1]))
         inputs = [mesh_id, survey_id] + ([tid] if tid is not None and mesh_id == first_mesh_id else [])
         if len(runs) == 1:   # a single job: no tree

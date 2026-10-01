@@ -449,8 +449,14 @@ svg#dag:active{cursor:grabbing;}
         </div>
         <div style="height:1px;background:#212b37;"></div>
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Colorbar</div>
+        <div id="m3d-cbar-label" style="font-size:10px;color:#8b97a6;"></div>
         <canvas id="m3d-cbar" width="200" height="20" style="width:100%;border-radius:3px;"></canvas>
         <div id="m3d-cbar-ticks" style="display:flex;justify-content:space-between;font-size:9px;color:#57677a;"></div>
+        <div id="m3d-cbar2-wrap" style="display:none;flex-direction:column;gap:4px;">
+          <div id="m3d-cbar2-label" style="font-size:10px;color:#8b97a6;"></div>
+          <canvas id="m3d-cbar2" width="200" height="20" style="width:100%;border-radius:3px;"></canvas>
+          <div id="m3d-cbar2-ticks" style="display:flex;justify-content:space-between;font-size:9px;color:#57677a;"></div>
+        </div>
         <div id="m3d-stats" style="font-size:10px;color:#57677a;"></div>
         <button id="m3d-reset" style="font-size:11px;padding:6px;background:#1c2530;border:1px solid #2a3644;border-radius:4px;color:#e7ecf2;cursor:pointer;">&#8635; Reset View</button>
       </div>
@@ -957,18 +963,28 @@ const CMAP = [
   [0.55, [253,174,97]], [0.70, [244,109,67]], [0.85, [215,48,39]], [1.00, [165,0,38]]
 ];
 
-function cmap(v, vmin, vmax) {
+// The second property of a 3D view (an overlay on its own scale): purple to green, so
+// that it reads apart from the blue-to-red of the model itself
+const CMAP2 = [
+  [0.00, [84,39,143]], [0.15, [117,107,177]], [0.30, [158,154,200]],
+  [0.45, [203,201,226]], [0.50, [247,247,247]],
+  [0.55, [186,228,179]], [0.70, [116,196,118]], [0.85, [49,163,84]], [1.00, [0,109,44]]
+];
+
+function cmapOf(M, v, vmin, vmax) {
   let t = vmax === vmin ? 0.5 : (v - vmin) / (vmax - vmin);
   t = Math.max(0, Math.min(1, t));
-  for (let i = 1; i < CMAP.length; i++) {
-    if (t <= CMAP[i][0]) {
-      const [t0, c0] = CMAP[i-1], [t1, c1] = CMAP[i];
+  for (let i = 1; i < M.length; i++) {
+    if (t <= M[i][0]) {
+      const [t0, c0] = M[i-1], [t1, c1] = M[i];
       const f = (t - t0) / (t1 - t0);
       return [Math.round(c0[0]+(c1[0]-c0[0])*f), Math.round(c0[1]+(c1[1]-c0[1])*f), Math.round(c0[2]+(c1[2]-c0[2])*f)];
     }
   }
-  return CMAP[CMAP.length-1][1];
+  return M[M.length-1][1];
 }
+function cmap(v, vmin, vmax) { return cmapOf(CMAP, v, vmin, vmax); }
+function cmap2(v, vmin, vmax) { return cmapOf(CMAP2, v, vmin, vmax); }
 
 function fmtN(n) {
   if (n == null) return '-';
@@ -1880,6 +1896,11 @@ const M3D_CAM={eye:{x:1.25,y:-1.25,z:0.75},center:{x:0,y:0,z:0},up:{x:0,y:0,z:1}
 const M3D_TRUE_CSCALE=[[0,'#1a5276'],[0.5,'#2980b9'],[1,'#85c1e9']];
 const $v=id=>document.getElementById(id);
 
+// The colour range of the recovered model.  A true model or a reference of the same property
+// shares it; an overlay of another property (true_other: e.g. susceptibility over density)
+// has its own units and keeps its own range.
+function m3dRange(m,vals){return modelRange(m.true_other?[vals||m.values]:[vals||m.values,m.true_values||[]]);}
+
 function m3dCenters(E){const c=[];for(let i=0;i<E.length-1;i++)c.push((E[i]+E[i+1])/2);return c;}
 
 // Trilinear upsampling in index space, so non-uniform (padded) meshes keep their true coordinates
@@ -1913,8 +1934,9 @@ function m3dBuildGrid(m){
         }}}
     return out;
   };
-  const [vmin,vmax]=modelRange([m.values,m.true_values||[]]);
-  return {x,y,z,xc,yc,zc,vmin,vmax,rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
+  const [vmin,vmax]=m3dRange(m);
+  const [omin,omax]=m.true_other?modelRange([m.true_values]):[0,0];   // an overlay's own range
+  return {x,y,z,xc,yc,zc,vmin,vmax,omin,omax,rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
 }
 
 // ── Isosurfaces ──
@@ -1970,7 +1992,20 @@ function m3dSpecs(){
   }
   // True models are usually piecewise constant: nested shells would all sit on the body
   // boundary.  One translucent open-lattice shell at half the true amplitude instead.
-  if($v('m3d-chk-true')?.checked&&g.tru){
+  if($v('m3d-chk-true')?.checked&&g.tru&&m3dData.true_other){
+    // Another property on the same cells (e.g. susceptibility over density): drawn like the
+    // recovered model (nested shells per sign from the threshold to near the peak, colour
+    // and opacity following its colour bar), on its own range and its own colour map.
+    const vals=g.tru, L2=Math.max(Math.abs(g.omin),Math.abs(g.omax)), thr=L2*(+$v('m3d-thresh').value)/100;
+    const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:m3dData.true_label||'Overlay',caps:M3D_NO_CAPS};
+    for(const sgn of [1,-1]){
+      const top=0.9*(sgn>0?arrMax(vals):-arrMin(vals));
+      if(!(top>thr))continue;
+      const n=top>1.2*thr?M3D_SHELLS_PER_SIGN:1;
+      shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
+        color:v=>cmap2(v,g.omin,g.omax), alpha:v=>m3dAlpha(v,L2)});
+    }
+  }else if($v('m3d-chk-true')?.checked&&g.tru){
     const vals=g.tru, lo=arrMin(vals), hi=arrMax(vals);
     const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:m3dData.true_label||'True model',caps:M3D_NO_CAPS,
       surface:{count:1,fill:0.55,pattern:'all'}};
@@ -2225,7 +2260,7 @@ function init3D(n) {
   lh+='<input type="checkbox" id="m3d-chk-rec" checked style="accent-color:#c0483d;"> Recovered</label>';
   if(m3.true_values){
     lh+='<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0">';
-    lh+=`<input type="checkbox" id="m3d-chk-true" style="accent-color:#2980b9;"> ${escH(m3.true_label||'True Model')}</label>`;
+    lh+=`<input type="checkbox" id="m3d-chk-true"${m3.true_other?' checked':''} style="accent-color:${m3.true_other?'#31a354':'#2980b9'};"> ${escH(m3.true_label||'True Model')}</label>`;
   }
   if(m3.surface){
     lh+='<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0">';
@@ -2254,7 +2289,7 @@ function init3D(n) {
   $v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;
   $v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;
 
-  const [vmin,vmax]=modelRange([m3.values,m3.true_values||[]]);
+  const [vmin,vmax]=m3dRange(m3);
   // the colour bar shows the shells' opacity too: blank inside the threshold, fading in
   const drawCbar=()=>{
     const cctx=$v('m3d-cbar').getContext('2d'), L=Math.max(Math.abs(vmin),Math.abs(vmax));
@@ -2271,16 +2306,42 @@ function init3D(n) {
   $v('m3d-cbar').style.background='#0e131a';
   $v('m3d-cbar-ticks').innerHTML=
     `<span>${fmtN(vmin)}</span><span>${fmtN((vmin+vmax)/2)}</span><span>${fmtN(vmax)}</span>`;
+  const fm=n.output.final_model||{};
+  $v('m3d-cbar-label').textContent=fm.prop?`${fm.prop}${fm.unit?' ('+fm.unit+')':''}`:'';
+  // the overlay's colour bar: its own range and colour map, the same threshold and opacity
+  const [omin,omax]=m3.true_other?modelRange([m3.true_values]):[0,0];
+  const drawCbar2=()=>{
+    if(!m3.true_other)return;
+    const cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
+    const thr=L*(+$v('m3d-thresh').value)/100;
+    cctx.clearRect(0,0,200,20);
+    for(let i=0;i<200;i++){
+      const v=omin+(omax-omin)*(i+0.5)/200;
+      if(Math.abs(v)<thr)continue;
+      const[r,g,b]=cmap2(v,omin,omax);
+      cctx.fillStyle=`rgba(${r},${g},${b},${m3dAlpha(v,L)})`; cctx.fillRect(i,0,1,20);
+    }
+  };
+  $v('m3d-cbar2-wrap').style.display=m3.true_other?'flex':'none';
+  if(m3.true_other){
+    $v('m3d-cbar2').style.background='#0e131a';
+    $v('m3d-cbar2-label').textContent=`${m3.true_label}${m3.true_unit?' ('+m3.true_unit+')':''}`;
+    $v('m3d-cbar2-ticks').innerHTML=
+      `<span>${fmtN(omin)}</span><span>${fmtN((omin+omax)/2)}</span><span>${fmtN(omax)}</span>`;
+    drawCbar2();
+  }
 
   const rng=a=>{let lo=Infinity,hi=-Infinity;for(const q of a){if(q<lo)lo=q;if(q>hi)hi=q;}return `[${fmtN(lo)}, ${fmtN(hi)}]`;};
-  $v('m3d-stats').innerHTML='Recovered: '+rng(m3.values)+(m3.true_values?`<br>${m3.true_label?'Reference':'True'}: `+rng(m3.true_values):'');
+  $v('m3d-stats').innerHTML='Recovered: '+rng(m3.values)+(!m3.true_values?'':m3.true_other
+    ?`<br>${escH(m3.true_label)}: ${rng(m3.true_values)} ${escH(m3.true_unit||'')}`
+    :`<br>${m3.true_label?'Reference':'True'}: `+rng(m3.true_values));
 
   const bind=(id,fn)=>{const e=$v(id);if(e){e.oninput=fn;e.onchange=fn;}};
-  bind('m3d-thresh',()=>{$v('m3d-thresh-disp').textContent=$v('m3d-thresh').value+'%';drawCbar();schedule3D(true);});
+  bind('m3d-thresh',()=>{$v('m3d-thresh-disp').textContent=$v('m3d-thresh').value+'%';drawCbar();drawCbar2();schedule3D(true);});
   let recolorTimer=null;   // the opacity only changes the alphas: no re-plot
   bind('m3d-opacity',()=>{
     $v('m3d-opacity-disp').textContent=$v('m3d-opacity').value+'%';
-    drawCbar(); clearTimeout(recolorTimer); recolorTimer=setTimeout(m3dRecolor,60);
+    drawCbar(); drawCbar2(); clearTimeout(recolorTimer); recolorTimer=setTimeout(m3dRecolor,60);
   });
   bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent='iz='+$v('m3d-zslice').value;updateSectionRow();schedule3D();});
   bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;updateSectionRow();schedule3D();});
@@ -2373,7 +2434,7 @@ function drawSection2D(mode){
   const nx=m.nx, ny=m.ny, nz=m.nz;
   const XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
   const vals=m.values;
-  const [vmin,vmax]=modelRange([vals,m.true_values||[]]);
+  const [vmin,vmax]=m3dRange(m,vals);
 
   const canvasId=mode==='z'?'m3d-z-canvas':mode==='ew'?'m3d-ew-canvas':'m3d-ns-canvas';
   const canvas=document.getElementById(canvasId);
