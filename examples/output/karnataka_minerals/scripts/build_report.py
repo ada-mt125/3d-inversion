@@ -39,6 +39,8 @@ EXTRA_CSS = """
 .cards b { display: block; font: 600 22px/1.2 var(--serif); color: var(--accent); margin-bottom: 4px; }
 .cards span { font-size: 13px; color: var(--muted); line-height: 1.45; }
 .disclaimer { font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 10px; margin-top: 8px; }
+.where { display: block; font: 0.9em/1.4 var(--mono); color: var(--muted); margin-top: 2px; }
+@media print { .cards b { font-size: 16pt; } }
 """
 
 
@@ -157,9 +159,11 @@ def deposits_table():
          "and low-grade magnetite quartzite", "Sporadic copper, up to 4,767 ppm in one sample", "—",
          f"about {w:.0f}–{e:.0f}, {s:.0f}–{n:.0f} (part)", cite("NMET")),
     ]
-    return table(["Commodity", "Locality", "Host and form", "Size and grade", "Depth", "E, N (km)", "Source"],
-                 [[a, (f"<b>{b}</b>", "wrap"), (c, "wrap"), (d, "wrap"), (e_, "wrap"), (f, "n"), (g, "wrap")]
-                  for a, b, c, d, e_, f, g in rows], numeric_from=9)
+    def size(d, e_):
+        return d if e_ == "—" else f"{d}; {e_[0].lower()}{e_[1:]}"
+    return table(["Commodity", "Locality (E, N km)", "Host and form", "Size, grade and depth", "Source"],
+                 [[a, (f"<b>{b}</b>" + (f'<span class="where">{f}</span>' if f != "—" else ""), "wrap"), (c, "wrap"),
+                   (size(d, e_), "wrap"), (g, "wrap")] for a, b, c, d, e_, f, g in rows], numeric_from=9)
 
 
 def succession_table():

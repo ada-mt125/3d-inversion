@@ -94,6 +94,7 @@ footer { border-top: 1px solid var(--rule); margin-top: 56px; padding-top: 16px;
   .tablewrap { overflow: visible; }
   table, table.compact { min-width: 0; font-size: 7pt; }
   th, td { padding: 3pt 4pt; white-space: normal; }
+  td.wrap { min-width: 0; }   /* on paper the wrapped columns share the page width */
   footer { margin-top: 20pt; }
 }
 """
