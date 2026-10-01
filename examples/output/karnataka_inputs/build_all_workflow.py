@@ -1,11 +1,12 @@
-"""Every run of the three Karnataka studies with terrain (gravity, magnetics, joint) in one
-DAG viewer page.
+"""The runs of the three Karnataka studies with terrain in three DAG viewer pages: gravity,
+magnetics and the joint inversion.
 
-    py examples/output/karnataka_inputs/build_all_workflow.py [--with-2km]
+    py examples/output/karnataka_inputs/build_all_workflow.py [--with-2km] [--only gravity,magnetic,joint]
 
-Writes karnataka_all_runs.geoinv3d.json and its self-contained viewer
-karnataka_all_runs_viewer.html next to this script: the runs on the 1 km mesh (--with-2km adds
-the local 2 km studies).
+Writes karnataka_<study>_runs.geoinv3d.json and its self-contained viewer
+karnataka_<study>_runs_viewer.html next to this script for each study: the runs on the 1 km
+mesh (--with-2km adds the local 2 km studies).  The reference gravity and magnetic runs carry
+each other's model as a second layer of their 3D view.
 The joint study has three series, each in trees of its own: the first (data/ec2_runs,
 lowres_runs), the second (data/ec2_runs_fixed, lowres_runs_fixed: report v2) and the runs with
 the rock-sample constraints (data/ec2_runs_bounds, lowres_bounds: report v2, Section 5).
@@ -39,6 +40,8 @@ JOINT = ["none", "cross_gradient", "joint_total_variation", "linear_corresponden
          "group_lasso_uncoupled"]
 JOINT_V2 = ["none", "cross_gradient", "joint_total_variation", "linear_correspondence", "pgi",
             "group_lasso_depth", "group_lasso_depth_uncoupled"]
+VIEWERS = {"gravity": "karnataka_gravity_runs_viewer.html", "magnetic": "karnataka_magnetic_runs_viewer.html",
+           "joint": "karnataka_joint_runs_viewer.html"}
 
 
 def lowres_name(run):
@@ -59,20 +62,21 @@ def add(runs, path, name, backend, study):
 
 def main():
     full_only = "--with-2km" not in sys.argv
-    runs = []
+    only = sys.argv[sys.argv.index("--only") + 1].split(",") if "--only" in sys.argv else list(VIEWERS)
+    grav_runs, mag_runs, joint_runs = [], [], []
     g = OUT / "karnataka_gravity_terrain" / "data"
     for key, name in GRAVITY.items():
-        add(runs, g / "ec2_runs" / key, f"Gravity 1 km: {name}", "ec2", "Gravity study")
+        add(grav_runs, g / "ec2_runs" / key, f"Gravity 1 km: {name}", "ec2", "Gravity study")
     if not full_only:
         for d in sorted((g / "lowres_runs").iterdir()):
             if (d / "result.zip").exists():
                 r = load_result(d)
                 r["_name"], r["_backend"], r["_study"] = f"Gravity 2 km: {lowres_name(r)}", "local", "Gravity study"
-                runs.append(r)
+                grav_runs.append(r)
     m = OUT / "karnataka_magnetic" / "data"
     m = m / "ec2_runs" if (m / "ec2_runs").exists() else m / "ec2_trials"
     for key, name in MAGNETIC.items():
-        add(runs, m / key, f"Magnetics 1 km: {name}", "ec2", "Magnetic study")
+        add(mag_runs, m / key, f"Magnetics 1 km: {name}", "ec2", "Magnetic study")
     j = OUT / "karnataka_joint" / "data"
     for folder, prefix, backend in (("ec2_runs", "Joint 1 km", "ec2"), ("lowres_runs", "Joint 2 km", "local")):
         if full_only and folder == "lowres_runs":
@@ -81,7 +85,7 @@ def main():
             d = j / folder / key
             if (d / "result.zip").exists():
                 kind = (load_result(d).get("coupling") or {}).get("kind") or key
-                add(runs, d, f"{prefix}: {coupling_label(kind)}", backend, "Joint study")
+                add(joint_runs, d, f"{prefix}: {coupling_label(kind)}", backend, "Joint study")
     # the second series (report v2), with each model's own regularization as joint_params gave it
     sys.path.insert(0, str(OUT / "karnataka_joint" / "scripts"))
     from build_workflow import _study_settings
@@ -98,7 +102,7 @@ def main():
                 kind = (r.get("coupling") or {}).get("kind") or key
                 r["_name"], r["_backend"], r["_study"] = (f"{prefix}, 2nd series: {coupling_label(kind)}", backend,
                                                           "Joint study, 2nd series")
-                runs.append(r)
+                joint_runs.append(r)
 
     # with the rock-sample constraints: density bounds and depth weighting of joint_params.VARIANTS
     def constrained(key):
@@ -109,23 +113,27 @@ def main():
     for key in VARIANTS:
         for coupling in ("none", "joint_total_variation"):
             label = coupling_label(coupling)
-            add(runs, j / "ec2_runs_bounds" / f"{coupling}_{key}", f"Joint 1 km, constrained: {label}, "
+            add(joint_runs, j / "ec2_runs_bounds" / f"{coupling}_{key}", f"Joint 1 km, constrained: {label}, "
                 f"{constrained(key)}", "ec2", "Joint study, rock-sample constraints")
             if not full_only:
-                add(runs, j / "lowres_bounds" / key / coupling, f"Joint 2 km, constrained: {label}, "
+                add(joint_runs, j / "lowres_bounds" / key / coupling, f"Joint 2 km, constrained: {label}, "
                     f"{constrained(key)}", "local", "Joint study, rock-sample constraints")
     # the reference runs of the two single studies (sparse, β = 1) overlay each other in 3D:
     # density with the susceptibility as a second layer, and the other way round (the two
     # models of a joint run get each other automatically)
-    ref = {r["_name"]: r for r in runs}
+    ref = {r["_name"]: r for r in grav_runs + mag_runs}
     grav, mag = ref.get("Gravity 1 km: sparse α_s=1, β=1"), ref.get("Magnetics 1 km: sparse, β=1")
     if grav and mag and len(grav["_model"]) == len(mag["_model"]):
         grav["_overlay"] = {"model": mag["_model"], "label": "Susceptibility (magnetic study, β=1)", "unit": "SI"}
         mag["_overlay"] = {"model": grav["_model"], "label": "Density (gravity study, β=1)", "unit": "g/cc"}
-    dest = HERE / "karnataka_all_runs.geoinv3d.json"
-    dest.write_text(json.dumps(build_workflow(runs), separators=(",", ":")), encoding="utf-8")
-    viewer = generate_viewer(str(dest), str(HERE / "karnataka_all_runs_viewer.html"))
-    print(len(runs), "runs ->", viewer, f"{Path(viewer).stat().st_size / 1e6:.0f} MB")
+    # one viewer per study
+    for key, runs in (("gravity", grav_runs), ("magnetic", mag_runs), ("joint", joint_runs)):
+        if key not in only or not runs:
+            continue
+        dest = HERE / f"karnataka_{key}_runs.geoinv3d.json"
+        dest.write_text(json.dumps(build_workflow(runs), separators=(",", ":")), encoding="utf-8")
+        viewer = generate_viewer(str(dest), str(HERE / VIEWERS[key]))
+        print(f"{key}: {len(runs)} runs ->", viewer, f"{Path(viewer).stat().st_size / 1e6:.0f} MB")
 
 
 if __name__ == "__main__":
