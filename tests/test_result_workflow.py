@@ -135,6 +135,12 @@ class TestBuildWorkflow:
         assert leaf["b05"]["name"] == "α_s=1 · β=0.5 · p=[0,2,2,2]"
         assert leaf["l1l2"]["name"] == "L1 share 0.8 · sensitivity"
         assert leaf["b05"]["branch"]["path"] == ["sparse (IRLS)", "α_s = 1", "depth, β = 0.5", "p = [0, 2, 2, 2]"]
+        # each setting has a title and a column of its own in the tree: the L1–L2 run, which
+        # has no norms, skips that column instead of moving another setting into it
+        title = lambda n: (n["branch"]["title"], n["branch"]["column"])   # noqa: E731
+        assert title(sparse) == ("Regularization", 0) and title(a1) == ("α_s", 1)
+        assert title(up(leaf["b05"], 2)) == ("Depth weighting", 2) and title(up(leaf["b05"], 1)) == ("Norms p", 3)
+        assert title(up(leaf["l1l2"], 2)) == ("L1 share", 1) and title(up(leaf["l1l2"], 1)) == ("Depth weighting", 2)
         # depth-first order for the viewer: sparse (α_s = 1e-4, then α_s = 1: β 0.5, β 1), L1–L2
         seq = [sparse, leaf["orig"], a1, leaf["b05"], leaf["b1"], up(leaf["l1l2"], 3), leaf["l1l2"]]
         assert [n["order"] for n in seq] == sorted(n["order"] for n in seq)

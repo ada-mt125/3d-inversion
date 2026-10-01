@@ -47,7 +47,11 @@ SETTING_LABELS = {"gl_lambda1_selection": "λ1 by", "gl_lambda1": "λ1", "gl_lam
                   "gl_max_iter": "ADMM max it", "gl_tol": "ADMM tol", "geology": "geology",
                   "coupling_weight": "coupling weight", "gl_cross_gradient": "λ3",
                   "magnetization": "magnetization", "gl_data_weights": "data weights from",
-                  "gl_balance": "balanced"}
+                  "gl_balance": "balanced", "gl_coupling": "group lasso pairing",
+                  "bounds_lower": "lower bound", "bounds_upper": "upper bound", "max_iter": "max iterations",
+                  "max_irls_iterations": "IRLS iterations", "beta_selection": "β selection",
+                  "beta0_ratio": "β0 ratio", "cooling_factor": "β cooling", "alpha_x": "α_x", "alpha_y": "α_y",
+                  "alpha_z": "α_z", "gl_weighting": "cell weighting", "gl_relaxation": "ADMM relaxation"}
 
 
 def _g(v) -> str:
@@ -149,6 +153,20 @@ IGNORED = {"l1l2": {"alpha_s", "norms", "alpha_x", "alpha_y", "alpha_z", "max_ir
            # PGI regularizes by its rock units: none of the per-model settings apply
            "pgi": {"alpha_s", "norms", "l1_ratio", "max_irls_iterations", "depth_weighting",
                    "depth_weighting_exponent", "coupling_weight"}}
+
+
+LEVEL_TITLES = {"coupling": "Coupling", "regularization": "Regularization", "weighting": "Depth weighting",
+                "norms": "Norms p"}
+
+
+def _level_title(name, s):
+    """The title of a tree column: the setting its nodes fix (shown over the column)."""
+    if name == "strength":
+        return {"l1l2": "L1 share", "group_lasso": "λ2"}.get(s.get("regularization_type"), "α_s")
+    if name in LEVEL_TITLES:
+        return LEVEL_TITLES[name]
+    t = SETTING_LABELS.get(name, name.replace("_", " "))
+    return t[:1].upper() + t[1:]
 
 
 def _levels(rt, extra_keys):
@@ -480,7 +498,8 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                 "id": node_id, "order": next(order),
                 "type": "RegularizationBranchNode" if name == "regularization" else "ParameterBranchNode",
                 "name": label, "inputs": inputs, "params": {},
-                "branch": {"level": name, "label": label, "path": path + [label], "n_runs": len(sub)}})
+                "branch": {"level": name, "title": _level_title(name, settings_of(sub[0][1])), "label": label,
+                           "path": path + [label], "n_runs": len(sub)}})
             below = _levels(settings_of(sub[0][1])["regularization_type"], extra_keys) if name == "regularization" else rest
             grow(sub, [node_id], below, path + [label], shorts + [short], extra_keys, names + (name,))
 
@@ -571,8 +590,17 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             continue
         # joint runs: the coupling first (a column of its own, before the regularization)
         joint = any(settings_of(run).get("coupling") for _, run in group)
+        first = len(nodes)
         grow(group, inputs, ([("coupling", _coupling_level)] if joint else [])
              + [("regularization", _reg_level)], [], [], extra_keys)
+        # one column per setting in this tree, in the order of the levels: a run whose
+        # regularization skips a setting (the norms of an L1–L2 run) skips its column
+        rank = {"coupling": 0, "regularization": 1, **{name: 2 + i for i, (name, _, _) in enumerate(BRANCH_LEVELS[1:])},
+                **{k: 2 + len(BRANCH_LEVELS) + i for i, k in enumerate(extra_keys)}}
+        made = [n for n in nodes[first:] if n["type"].endswith("BranchNode")]
+        columns = sorted({n["branch"]["level"] for n in made}, key=lambda name: rank.get(name, len(rank)))
+        for n in made:
+            n["branch"]["column"] = columns.index(n["branch"]["level"])
     nodes.sort(key=lambda n: n["id"])
     workflow = {"version": 1, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "nodes": nodes}
     if skipped:

@@ -1,10 +1,11 @@
 """Every run of the three Karnataka studies with terrain (gravity, magnetics, joint) in one
 DAG viewer page.
 
-    py examples/output/karnataka_inputs/build_all_workflow.py [--full-only]
+    py examples/output/karnataka_inputs/build_all_workflow.py [--with-2km]
 
 Writes karnataka_all_runs.geoinv3d.json and its self-contained viewer
-karnataka_all_runs_viewer.html next to this script (--full-only leaves out the 2 km studies).
+karnataka_all_runs_viewer.html next to this script: the runs on the 1 km mesh (--with-2km adds
+the local 2 km studies).
 The joint study has three series, each in trees of its own: the first (data/ec2_runs,
 lowres_runs), the second (data/ec2_runs_fixed, lowres_runs_fixed: report v2) and the runs with
 the rock-sample constraints (data/ec2_runs_bounds, lowres_bounds: report v2, Section 5).
@@ -57,7 +58,7 @@ def add(runs, path, name, backend, study):
 
 
 def main():
-    full_only = "--full-only" in sys.argv
+    full_only = "--with-2km" not in sys.argv
     runs = []
     g = OUT / "karnataka_gravity_terrain" / "data"
     for key, name in GRAVITY.items():

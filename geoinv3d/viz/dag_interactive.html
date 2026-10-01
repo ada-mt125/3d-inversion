@@ -77,6 +77,8 @@ svg#dag:active{cursor:grabbing;}
 .legend-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0;}
 
 .zoom-ctl{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;gap:2px;z-index:5;}
+.dag-tools{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:10px;z-index:5;}
+.dag-hint{font-size:10px;color:#57677a;background:rgba(22,29,39,.85);border:1px solid #212b37;padding:3px 8px;border-radius:4px;}
 .zbtn{width:28px;height:28px;background:var(--bg2);border:1px solid var(--border);border-radius:4px;
      color:var(--text);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 .zbtn:hover{background:var(--accent);color:#fff;}
@@ -370,6 +372,10 @@ svg#dag:active{cursor:grabbing;}
         <div class="legend" id="legend" style="display:none">
           <div class="legend-title">Node Types</div>
           <div id="legend-items"></div>
+        </div>
+        <div class="dag-tools" id="dag-tools" style="display:none">
+          <button class="btn" id="btn-settings" title="Show or hide the setting columns of the tree; the result cards keep the settings that set each run apart">Hide settings</button>
+          <span class="dag-hint" id="dag-hint">scroll to move · ctrl/⌘ + scroll to zoom · double-click a result to open it</span>
         </div>
         <div class="zoom-ctl" id="zoom-ctl" style="display:none">
           <button class="zbtn" id="z-in">+</button>
@@ -1149,10 +1155,33 @@ function cfgLines(n) {
 // DAG LAYOUT & RENDER
 // ══════════════════════════════════════════
 let dagLR=false;   // left-to-right tree (studies with branch nodes) or top-down layers
-let dagColTitles=[];   // tree layout: a title per column
-function computeLayout(nodes, edges) {
-  dagLR=nodes.some(n=>isBranch(n.type));
+let dagColTitles=[];   // tree layout: a title per column of each tree
+let dagTreeOf={}, dagGhosts={};   // tree layout: each node's tree; copies of a shared mesh in other trees
+// the setting columns of a tree can be folded away: the results then hang from their data
+let hideSettings=false;
+try{hideSettings=localStorage.getItem('geoinv3d.hideSettings')==='1';}catch(e){}
+function computeLayout(nodes, edges, tree) {
+  dagLR=tree;
   return dagLR ? treeLayout(nodes) : layeredLayout(nodes, edges);
+}
+// The nodes to draw: all of them, or without the branch nodes, each input that is one
+// replaced by its own inputs (so a result hangs from its mesh and survey).
+function visibleNodes(nodes) {
+  if(!hideSettings||!nodes.some(n=>isBranch(n.type)))return nodes;
+  const nmap={}; nodes.forEach(n=>{nmap[n.id]=n;});
+  const lift=(ids,out)=>{
+    ids.forEach(i=>{const m=nmap[i]; if(m&&isBranch(m.type))lift(m.inputs||[],out); else if(!out.includes(i))out.push(i);});
+    return out;
+  };
+  return nodes.filter(n=>!isBranch(n.type)).map(n=>({...n, inputs:lift(n.inputs||[],[])}));
+}
+const LEVEL_TITLE={coupling:'Coupling', regularization:'Regularization', weighting:'Depth weighting', norms:'Norms p'};
+function levelTitle(n) {
+  const b=n.branch||{};
+  if(b.title)return b.title;   // written by the workflow builder
+  if(b.level==='strength')return n.name.startsWith('L1')?'L1 share':n.name.startsWith('λ2')?'λ2':'α_s';
+  const t=LEVEL_TITLE[b.level]||String(b.level||'').replace(/_/g,' ');
+  return t.charAt(0).toUpperCase()+t.slice(1);
 }
 
 // A study's branch tree, left to right: each node centred on its children, every result
@@ -1179,11 +1208,18 @@ function treeLayout(nodes) {
   });
   const ord=n=>n.order??n.id;
   Object.values(kids).forEach(k=>k.sort((a,b)=>ord(a)-ord(b)));
-  const maxL=Math.max(...Object.values(layers));
+  // a setting keeps its column within its tree (the builder numbers them): a branch that
+  // skips a setting skips its column instead of shifting the next one into it
+  const colBase=id=>{let k=id; while(prim[k]!=null&&isBranch(nmap[prim[k]].type))k=prim[k];
+    return Math.max(0,...ins(nmap[k]).map(i=>layers[i]))+1;};
+  nodes.forEach(n=>{if(isBranch(n.type)&&n.branch&&n.branch.column!=null)layers[n.id]=colBase(n.id)+n.branch.column;});
+  const maxL=Math.max(...Object.values(layers))+(nodes.some(n=>isBranch(n.type)&&n.branch&&n.branch.column!=null)?1:0);
   nodes.forEach(n=>{if(isInv(n.type)&&!kids[n.id])layers[n.id]=maxL;});
-  const size=n=>isInv(n.type)?{w:280,h:58}:isBranch(n.type)?{w:170,h:44}:{w:170,h:48};
+  // with the settings folded the result cards have room to name every setting of a run
+  const wide=!nodes.some(n=>isBranch(n.type));
+  const size=n=>isInv(n.type)?{w:wide?400:280,h:58}:isBranch(n.type)?{w:170,h:44}:{w:170,h:48};
   // the results column sits further right: its cards are wider
-  const colW=250, vGap=12, xOf=n=>layers[n.id]*colW+(layers[n.id]===maxL?60:0), pos={};
+  const colW=250, vGap=12, xOf=n=>layers[n.id]*colW+(layers[n.id]===maxL?(wide?120:60):0), pos={};
   let y=0;
   const place=n=>{
     const s=size(n), ch=kids[n.id]||[];
@@ -1194,25 +1230,24 @@ function treeLayout(nodes) {
       pos[n.id]={x:xOf(n), y:y+s.h/2, ...s}; y+=s.h+vGap;
     }
   };
-  roots.filter(n=>kids[n.id]).forEach(n=>{place(n); y+=50;});   // a gap between studies
+  roots.filter(n=>kids[n.id]).forEach(n=>{place(n); y+=78;});   // a gap between studies, for their titles
   const above={};
+  const rootOf=id=>{let k=id; while(prim[k]!=null)k=prim[k]; return k;};
+  dagGhosts={};
   roots.filter(n=>!kids[n.id]).forEach(n=>{
-    const s=size(n), child=nodes.find(c=>ins(c).includes(n.id)), a=child&&pos[prim[child.id]];
-    if(!a){pos[n.id]={x:xOf(n), y:y+s.h/2, ...s}; y+=s.h+vGap; return;}
-    const k=prim[child.id]; above[k]=(above[k]||a.h/2)+vGap+s.h;
-    pos[n.id]={x:xOf(n), y:a.y-above[k]+s.h/2, ...s};
+    const s=size(n), children=nodes.filter(c=>ins(c).includes(n.id));
+    // one copy per tree it feeds: the node itself in the first, a ghost in the others
+    const seenTrees=new Set();
+    children.forEach(child=>{
+      const t=rootOf(child.id);
+      if(seenTrees.has(t))return; seenTrees.add(t);
+      const a=pos[prim[child.id]]; if(!a)return;
+      const k=prim[child.id]; above[k]=(above[k]||a.h/2)+vGap+s.h;
+      const at={x:xOf(n), y:a.y-above[k]+s.h/2, ...s};
+      if(!pos[n.id]) pos[n.id]=at; else (dagGhosts[n.id]=dagGhosts[n.id]||{})[t]=at;
+    });
+    if(!pos[n.id]){pos[n.id]={x:xOf(n), y:y+s.h/2, ...s}; y+=s.h+vGap;}
   });
-  // a title over each column: the setting its branch nodes fix
-  const titles={};
-  nodes.forEach(n=>{
-    const l=layers[n.id], b=n.branch;
-    let t;
-    if(isBranch(n.type)) t=b.level==='regularization'?'Regularization':b.level==='weighting'?'Depth weighting'
-      :b.level==='norms'?'Norms p':b.level==='strength'?(n.name.startsWith('L1')?'L1 share':'α_s'):b.level;
-    else t=isInv(n.type)?'Results':(NCAT[n.type]||n.type);
-    (titles[l]=titles[l]||new Set()).add(t);
-  });
-  dagColTitles=Object.entries(titles).map(([l,s])=>({x:+l*colW+(+l===maxL?60:0), title:[...s].join(' / ')}));
   // keep nodes of one column from overlapping
   const cols={};
   nodes.forEach(n=>{const p=pos[n.id]; if(p)(cols[p.x]=cols[p.x]||[]).push(p);});
@@ -1220,6 +1255,27 @@ function treeLayout(nodes) {
     c.sort((a,b)=>a.y-b.y);
     for(let i=1;i<c.length;i++){const min=c[i-1].y+(c[i-1].h+c[i].h)/2+vGap; if(c[i].y<min)c[i].y=min;}
   });
+  // a title over each column of each tree: the setting its branch nodes fix.  Trees of
+  // different studies have different columns, so each tree gets its own row of titles.
+  const tree={};
+  nodes.forEach(n=>{
+    if(ins(n).length||kids[n.id]){tree[n.id]=rootOf(n.id); return;}
+    const child=nodes.find(c=>ins(c).includes(n.id));   // a mesh beside its survey
+    tree[n.id]=child?rootOf(child.id):n.id;
+  });
+  const titles={}, top={};
+  nodes.forEach(n=>{
+    const p=pos[n.id]; if(!p)return;
+    const t=tree[n.id], l=layers[n.id];
+    top[t]=Math.min(top[t]??Infinity, p.y-p.h/2);
+    const title=isBranch(n.type)?levelTitle(n):isInv(n.type)?'Results':'Data & mesh';
+    ((titles[t]=titles[t]||{})[l]=titles[t][l]||new Set()).add(title);
+  });
+  Object.values(dagGhosts).forEach(g=>Object.entries(g).forEach(([t,p])=>{top[t]=Math.min(top[t]??Infinity,p.y-p.h/2);}));
+  dagTreeOf=tree;
+  dagColTitles=[];
+  Object.entries(titles).forEach(([t,cs])=>Object.entries(cs).forEach(([l,set])=>
+    dagColTitles.push({x:+l*colW+(+l===maxL?(wide?120:60):0), y:top[t]-22, title:[...set].join(' / ')})));
   return pos;
 }
 
@@ -1258,9 +1314,12 @@ function layeredLayout(nodes, edges) {
 
 function renderDAG() {
   if (!W) return;
-  const nodes=W.nodes, edges=[];
+  const tree=W.nodes.some(n=>isBranch(n.type));
+  const nodes=visibleNodes(W.nodes), edges=[];
   nodes.forEach(n=>(n.inputs||[]).forEach(i=>edges.push([i,n.id])));
-  npos = computeLayout(nodes, edges);
+  npos = computeLayout(nodes, edges, tree);
+  document.getElementById('dag-tools').style.display=tree?'':'none';
+  document.getElementById('btn-settings').textContent=hideSettings?'Show settings':'Hide settings';
 
   // Legend
   const li=document.getElementById('legend-items');
@@ -1277,12 +1336,14 @@ function renderDAG() {
 
   // Fit view
   const rect=svg.getBoundingClientRect();
-  const ax=Object.values(npos).map(p=>p.x), ay=Object.values(npos).map(p=>p.y);
-  const x0=arrMin(ax)-120, x1=arrMax(ax)+120, y0=arrMin(ay)-60, y1=arrMax(ay)+60;
+  // the extent of the nodes themselves (their widths differ: result cards are wider)
+  const P=Object.values(npos);
+  const x0=arrMin(P.map(p=>p.x-p.w/2))-40, x1=arrMax(P.map(p=>p.x+p.w/2))+40;
+  const y0=arrMin(P.map(p=>p.y-p.h/2))-50, y1=arrMax(P.map(p=>p.y+p.h/2))+50;
   if (dagLR) {
     // a tall branch tree: fit the width so the labels stay readable, top aligned; drag to pan
     const sc=Math.min(rect.width/(x1-x0), 1.2)*0.92;
-    tf={x:rect.width/2-((x0+x1)/2)*sc, y:20-y0*sc, k:sc};
+    tf={x:rect.width/2-((x0+x1)/2)*sc, y:48-y0*sc, k:sc};
   } else {
     const sc=Math.min(rect.width/(x1-x0), rect.height/(y1-y0), 1.5)*0.85;
     tf={x:rect.width/2-((x0+x1)/2)*sc, y:rect.height/2-((y0+y1)/2)*sc, k:sc};
@@ -1299,13 +1360,12 @@ function drawDAG(nodes, edges) {
 
   // Edges
   const nmap={}; nodes.forEach(n=>{nmap[n.id]=n;});
-  if(dagLR){
-    const top=arrMin(Object.values(npos).map(p=>p.y-p.h/2));
-    dagColTitles.forEach(c=>addText(g, c.x, top-24, c.title, 'col-title'));
-  }
+  if(dagLR) dagColTitles.forEach(c=>addText(g, c.x, c.y, c.title, 'col-title'));
   edges.forEach(([f,t])=>{
-    const p1=npos[f],p2=npos[t]; if(!p1||!p2)return;
+    let p1=npos[f]; const p2=npos[t]; if(!p1||!p2)return;
     if(dagLR){
+      const ghost=dagGhosts[f]&&dagGhosts[f][dagTreeOf[t]];
+      if(ghost)p1=ghost;
       // right side of the input to the left side of the node
       const x1=p1.x+p1.w/2, x2=p2.x-p2.w/2-4;
       const xm=x1+Math.min(90,(x2-x1)/2);
@@ -1322,6 +1382,25 @@ function drawDAG(nodes, edges) {
     ln.setAttribute('stroke','#444'); ln.setAttribute('stroke-width','2');
     ln.setAttribute('marker-end','url(#arrow)');
     g.appendChild(ln);
+  });
+
+  // copies of a shared root (a mesh) in the other trees it feeds
+  if(dagLR) Object.entries(dagGhosts).forEach(([id,byTree])=>{
+    const n=nmap[id]; if(!n)return;
+    const col=NCOL[n.type]||'#607D8B';
+    Object.values(byTree).forEach(p=>{
+      const ng=document.createElementNS('http://www.w3.org/2000/svg','g');
+      ng.setAttribute('class','dag-node ghost'); ng.setAttribute('data-id',n.id);
+      const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x',p.x-p.w/2); r.setAttribute('y',p.y-p.h/2); r.setAttribute('width',p.w); r.setAttribute('height',p.h);
+      r.setAttribute('rx',18); r.setAttribute('fill',col); r.setAttribute('fill-opacity','0.25');
+      r.setAttribute('stroke',col); r.setAttribute('stroke-width','2'); r.setAttribute('stroke-dasharray','5 4');
+      ng.appendChild(r);
+      addText(ng, p.x, p.y-3, trunc(n.name,22), 'node-label');
+      addText(ng, p.x, p.y+12, '#'+n.id+' (shared)', 'node-sub');
+      ng.addEventListener('click',()=>selectNode(n.id));
+      g.appendChild(ng);
+    });
   });
 
   // Nodes
@@ -1343,7 +1422,7 @@ function drawDAG(nodes, edges) {
       r.setAttribute('width',p.w); r.setAttribute('height',p.h); r.setAttribute('rx',8);
       r.setAttribute('fill',col); r.setAttribute('stroke',col); r.setAttribute('stroke-width','2');
       ng.appendChild(r);
-      addText(ng, p.x, p.y-15, trunc(n.name,44), 'node-label');
+      addText(ng, p.x, p.y-15, trunc(n.name,p.w>300?64:44), 'node-label');
       cfgLines(n).forEach((ln,i)=>addText(ng, p.x, p.y+5+i*13, ln, 'node-cfg'));
     } else if (inv) {
       // Diamond
@@ -1377,8 +1456,13 @@ function drawDAG(nodes, edges) {
         const b=n.branch||{};
         addText(ng, p.x, p.y-3, trunc(n.name,26), 'node-label');
         addText(ng, p.x, p.y+12, b.n_runs+(b.n_runs===1?' run':' runs'), 'node-sub');
+      } else if (dagLR && n.name.includes(' · ')) {
+        // e.g. "Gravity study · gravity · 5040 stations": the study, then the data
+        const i=n.name.indexOf(' · ');
+        addText(ng, p.x, p.y-3, trunc(n.name.slice(0,i),26), 'node-label');
+        addText(ng, p.x, p.y+12, trunc(n.name.slice(i+3),30)+' · #'+n.id, 'node-sub');
       } else {
-        addText(ng, p.x, p.y-3, trunc(n.name,18), 'node-label');
+        addText(ng, p.x, p.y-3, trunc(n.name,dagLR?22:18), 'node-label');
         addText(ng, p.x, p.y+12, '#'+n.id+' '+n.type.replace('Node',''), 'node-sub');
       }
     }
@@ -1393,6 +1477,7 @@ function drawDAG(nodes, edges) {
     }
 
     ng.addEventListener('click',()=>selectNode(n.id));
+    if(hasOut&&inv) ng.addEventListener('dblclick',()=>viewResults(n.id));   // straight to its results
     g.appendChild(ng);
   });
 }
@@ -2600,6 +2685,21 @@ window.addEventListener('mousemove',e=>{
 window.addEventListener('mouseup',()=>{dragging=false;});
 svg.addEventListener('wheel',e=>{
   e.preventDefault();
+  if(dagLR && !e.ctrlKey && !e.metaKey){
+    const u=e.deltaMode===1?16:e.deltaMode===2?svg.clientHeight:1;
+    tf.x-=(e.shiftKey&&!e.deltaX?e.deltaY:e.deltaX)*u; tf.y-=(e.shiftKey&&!e.deltaX?0:e.deltaY)*u;
+    // scrolling stops at the ends of the tree, like a page: its top no lower than the top
+    // of the view, its bottom no higher than the bottom (a short tree moves within the view)
+    const P=Object.values(npos), r=svg.getBoundingClientRect(), m=60;
+    const clamp=(v,a,b)=>Math.min(Math.max(v,Math.min(a,b)),Math.max(a,b));
+    if(P.length){
+      const top=arrMin(P.map(p=>p.y-p.h/2))*tf.k, bot=arrMax(P.map(p=>p.y+p.h/2))*tf.k;
+      const left=arrMin(P.map(p=>p.x-p.w/2))*tf.k, right=arrMax(P.map(p=>p.x+p.w/2))*tf.k;
+      tf.y=clamp(tf.y, m-top, r.height-m/2-bot);
+      tf.x=clamp(tf.x, m/2-left, r.width-m/2-right);
+    }
+    applyTf(); return;
+  }
   const r=svg.getBoundingClientRect();
   const mx=e.clientX-r.left, my=e.clientY-r.top;
   const f=e.deltaY<0?1.15:1/1.15;
@@ -2613,10 +2713,20 @@ function applyTf(){
   if(g)g.setAttribute('transform',`translate(${tf.x},${tf.y}) scale(${tf.k})`);
 }
 
-document.getElementById('z-in').addEventListener('click',()=>{tf.k=Math.min(5,tf.k*1.3);applyTf();});
-document.getElementById('z-out').addEventListener('click',()=>{tf.k=Math.max(0.1,tf.k/1.3);applyTf();});
+function zoomAbout(f){
+  const r=svg.getBoundingClientRect(), mx=r.width/2, my=r.height/2;
+  const nk=Math.max(0.1,Math.min(5,tf.k*f));
+  tf.x=mx-(mx-tf.x)*(nk/tf.k); tf.y=my-(my-tf.y)*(nk/tf.k); tf.k=nk; applyTf();
+}
+document.getElementById('z-in').addEventListener('click',()=>zoomAbout(1.3));
+document.getElementById('z-out').addEventListener('click',()=>zoomAbout(1/1.3));
 document.getElementById('z-fit').addEventListener('click',()=>renderDAG());
 document.getElementById('btn-fit').addEventListener('click',()=>renderDAG());
+document.getElementById('btn-settings').addEventListener('click',()=>{
+  hideSettings=!hideSettings;
+  try{localStorage.setItem('geoinv3d.hideSettings',hideSettings?'1':'0');}catch(e){}
+  renderDAG();
+});
 
 document.getElementById('btn-export').addEventListener('click',()=>{
   const c=svg.cloneNode(true);

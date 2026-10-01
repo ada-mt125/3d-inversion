@@ -1305,3 +1305,20 @@ one wider body of 0.2-0.5 SI (volume above half max 141 -> 83 km3, 15 % below th
 ~6 km of Maurya et al. 2023 is a conference abstract (full text not accessible). Report v2
 Section 5 (constraint_figures.py, compare_bounds.py [--full]); EC2 case karnataka-joint
 <coupling>_<variant>.
+
+---
+
+## 2026-10-01 — Workflow viewer: folding settings, titles per tree
+
+The all-runs viewer (examples/output/karnataka_inputs/build_all_workflow.py) now holds the 1 km
+runs only (37; --with-2km for the local studies) and, besides the user's gravity and magnetic
+studies and the first joint series, the second series, the rock-sample constraints and MVI.
+Tree page: column titles were pooled over all trees ("coupling / Regularization", "α_s /
+Depth weighting": trees of different studies have different columns); now each tree has its
+own row of titles, written by the builder (branch.title: Coupling, Regularization, α_s / L1
+share / λ2, Depth weighting, Norms p, the SETTING_LABELS name otherwise), and each setting a
+fixed column within its tree (branch.column), so an L1–L2 run skips the norms column.  "Hide
+settings" folds the setting columns (the result cards, wider, still name every setting of a
+run; remembered in localStorage).  A mesh shared by several trees is drawn once per tree
+(dashed copies) instead of with edges across the page.  Scrolling moves the tree and stops at
+its ends, ctrl/cmd + scroll zooms; +/- zoom about the centre; double-click a result to open it.
