@@ -7,7 +7,7 @@ the 1 km core columns: the joint runs with the rock-sample constraints and witho
 (karnataka_joint/data/ec2_runs_bounds, ec2_runs_fixed), the single magnetic runs
 (karnataka_magnetic/data/ec2_runs: beta1, beta1_mvi) and the gravity run with terrain
 (karnataka_gravity_terrain/data/ec2_runs/as1_beta1).  The depths of the gravity and magnetic
-reports come from their numbers.json.
+reports (the gravity one with terrain) come from their numbers.json.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def numbers():
     out["distances"] = {k: L.distance_table(*m, t) for k, (m, t) in maps.items()}
     # the depths of the other two reports (their numbers.json)
     mag = json.loads((OUTPUT / "karnataka_magnetic" / "figures" / "numbers.json").read_text())
-    grav = json.loads((OUTPUT / "karnataka_gravity" / "figures" / "numbers.json").read_text())
+    grav = json.loads((OUTPUT / "karnataka_gravity_terrain" / "figures" / "numbers.json").read_text())
     cen = [mag["full"][k]["box_sandur"]["centroid_km"] for k in ("beta0.5", "beta1", "l1l2_irls") if k in mag["full"]]
     out["magnetic_centroid_km"] = [min(cen), max(cen)]
     out["gravity_base_km"] = {k: grav["full"][k]["main"]["bottom_km"] for k in ("as1_beta0.5", "as1_beta1", "as1_beta1.5")
