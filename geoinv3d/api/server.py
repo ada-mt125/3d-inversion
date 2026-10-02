@@ -642,8 +642,10 @@ def _workflow_for(job_ids: list[str]) -> dict:
     result_dir = _upload_dir / "results"
     result_dir.mkdir(exist_ok=True)
     for job_id in job_ids:
-        record = get_store().get(job_id) or _refresh(job_id)
-        if not record.get("task_id"):
+        # an id the store does not know is refused before _refresh, which would keep a
+        # record of it (an empty, "FAILED" one)
+        record = get_store().get(job_id)
+        if not record or not record.get("task_id"):
             raise HTTPException(status_code=404, detail=f"Unknown job {job_id}")
         run = load_result(backend_for(record).fetch_result(record, str(result_dir)))
         _label_run(run, record)

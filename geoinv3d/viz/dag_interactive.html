@@ -433,6 +433,8 @@ svg#dag:active{cursor:grabbing;}
 }
 
 #file-input{display:none;}
+.m3d-cmp{margin-top:8px;display:flex;flex-direction:column;gap:3px;font-size:11px;color:#8b97a6;}
+.m3d-cmp-sel{background:#11161e;color:#d6dde6;border:1px solid #2a3644;border-radius:4px;font-size:11px;padding:3px 4px;max-width:100%;}
 #stale-banner{background:#5a3b12;color:#ffe2b0;padding:7px 40px 7px 14px;font-size:12.5px;line-height:1.5;position:relative;border-bottom:1px solid #8a5a1c;}
 #stale-banner button{position:absolute;right:8px;top:6px;background:none;border:0;color:inherit;cursor:pointer;font-size:14px;}
 #dropzone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;}
@@ -2263,6 +2265,9 @@ function drawStationMap(canvasId, df, mode) {
 // 3D VIEW — Plotly scene: isosurfaces + slice planes
 // ══════════════════════════════════════════
 let m3dData=null, m3dGrid=null, m3dIso=null, m3dReady=false, m3dDragMode='turntable';
+// Another run drawn with this one (Compare with): {node, m3, label, unit, grid}; its own
+// grid (meshes and windows may differ), its own colour map and range
+let m3dOther=null;
 const M3D_CAM={eye:{x:1.25,y:-1.25,z:0.75},center:{x:0,y:0,z:0},up:{x:0,y:0,z:1}};
 const M3D_TRUE_CSCALE=[[0,'#1a5276'],[0.5,'#2980b9'],[1,'#85c1e9']];
 const $v=id=>document.getElementById(id);
@@ -2361,9 +2366,21 @@ function m3dSpecs(){
         color:v=>cmap(v,g.vmin,g.vmax), alpha:v=>m3dAlpha(v,L)});
     }
   }
+  if(m3dOther){
+    const o=m3dOther.grid||(m3dOther.grid=m3dBuildGrid(m3dOther.m3)), vals=o.rec;
+    const L2=Math.max(Math.abs(o.vmin),Math.abs(o.vmax)), thr=L2*(+$v('m3d-thresh').value)/100;
+    const base={type:'isosurface',x:o.x,y:o.y,z:o.z,value:vals,name:m3dOther.label,caps:M3D_NO_CAPS};
+    for(const sgn of [1,-1]){
+      const top=0.9*(sgn>0?arrMax(vals):-arrMin(vals));
+      if(!(top>thr))continue;
+      const n=top>1.2*thr?M3D_SHELLS_PER_SIGN:1;
+      shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
+        color:v=>cmap2(v,o.vmin,o.vmax), alpha:v=>m3dAlpha(v,L2)});
+    }
+  }
   // True models are usually piecewise constant: nested shells would all sit on the body
   // boundary.  One translucent open-lattice shell at half the true amplitude instead.
-  if($v('m3d-chk-true')?.checked&&g.tru&&m3dData.true_other){
+  if($v('m3d-chk-true')?.checked&&g.tru&&m3dData.true_other&&!m3dOther){   // the second colour map is the comparison's
     // Another property on the same cells (e.g. susceptibility over density): drawn like the
     // recovered model (nested shells per sign from the threshold to near the peak, colour
     // and opacity following its colour bar), on its own range and its own colour map.
@@ -2376,7 +2393,7 @@ function m3dSpecs(){
       shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
         color:v=>cmap2(v,g.omin,g.omax), alpha:v=>m3dAlpha(v,L2)});
     }
-  }else if($v('m3d-chk-true')?.checked&&g.tru){
+  }else if($v('m3d-chk-true')?.checked&&g.tru&&!m3dData.true_other){
     const vals=g.tru, lo=arrMin(vals), hi=arrMax(vals);
     const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:m3dData.true_label||'True model',caps:M3D_NO_CAPS,
       surface:{count:1,fill:0.55,pattern:'all'}};
@@ -2562,10 +2579,13 @@ function m3dGroundTraces(){
 function niceStep(v){const p=10**Math.floor(Math.log10(v)),f=v/p;return (f<1.5?1:f<3.5?2:f<7.5?5:10)*p;}
 
 function m3dLayout(){
-  const m=m3dData, XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
-  const xs=XE[m.nx]-XE[0], ys=YE[m.ny]-YE[0], mx=Math.max(xs,ys);
+  const m=m3dData, o=m3dOther&&m3dOther.m3;
+  const span=(E,n,F,k)=>{const a=[E[0],E[n]].concat(F?[F[0],F[k]]:[]);return [Math.min(...a),Math.max(...a)];};
+  const [xa,xb]=span(m.x_edges,m.nx,o&&o.x_edges,o&&o.nx), [ya,yb]=span(m.y_edges,m.ny,o&&o.y_edges,o&&o.ny);
+  const XE=[xa,xb], YE=[ya,yb];
+  const xs=xb-xa, ys=yb-ya, mx=Math.max(xs,ys);
   // the vertical range takes in the ground and the stations above the top cell
-  let zlo=Math.min(ZE[0],ZE[m.nz]), zhi=Math.max(ZE[0],ZE[m.nz]);
+  let [zlo,zhi]=span(m.z_edges,m.nz,o&&o.z_edges,o&&o.nz);
   if(m.stations)for(const z of m.stations.z)if(z>zhi)zhi=z;
   if(m.surface)for(const row of m.surface.z)for(const z of row)if(z>zhi)zhi=z;
   const zs=zhi-zlo;
@@ -2575,8 +2595,8 @@ function m3dLayout(){
   return {
     paper_bgcolor:'#0e131a',margin:{l:0,r:0,t:0,b:0},showlegend:false,uirevision:'m3d',
     scene:{
-      xaxis:ax('Easting (m)',[XE[0],XE[m.nx]],14),
-      yaxis:ax('Northing (m)',[YE[0],YE[m.ny]],14),
+      xaxis:ax('Easting (m)',[XE[0],XE[1]],14),
+      yaxis:ax('Northing (m)',[YE[0],YE[1]],14),
       zaxis:ax('Elevation (m)',[zlo,zhi],10),
       aspectmode:'manual',aspectratio:{x:xs/mx,y:ys/mx,z:Math.max(zs/mx,0.35)},
       camera:M3D_CAM,dragmode:m3dDragMode,
@@ -2641,8 +2661,20 @@ function init3D(n) {
     lh+='<label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0">';
     lh+='<input type="checkbox" id="m3d-chk-sta" checked style="accent-color:#e8e2d0;"> Stations</label>';
   }
+  // the other runs of this workflow, to draw with this one
+  const others=(W&&W.nodes||[]).filter(x=>x!==n&&x.output&&x.output.model_3d);
+  if(m3dOther&&!others.includes(m3dOther.node))m3dOther=null;
+  if(others.length)
+    lh+=`<div class="m3d-cmp"><label for="m3d-cmp">Compare with</label><select id="m3d-cmp" class="m3d-cmp-sel">`+
+      `<option value="">— none —</option>`+others.map(x=>`<option value="${x.id}"${m3dOther&&m3dOther.node===x?' selected':''}>`+
+        `${escH(x.name||'run '+x.id)} (#${x.id})</option>`).join('')+`</select></div>`;
   $v('m3d-layers').innerHTML=lh;
   ['m3d-chk-topo','m3d-chk-sta'].forEach(id=>{const el=$v(id);if(el)el.onchange=()=>schedule3D(false);});
+  if($v('m3d-cmp'))$v('m3d-cmp').onchange=()=>{
+    const x=others.find(o=>String(o.id)===$v('m3d-cmp').value);
+    m3dOther=x?{node:x,m3:x.output.model_3d,label:x.name||'run '+x.id,unit:(x.output.final_model||{}).unit||'',grid:null}:null;
+    drawCbar2(); showStats(); schedule3D(true); updateSectionRow();
+  };
 
   $v('m3d-zslice').max=m3.nz-1;
   // below a terrain the top layers are partly air: start the depth slice at the first
@@ -2684,11 +2716,15 @@ function init3D(n) {
     `<span>${fmtN(vmin)}</span><span>${fmtN((vmin+vmax)/2)}</span><span>${fmtN(vmax)}</span>`;
   const fm=n.output.final_model||{};
   $v('m3d-cbar-label').textContent=fm.prop?`${fm.prop}${fm.unit?' ('+fm.unit+')':''}`:'';
-  // the overlay's colour bar: its own range and colour map, the same threshold and opacity
-  const [omin,omax]=m3.true_other?modelRange([m3.true_values]):[0,0];
-  const drawCbar2=()=>{
-    if(!m3.true_other)return;
-    const cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
+  // the second colour bar: the compared run, else this run's other property; its own range
+  // and colour map, the same threshold and opacity
+  const second=()=>m3dOther?{vals:m3dOther.m3.values,label:'Compared: '+m3dOther.label,unit:m3dOther.unit}
+    :m3.true_other?{vals:m3.true_values,label:m3.true_label,unit:m3.true_unit}:null;
+  function drawCbar2(){
+    const o=second();
+    $v('m3d-cbar2-wrap').style.display=o?'flex':'none';
+    if(!o)return;
+    const [omin,omax]=modelRange([o.vals]), cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
     const thr=L*(+$v('m3d-thresh').value)/100;
     cctx.clearRect(0,0,200,20);
     for(let i=0;i<200;i++){
@@ -2697,20 +2733,20 @@ function init3D(n) {
       const[r,g,b]=cmap2(v,omin,omax);
       cctx.fillStyle=`rgba(${r},${g},${b},${m3dAlpha(v,L)})`; cctx.fillRect(i,0,1,20);
     }
-  };
-  $v('m3d-cbar2-wrap').style.display=m3.true_other?'flex':'none';
-  if(m3.true_other){
     $v('m3d-cbar2').style.background='#0e131a';
-    $v('m3d-cbar2-label').textContent=`${m3.true_label}${m3.true_unit?' ('+m3.true_unit+')':''}`;
-    $v('m3d-cbar2-ticks').innerHTML=
-      `<span>${fmtN(omin)}</span><span>${fmtN((omin+omax)/2)}</span><span>${fmtN(omax)}</span>`;
-    drawCbar2();
+    $v('m3d-cbar2-label').textContent=`${o.label}${o.unit?' ('+o.unit+')':''}`;
+    $v('m3d-cbar2-ticks').innerHTML=`<span>${fmtN(omin)}</span><span>${fmtN((omin+omax)/2)}</span><span>${fmtN(omax)}</span>`;
   }
+  drawCbar2();
 
   const rng=a=>{let lo=Infinity,hi=-Infinity;for(const q of a){if(q<lo)lo=q;if(q>hi)hi=q;}return `[${fmtN(lo)}, ${fmtN(hi)}]`;};
-  $v('m3d-stats').innerHTML='Recovered: '+rng(m3.values)+(!m3.true_values?'':m3.true_other
-    ?`<br>${escH(m3.true_label)}: ${rng(m3.true_values)} ${escH(m3.true_unit||'')}`
-    :`<br>${m3.true_label?'Reference':'True'}: `+rng(m3.true_values));
+  function showStats(){
+    $v('m3d-stats').innerHTML='Recovered: '+rng(m3.values)+(!m3.true_values?'':m3.true_other
+      ?`<br>${escH(m3.true_label)}: ${rng(m3.true_values)} ${escH(m3.true_unit||'')}`
+      :`<br>${m3.true_label?'Reference':'True'}: `+rng(m3.true_values))+
+      (m3dOther?`<br>Compared (${escH(m3dOther.label)}): ${rng(m3dOther.m3.values)} ${escH(m3dOther.unit)}`:'');
+  }
+  showStats();
 
   const bind=(id,fn)=>{const e=$v(id);if(e){e.oninput=fn;e.onchange=fn;}};
   bind('m3d-thresh',()=>{$v('m3d-thresh-disp').textContent=$v('m3d-thresh').value+'%';drawCbar();drawCbar2();schedule3D(true);});
@@ -2804,6 +2840,21 @@ function updateSectionRow(){
   });
 })();
 
+// A model_3d's value at a point (null outside its grid); edges may run either way
+function m3dSampleAt(m,x,y,z){
+  const find=(E,n,v)=>{
+    const asc=E[n]>E[0];
+    if(asc?(v<E[0]||v>E[n]):(v>E[0]||v<E[n]))return -1;
+    let lo=0,hi=n;
+    while(hi-lo>1){const mid=(lo+hi)>>1; if(asc?v>=E[mid]:v<=E[mid])lo=mid;else hi=mid;}
+    return lo;
+  };
+  const i=find(m.x_edges,m.nx,x), j=find(m.y_edges,m.ny,y), k=find(m.z_edges,m.nz,z);
+  if(i<0||j<0||k<0)return null;
+  const v=m.values[i+j*m.nx+k*m.nx*m.ny];
+  return Number.isFinite(v)?v:null;
+}
+
 function drawSection2D(mode){
   if(!m3dData)return;
   const m=m3dData;
@@ -2879,6 +2930,33 @@ function drawSection2D(mode){
     const v=hMin+hRng*i/nTicksH;
     const xp=toX(v);
     ctx.beginPath(); ctx.moveTo(xp,pad.t); ctx.lineTo(xp,pad.t+ph); ctx.stroke();
+  }
+
+  // The compared run: the outline of its bodies (|value| above the threshold) where this
+  // slice cuts them, sampled at this run's cells; green for positive, purple for negative
+  if(m3dOther){
+    const o=m3dOther.m3, L=Math.max(...modelRange([o.values]).map(Math.abs)), thr=L*(+$v('m3d-thresh').value)/100;
+    const iz=+$v('m3d-zslice').value, iy=+$v('m3d-ewslice').value, ix=+$v('m3d-nsslice').value;
+    const zc=(ZE[iz]+ZE[iz+1])/2, yc=(YE[iy]+YE[iy+1])/2, xc=(XE[ix]+XE[ix+1])/2;
+    const at=(ih,iv)=>{
+      const h=(hEdges[ih]+hEdges[ih+1])/2, v=(vEdges[iv]+vEdges[iv+1])/2;
+      const q=mode==='z'?m3dSampleAt(o,h,v,zc):mode==='ew'?m3dSampleAt(o,h,yc,v):m3dSampleAt(o,xc,h,v);
+      return q==null?0:q>=thr?1:q<=-thr?-1:0;
+    };
+    const S=[]; for(let iv=0;iv<nv;iv++){const row=[];for(let ih=0;ih<nh;ih++)row.push(at(ih,iv));S.push(row);}
+    const col=sg=>sg>0?'#5fd38a':'#b388ff';
+    ctx.lineWidth=1.6;
+    const seg=(sg,x1,y1,x2,y2)=>{ctx.strokeStyle=col(sg);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();};
+    for(let iv=0;iv<nv;iv++)for(let ih=0;ih<nh;ih++){
+      const a=S[iv][ih];
+      const r=ih+1<nh?S[iv][ih+1]:0, u=iv+1<nv?S[iv+1][ih]:0;
+      if(a!==r&&(a||r))seg(a||r,toX(hEdges[ih+1]),toY(vEdges[iv]),toX(hEdges[ih+1]),toY(vEdges[iv+1]));
+      if(a!==u&&(a||u))seg(a||u,toX(hEdges[ih]),toY(vEdges[iv+1]),toX(hEdges[ih+1]),toY(vEdges[iv+1]));
+      if(ih===0&&a)seg(a,toX(hEdges[0]),toY(vEdges[iv]),toX(hEdges[0]),toY(vEdges[iv+1]));
+      if(iv===0&&a)seg(a,toX(hEdges[ih]),toY(vEdges[0]),toX(hEdges[ih+1]),toY(vEdges[0]));
+    }
+    ctx.fillStyle='#9fe3b6'; ctx.font='9px sans-serif'; ctx.textAlign='right';
+    ctx.fillText('outline: '+m3dOther.label.slice(0,48),pad.l+pw-4,pad.t+11); ctx.textAlign='left';
   }
 
   // Map layers: in plan on the depth slice, where they cross a section along its top

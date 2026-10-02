@@ -1711,3 +1711,16 @@ read again.
 - The padding note says where the model is: beside the data area (anomalies across the
   edges: widen the window) or below the core (deeper core, bounds), and suggests a compact
   regularization only to runs without one.
+
+## 2026-10-02 — Compare with: another run in the same 3D view
+
+The 3D view's side panel lists the other runs of the workflow shown (the workspace's, or a
+comparison of chosen jobs). The one chosen is drawn with the current run: its shells on its
+own grid (meshes and windows may differ; Plotly takes x, y, z per trace) in the second colour
+map (green / purple) with its own colour bar and range, the scene's extent the union of the
+two; and on the depth slice and the sections the outline of its bodies (|value| above the
+same threshold share), sampled at the current run's cells. A same-run overlay of another
+property gives way to it; a true model stays.
+
+Also: /api/workflow refused an unknown id only after _refresh had stored an empty "FAILED"
+record of it; it now looks the id up first.

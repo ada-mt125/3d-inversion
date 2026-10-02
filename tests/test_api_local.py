@@ -594,6 +594,12 @@ class TestEnhance:
         assert not np.allclose(both[False], both[True], equal_nan=True)
 
 
+def test_an_unknown_job_in_a_workflow_leaves_no_record(api):
+    client, _, store = api
+    assert client.get("/api/workflow", params={"ids": "nope123"}).status_code == 404
+    assert store.get("nope123") is None
+
+
 def test_health_says_when_the_code_changed_after_the_start(api, monkeypatch):
     from geoinv3d.api import server
     client, _, _ = api
