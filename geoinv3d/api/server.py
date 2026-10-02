@@ -1057,8 +1057,9 @@ async def igrf_field(x: float, y: float, crs: str = "EPSG:4326", alt_m: float = 
 # ── Data enhancement: the maps an interpreter looks at before inverting (methods/enhance.py) ──
 from collections import OrderedDict   # noqa: E402
 
-_ENHANCE_DATA: "OrderedDict[str, tuple]" = OrderedDict()   # data id -> (x, y, values, method)
-ENHANCE_KEEP = 6
+_ENHANCE_DATA: "OrderedDict[str, tuple]" = OrderedDict()   # data id -> ((x, y, grid, note), method)
+ENHANCE_KEEP = 4
+ENHANCE_MAX_NODES_SIDE = 1500   # larger grids are averaged down before the filters
 ENHANCE_MAPS = {   # key: (label, unit or None for the data's own, symmetric about 0)
     "data": ("Data", None, False), "rtp": ("Reduced to the pole", None, False),
     "continued": ("Continued upwards", None, False),
@@ -1072,12 +1073,26 @@ ENHANCE_MAPS = {   # key: (label, unit or None for the data's own, symmetric abo
 }
 
 
-def enhancement_maps(x, y, v, method: str, p: dict) -> dict:
-    """The requested maps (``p["products"]``) of station or grid values, for the page."""
+def enhancement_grid(xg, yg, g):
+    """The grid the maps are computed on, and a note: a survey grid of millions of nodes is
+    averaged down first (the filters would need many GB; the maps are a few hundred pixels)."""
     from ..methods import enhance as E
-    xg, yg, g = E.to_grid(x, y, v)
+    k = int(np.ceil(max(g.shape) / ENHANCE_MAX_NODES_SIDE))
+    if k <= 1:
+        return xg, yg, g, None
+    d = float(xg[1] - xg[0])
+    note = (f"Computed on the grid averaged {k} × {k} ({d * k:g} m) from its {g.shape[1]} × "
+            f"{g.shape[0]} nodes of {d:g} m, for the maps")
+    xs, ys, c = E.coarsen(xg, yg, g, k)
+    return xs, ys, c, note
+
+
+def enhancement_maps(grid, method: str, p: dict) -> dict:
+    """The requested maps (``p["products"]``) of a gridded dataset (xg, yg, g, note), for the page."""
+    from ..methods import enhance as E
+    xg, yg, g, note = grid
+    notes, want = ([note] if note else []), set(p.get("products") or ["data"])
     dx, dy = float(xg[1] - xg[0]), float(yg[1] - yg[0])
-    notes, want = [], set(p.get("products") or ["data"])
     maps = {"data": g}
     magnetic = method in ("magnetics", "magnetic")
     work = g
@@ -1146,34 +1161,48 @@ async def enhance_data(files: list[UploadFile] = File(default=[]), data_id: str 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"params_json is not JSON: {e}")
     if files:
-        from ..cloud.worker import _DEFAULT_COMPONENT, _read_observations
+        from ..cloud.worker import _DEFAULT_COMPONENT, _GRID_FORMATS, _read_observations, grid_window
+        from ..io.readers import detect_format
+        from ..methods.enhance import to_grid
         folder = Path(tempfile.mkdtemp(prefix="enhance_", dir=_upload_dir))
         digest = hashlib.sha1((method + component + crs).encode())
-        try:
+
+        def load(paths):
+            # one grid file stays a grid (a survey grid has tens of millions of nodes); station
+            # tables (or several files) are gridded at their spacing
+            if len(paths) == 1 and detect_format(str(paths[0])) in _GRID_FORMATS:
+                return enhancement_grid(*grid_window(str(paths[0]), crs or None))
             xs, ys, vs = [], [], []
-            for f in files:
-                data = await f.read()
-                digest.update(data)
-                path = folder / Path(f.filename or "data").name
-                path.write_bytes(data)
-                locs, values, _ = await run_in_threadpool(
-                    _read_observations, str(path), component or _DEFAULT_COMPONENT.get(method, "tmi"),
-                    1, None, None, crs or None)
+            for path in paths:
+                locs, values, _ = _read_observations(
+                    str(path), component or _DEFAULT_COMPONENT.get(method, "tmi"), 1, None, None, crs or None)
                 xs.append(locs[:, 0]); ys.append(locs[:, 1]); vs.append(values)
+            return enhancement_grid(*to_grid(np.concatenate(xs), np.concatenate(ys), np.concatenate(vs)))
+
+        try:
+            paths = []
+            for f in files:
+                path = folder / Path(f.filename or "data").name
+                with open(path, "wb") as out:      # in pieces: a survey grid is hundreds of MB
+                    while chunk := await f.read(1 << 22):
+                        digest.update(chunk)
+                        out.write(chunk)
+                paths.append(path)
+            grid = await run_in_threadpool(load, paths)
         except (ValueError, OSError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         finally:
             shutil.rmtree(folder, ignore_errors=True)
         data_id = digest.hexdigest()[:12]
-        _ENHANCE_DATA[data_id] = (np.concatenate(xs), np.concatenate(ys), np.concatenate(vs), method)
+        _ENHANCE_DATA[data_id] = (grid, method)
         while len(_ENHANCE_DATA) > ENHANCE_KEEP:
             _ENHANCE_DATA.popitem(last=False)
     if data_id not in _ENHANCE_DATA:
         raise HTTPException(status_code=404, detail="Unknown data: send the files again")
     _ENHANCE_DATA.move_to_end(data_id)
-    x, y, v, m = _ENHANCE_DATA[data_id]
+    grid, m = _ENHANCE_DATA[data_id]
     try:
-        out = await run_in_threadpool(enhancement_maps, x, y, v, m, p)
+        out = await run_in_threadpool(enhancement_maps, grid, m, p)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return JSONResponse({"ok": True, "data_id": data_id, **out})

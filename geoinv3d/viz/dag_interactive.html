@@ -5981,7 +5981,7 @@ window.GeoPreview=GeoPreview;
       try{
         if(step<=S.DATA&&n>=S.AREA){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();
           fillCrs(); if(pendingAoi){aoi=pendingAoi.slice(); pendingAoi=null;}}
-        if(step<=S.AREA&&n>S.AREA)await previewIgrf();     // the field for the window chosen
+        if(step<=S.AREA&&n>S.AREA)previewIgrf();     // the field for the window chosen (not awaited: a busy server must not hold the steps)
         if(step<=S.AREA&&n>=S.MESH){applyArea();renderResolution();recommend();}
         if(step<=S.MESH&&n>=S.MODEL)meshParams();
         if(n===S.REVIEW)renderReview(buildJobs());

@@ -43,18 +43,21 @@ def to_grid(x, y, v, spacing: float | None = None, max_nodes: int = 4_000_000):
     x, y, v = x[ok], y[ok], v[ok]
     if len(v) < 9:
         raise ValueError("At least 9 stations are needed to grid the data")
+    # a lattice (a grid file, perhaps thinned): as many distinct x and y as the stations need;
+    # found without a neighbour search, which is slow for the millions of nodes of a survey grid
+    if spacing is None:
+        ux, uy = np.unique(np.round(x, 3)), np.unique(np.round(y, 3))
+        if len(ux) * len(uy) <= 1.05 * len(v) and len(ux) > 2 and len(uy) > 2:
+            dxs, dys = np.diff(ux), np.diff(uy)
+            dx, dy = np.median(dxs), np.median(dys)
+            if np.allclose(dxs, dx, rtol=0.02) and np.allclose(dys, dy, rtol=0.02):
+                g = np.full((len(uy), len(ux)), np.nan)
+                g[np.searchsorted(uy, np.round(y, 3)), np.searchsorted(ux, np.round(x, 3))] = v
+                return ux, uy, g
     tree = cKDTree(np.c_[x, y])
-    nn = tree.query(np.c_[x, y], k=2)[0][:, 1]
+    pick = np.random.default_rng(0).choice(len(x), size=min(len(x), 20000), replace=False)
+    nn = tree.query(np.c_[x[pick], y[pick]], k=2)[0][:, 1]
     sp = float(spacing or np.median(nn[nn > 0]))
-    # a lattice: as many distinct x and y as the stations need
-    ux, uy = np.unique(np.round(x / (sp * 1e-3)) * sp * 1e-3), np.unique(np.round(y / (sp * 1e-3)) * sp * 1e-3)
-    if spacing is None and len(ux) * len(uy) <= 1.05 * len(v) and len(ux) > 2 and len(uy) > 2:
-        dx, dy = np.median(np.diff(ux)), np.median(np.diff(uy))
-        if np.allclose(np.diff(ux), dx, rtol=0.02) and np.allclose(np.diff(uy), dy, rtol=0.02):
-            g = np.full((len(uy), len(ux)), np.nan)
-            g[np.searchsorted(uy, np.round(y / (sp * 1e-3)) * sp * 1e-3),
-              np.searchsorted(ux, np.round(x / (sp * 1e-3)) * sp * 1e-3)] = v
-            return ux, uy, g
     from scipy.interpolate import griddata
     nx, ny = int(np.ptp(x) / sp) + 1, int(np.ptp(y) / sp) + 1
     while nx * ny > max_nodes:
@@ -67,6 +70,22 @@ def to_grid(x, y, v, spacing: float | None = None, max_nodes: int = 4_000_000):
     far = tree.query(np.c_[X.ravel(), Y.ravel()])[0].reshape(X.shape) > 2 * sp
     g[far] = np.nan
     return xg, yg, g
+
+
+def coarsen(xg, yg, g, factor: int):
+    """Block averages of ``factor`` x ``factor`` nodes (gaps left out): a grid that
+    many times coarser, at the blocks' centres.  Averaging, unlike taking every k-th node,
+    keeps the shorter wavelengths from aliasing into the longer ones."""
+    k = int(factor)
+    if k <= 1:
+        return np.asarray(xg), np.asarray(yg), g
+    ny, nx = (g.shape[0] // k) * k, (g.shape[1] // k) * k
+    blocks = np.asarray(g, dtype=float)[:ny, :nx].reshape(ny // k, k, nx // k, k)
+    with np.errstate(invalid="ignore"):
+        out = np.nanmean(blocks, axis=(1, 3))
+    xs = np.asarray(xg)[:nx].reshape(-1, k).mean(axis=1)
+    ys = np.asarray(yg)[:ny].reshape(-1, k).mean(axis=1)
+    return xs, ys, out
 
 
 def sample(xg, yg, grid, x, y):

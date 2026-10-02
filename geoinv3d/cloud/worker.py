@@ -1816,8 +1816,32 @@ def _continuation_distance(spec: dict, params: dict) -> float:
     return by
 
 
+# Above this many nodes the full-resolution grid is averaged down before the filters
+FULL_GRID_MAX_NODES = 4_000_000
+
+
+def grid_window(path: str, crs=None, aoi=None):
+    """A grid file as (x, y, values) with x and y ascending (rows south to north), cropped
+    to ``aoi``; nodata is NaN.  For filters on whole grids: no point arrays are made."""
+    from ..io.readers import read_auto
+    grid = read_auto(path)
+    if crs and grid.crs and grid.crs != crs:
+        raise ValueError(f"'{os.path.basename(path)}' is in {grid.crs} but the job works in {crs}")
+    x, y, v = np.asarray(grid.x, dtype=float), np.asarray(grid.y, dtype=float), np.asarray(grid.values)
+    if x[0] > x[-1]:
+        x, v = x[::-1], v[:, ::-1]
+    if y[0] > y[-1]:
+        y, v = y[::-1], v[::-1]
+    if aoi is not None:
+        cx, cy = (x >= aoi[0]) & (x <= aoi[1]), (y >= aoi[2]) & (y <= aoi[3])
+        x, y, v = x[cx], y[cy], v[np.ix_(cy, cx)]
+    if x.size < 3 or y.size < 3:
+        raise ValueError(f"'{os.path.basename(path)}' has too few nodes in the window")
+    return x, y, v.astype(float, copy=False)
+
+
 def _full_grid_filters(files, data_dir, method, component, crs, locs, kwargs, continue_by=0.0,
-                       rtp=False, aoi=None):
+                       rtp=False, aoi=None, thin_m=None):
     """The data continued ``continue_by`` metres upwards and/or reduced to the pole, at the
     job's stations: (values, method kwargs, rtp summary, continuation summary).
 
@@ -1827,7 +1851,8 @@ def _full_grid_filters(files, data_dir, method, component, crs, locs, kwargs, co
     survey flown at a constant height above the ground is treated as on a level plane, as
     usual.  The reduction to the pole assumes induced magnetization (see _reduce_to_pole).
     """
-    from ..methods.enhance import rtp as reduce, sample, to_grid, upward
+    from ..io.readers import detect_format
+    from ..methods.enhance import coarsen, rtp as reduce, sample, to_grid, upward
     strength = inc = dec = None
     if rtp:
         if method != "magnetics" or component != "tmi":
@@ -1843,18 +1868,33 @@ def _full_grid_filters(files, data_dir, method, component, crs, locs, kwargs, co
     if aoi is not None:
         m = max(10000.0, 10.0 * continue_by)
         wide = [aoi[0] - m, aoi[1] + m, aoi[2] - m, aoi[3] + m]
-    xs, ys, vs = [], [], []
-    for fname in files:
-        l, v, _ = _read_observations(os.path.join(data_dir, fname), component, 1, wide, None, crs)
-        ok = np.isfinite(v) & np.isfinite(l[:, :2]).all(axis=1)
-        xs.append(l[ok, 0]); ys.append(l[ok, 1]); vs.append(v[ok])
-    xg, yg, grid = to_grid(np.concatenate(xs), np.concatenate(ys), np.concatenate(vs))
-    dx, dy = float(xg[1] - xg[0]), float(yg[1] - yg[0])
+    if len(files) == 1 and detect_format(os.path.join(data_dir, files[0])) in _GRID_FORMATS:
+        # a grid file stays a grid (no point arrays: a survey grid has tens of millions of nodes)
+        xg, yg, grid = grid_window(os.path.join(data_dir, files[0]), crs, wide)
+    else:
+        xs, ys, vs = [], [], []
+        for fname in files:
+            l, v, _ = _read_observations(os.path.join(data_dir, fname), component, 1, wide, None, crs)
+            ok = np.isfinite(v) & np.isfinite(l[:, :2]).all(axis=1)
+            xs.append(l[ok, 0]); ys.append(l[ok, 1]); vs.append(v[ok])
+        xg, yg, grid = to_grid(np.concatenate(xs), np.concatenate(ys), np.concatenate(vs))
     shape = [int(grid.shape[0]), int(grid.shape[1])]
+    # a survey grid of tens of millions of nodes (a whole aeromagnetic block) is averaged
+    # down first, by blocks no wider than half the spacing the job thins to (or a quarter of
+    # the continuation): what the filters would remove or the thinning drop anyway
+    averaged = 1
+    if grid.size > FULL_GRID_MAX_NODES:
+        d0 = float(xg[1] - xg[0])
+        limit = max(d0, 0.5 * float(thin_m or 0.0), 0.25 * float(continue_by or 0.0))
+        averaged = max(1, min(int(np.ceil(np.sqrt(grid.size / FULL_GRID_MAX_NODES))), int(limit // d0)))
+        if averaged > 1:
+            xg, yg, grid = coarsen(xg, yg, grid, averaged)
+    dx, dy = float(xg[1] - xg[0]), float(yg[1] - yg[0])
     cont_info = rtp_info = None
     if continue_by:
         grid = upward(grid, dx, dy, continue_by)
-        cont_info = {"by_m": float(continue_by), "grid_spacing_m": dx, "grid_shape": shape}
+        cont_info = {"by_m": float(continue_by), "grid_spacing_m": dx, "grid_shape": shape,
+                     **({"averaged": averaged} if averaged > 1 else {})}
     if rtp:
         damping = max(0.0, np.sin(np.radians(RTP_MIN_INCLINATION)) ** 2 - np.sin(np.radians(abs(inc))) ** 2)
         grid = reduce(grid, dx, dy, inc, dec, damping=damping)
@@ -2026,7 +2066,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     if spec.get("rtp") or continue_by:
         dobs, kwargs, rtp_info, cont_info = _full_grid_filters(
             files, data_dir, method, component, crs, locs, kwargs, continue_by=continue_by,
-            rtp=bool(spec.get("rtp")), aoi=aoi)
+            rtp=bool(spec.get("rtp")), aoi=aoi, thin_m=target)
         if cont_info:
             locs = locs.copy()
             locs[:, 2] = locs[:, 2] + continue_by     # stations with an elevation go up with the data
