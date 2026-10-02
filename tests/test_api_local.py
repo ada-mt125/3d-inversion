@@ -3,6 +3,8 @@
 import json
 import time
 
+import numpy as np
+
 import pytest
 
 pytest.importorskip("httpx")
@@ -461,3 +463,26 @@ class TestGroundAndField:
         assert client.get("/api/dem/abc123").content == b"II*\x00"
         assert client.get("/api/dem/zzz").status_code == 404
         assert client.post("/api/dem", json={"bounds": [1, 2], "crs": "EPSG:32643"}).status_code == 400
+
+
+class TestEnhance:
+    def test_maps_and_reuse(self, api):
+        pytest.importorskip("scipy")
+        client, _, _ = api
+        x1 = np.arange(0, 20000, 500.0)
+        X, Y = np.meshgrid(x1, x1)
+        v = 100 * np.exp(-((X - 10000) ** 2 + (Y - 9000) ** 2) / (2 * 1500 ** 2)) + 0.001 * X
+        csv = "x,y,tmi\n" + "\n".join(f"{a},{b},{c}" for a, b, c in zip(X.ravel(), Y.ravel(), v.ravel()))
+        params = {"products": ["data", "rtp", "tilt", "residual"], "inc": 60, "dec": 0,
+                  "regional": {"method": "butterworth", "cutoff_m": 8000}, "max_px": 20}
+        r = client.post("/api/enhance", files=[("files", ("m.csv", csv.encode(), "text/csv"))],
+                        data={"method": "magnetic", "component": "tmi", "params_json": json.dumps(params)})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert set(d["maps"]) == {"data", "rtp", "tilt", "residual"} and d["shape"] == [40, 40]
+        assert d["display_step"] == 2 and len(d["maps"]["tilt"]["values"]) == 20
+        assert d["maps"]["tilt"]["unit"] == "°" and d["maps"]["residual"]["symmetric"]
+        r2 = client.post("/api/enhance", data={"data_id": d["data_id"], "method": "magnetic",
+                                               "params_json": json.dumps({"products": ["nstd"]})})
+        assert r2.status_code == 200 and list(r2.json()["maps"]) == ["nstd"]
+        assert client.post("/api/enhance", data={"data_id": "nope", "params_json": "{}"}).status_code == 404

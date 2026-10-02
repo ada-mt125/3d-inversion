@@ -64,3 +64,31 @@ class TestPipelineRegional:
         np.testing.assert_allclose(data["observed"] + data["regional"],
                                    _synthetic("gravity", locs) + plane, rtol=1e-6)
         assert abs(data["observed"].mean()) < 1e-6   # a plane fit also removes the mean
+
+
+class TestWavenumberSeparations:
+    @pytest.fixture
+    def field(self):
+        x1 = np.arange(0, 40000, 500.0)
+        X, Y = np.meshgrid(x1, x1)
+        broad = 0.002 * X + 80 * np.exp(-((X - 25000) ** 2 + (Y - 20000) ** 2) / (2 * 12000 ** 2))
+        local = 30 * np.exp(-((X - 15000) ** 2 + (Y - 18000) ** 2) / (2 * 800 ** 2))
+        return np.c_[X.ravel(), Y.ravel()], (broad + local).ravel(), local.ravel()
+
+    @pytest.mark.parametrize("spec", [{"method": "butterworth", "cutoff_m": 6000},
+                                      {"method": "upward", "height_m": 3000},
+                                      {"method": "bandpass", "short_m": 1000, "long_m": 6000}])
+    def test_the_local_anomaly_is_kept(self, field, spec):
+        xy, values, local = field
+        residual, info = remove_regional(xy, values, spec)
+        broad = values - local
+        assert np.corrcoef(values - residual, broad)[0, 1] > 0.99     # the regional is the broad field
+        assert np.argmax(residual) == np.argmax(local)                 # and the local peak stays put
+        assert info["method"] == spec["method"] and info["label"] and info["data_std_after"] < info["data_std_before"]
+
+    @pytest.mark.parametrize("spec", [{"method": "butterworth"}, {"method": "upward", "height_m": -1},
+                                      {"method": "bandpass", "short_m": 5000, "long_m": 1000}])
+    def test_bad_settings(self, field, spec):
+        xy, values, _ = field
+        with pytest.raises(ValueError):
+            remove_regional(xy, values, spec)

@@ -1432,3 +1432,33 @@ before writing the files), as agreed with the user:
   mesh, IGRF, get a DEM, run on AWS / here); errors disable the submit.
 - The size check used the instance's memory for jobs on this computer; it now uses this
   computer's.
+
+---
+
+## 2026-10-02 — The data as interpreters see them: enhancement maps and wavenumber separations
+
+After Yang et al. (2026, Ore Geology Reviews 198, 107581: a ground magnetic survey of the
+Hongchuan Cu-Ni deposit, reduced to the pole, continued 10-70 m before its vertical
+derivative, edge detectors with normalized vertical derivatives, a Butterworth regional,
+then a sparse inversion), which the user asked to build into the page:
+
+- `geoinv3d/methods/enhance.py`: gridding (lattices placed as they are, scattered stations
+  interpolated, gaps kept), reflection padding with a cosine taper, upward continuation,
+  vertical and horizontal derivatives, RTP (Blakely's Theta; damped below |I| = 30°),
+  Butterworth and band-pass filters, THDR, analytic signal, tilt, theta, THDR of the tilt,
+  NSTD and the positive normalized vertical derivative of a detector. Checked against
+  analytic fields: the RTP of an induced dipole at I 60° / 45° matches the vertical-field
+  one (r > 0.999, same peak; 0.98 damped at 20°), continuation within 0.4 %, the vertical
+  derivative r = 0.99997, the tilt of a point mass crosses zero at sqrt(2) × depth.
+- `methods/regional.py`: `upward`, `butterworth`, `bandpass` regionals, on the data gridded
+  at their spacing and sampled back at the stations; the worker logs a label instead of an
+  order. Upward continuation also damps the broad field (its regional off by half the
+  broad field's spread on a test field, against 5 % for Butterworth): said on the page.
+- `POST /api/enhance`: the files once (read as the worker reads them), then a data id; the
+  requested maps, thinned for display. On the Karnataka magnetics (71 × 71 at 1 km) about
+  1 s; at I = 19.3° the RTP is damped and the page says so.
+- The Area step's "Look at the data": dataset, map (field, derivatives, edges, regional,
+  residual), continuation height, NSTD window, the zero line of the vertical derivative, the
+  map layers, and the regional controls mirrored from the data card (what the inversion
+  uses). A Butterworth residual chosen there (23 km, std 276 → 193 nT) was inverted by the
+  worker with the same numbers.

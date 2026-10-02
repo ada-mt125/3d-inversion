@@ -1908,9 +1908,8 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     dobs, regional = remove_regional(locs[:, :2], dobs, spec.get("regional",
                                                                   params.get("regional")))
     if regional:
-        print(f"[Pipeline] {method}: removed regional field ({regional['method']}, order "
-              f"{regional['order']}): data std {regional['data_std_before']:.4g} -> "
-              f"{regional['data_std_after']:.4g}")
+        print(f"[Pipeline] {method}: removed regional field ({regional['label']}): data std "
+              f"{regional['data_std_before']:.4g} -> {regional['data_std_after']:.4g}")
 
     noise_pct = float(spec.get("noise_pct", params.get("noise_pct", 0.05)))
     noise_floor = float(spec.get("noise_floor", params.get("noise_floor", 0.5)))

@@ -193,6 +193,16 @@ geological outlines) are drawn over the 3D view, the depth slice, the sections a
 data-fit maps; a workspace keeps them for all its runs, and a workflow file can carry its
 own (`map_layers`).
 
+Before inverting, the Area step shows **the data as interpreters look at them**
+(`POST /api/enhance`, `geoinv3d/methods/enhance.py`, after e.g. Yang et al. 2026, Ore Geol.
+Rev. 198, 107581): the field reduced to the pole (damped near the magnetic equator),
+continued upwards, its vertical and horizontal derivatives and analytic signal, the edge
+detectors tilt, theta, THDR of the tilt, NSTD and their normalized vertical derivatives,
+with the zero line of the vertical derivative and the map layers over them; and the
+regional–residual split the inversion will use. Besides trend surfaces the regional field
+can now be an upward continuation, a Butterworth low-pass or a band-pass
+(`geoinv3d/methods/regional.py`), computed by the worker on the gridded data.
+
 The page also fetches what a survey needs but its files often lack: **a DEM** for the data
 area and the mesh's padding (SRTM 1 arc-second from the public AWS terrain tiles, else
 ETOPO 2022 from NOAA; cached, resampled into the data's coordinates; `geoinv3d/io/dem.py`)

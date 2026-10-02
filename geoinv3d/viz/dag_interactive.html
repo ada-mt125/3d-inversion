@@ -322,6 +322,12 @@ svg#dag:active{cursor:grabbing;}
 .up-igrf{align-items:flex-end;}
 .up-igrf .up-btn{white-space:nowrap;}
 .up-ok{color:#6fd0c3;}
+/* the Area step: a look at the data */
+.enh-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-bottom:8px;}
+.enh-bar .up-in{width:auto;}
+.enh-bar label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
+.enh-plot{width:100%;height:520px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);}
+@media (max-width:860px){.enh-plot{height:380px;}}
 /* the pre-submit checks */
 .pf{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border-soft);font-size:12px;line-height:1.5;color:var(--text2);}
 .pf:last-child{border-bottom:none;}
@@ -700,6 +706,33 @@ svg#dag:active{cursor:grabbing;}
           <section class="up-sec">
             <div class="up-sec-h">Data density<span class="up-hint">Thinning keeps every k-th grid node, or one station per cell; fewer data make a smaller sensitivity matrix</span></div>
             <div class="up-card" id="up-dec"></div>
+          </section>
+
+          <section class="up-sec" id="enh-sec" hidden>
+            <div class="up-sec-h">Look at the data<span class="up-hint">the gridded data reduced to the pole, their derivatives and edges, and the regional–residual split the inversion will use</span></div>
+            <div class="up-card">
+              <div class="enh-bar">
+                <select id="enh-ds" class="up-in" aria-label="Dataset"></select>
+                <select id="enh-map" class="up-in" aria-label="Map">
+                  <optgroup label="Field"><option value="data">Data as loaded</option><option value="rtp">Reduced to the pole</option><option value="continued">Continued upwards</option></optgroup>
+                  <optgroup label="Derivatives"><option value="vdr">Vertical derivative</option><option value="thdr">Total horizontal derivative (THDR)</option><option value="asa">Analytic signal amplitude</option></optgroup>
+                  <optgroup label="Edges"><option value="tilt">Tilt angle</option><option value="theta">Theta map</option><option value="tdr_thdr">THDR of the tilt</option><option value="nstd">NSTD</option>
+                    <option value="nvdr_thdr">NVDR of THDR</option><option value="nvdr_tilt">NVDR of the tilt</option><option value="nvdr_theta">NVDR of theta</option><option value="nvdr_nstd">NVDR of NSTD</option></optgroup>
+                  <optgroup label="Separation"><option value="regional">Regional field</option><option value="residual">Residual field (inverted)</option></optgroup>
+                </select>
+                <label title="Continue upwards before the derivatives: steadies them against noise">continue up <input id="enh-uc" type="number" value="0" min="0" step="any" class="up-in up-in-sm"> m</label>
+                <label title="Window of the NSTD, in grid cells (odd)">NSTD window <input id="enh-win" type="number" value="5" min="3" step="2" class="up-in up-in-sm"></label>
+                <label><input type="checkbox" id="enh-zero" checked> zero line of the vertical derivative</label>
+              </div>
+              <div class="enh-bar enh-reg">
+                <span>Regional field <span class="up-hint">(the inversion's, as on the data card)</span></span>
+                <select id="enh-reg" class="up-in" aria-label="Regional field"></select>
+                <label id="enh-rega-l"><span></span> <input id="enh-rega" type="number" step="any" min="0" class="up-in up-in-sm"></label>
+                <label id="enh-regb-l"><span></span> <input id="enh-regb" type="number" step="any" min="0" class="up-in up-in-sm"></label>
+              </div>
+              <div id="enh-plot" class="enh-plot"></div>
+              <div class="up-method-desc" id="enh-note"></div>
+            </div>
           </section>
         </div>
 
@@ -4091,14 +4124,16 @@ window.GeoPreview=GeoPreview;
     {key:'gravity',label:'Gravity',en:'density',color:'#FF9800',unit:'mGal',pct:5,floor:0.05,
       opts:[{id:'comp',label:'Component',type:'select',options:[['gz','gz — gravity anomaly'],['gzz','gzz — gravity gradient']]},
         {id:'sign',label:'gz sign',type:'select',options:[['positive_down','Positive down (Bouguer / field data)'],['simpeg','Positive up (SimPEG forward model)']]},
-        {id:'reg',label:'Regional field',type:'select',options:[['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3'],['mean','Remove the mean'],['none','None']]}]},
+        {id:'reg',label:'Regional field',type:'select',options:[['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3'],['mean','Remove the mean'],
+          ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)'],['none','None']]}]},
     {key:'magnetic',label:'Magnetics',en:'susceptibility',color:'#E91E63',unit:'nT',pct:5,floor:2,
       opts:[{id:'comp',label:'Data type',type:'select',options:[['tmi','TMI — total-field anomaly'],['bz','Bz — vertical component']]},
         {id:'amp',label:'Field strength (nT)',type:'number',value:50000},
         {id:'inc',label:'Inclination I (°)',type:'number',value:90},
         {id:'dec',label:'Declination D (°)',type:'number',value:0},
         {id:'mag',label:'Magnetization',type:'select',options:[['induced','Induced — susceptibility'],['vector','Vector — with remanence (MVI)']]},
-        {id:'reg',label:'Regional field',type:'select',options:[['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3']]}]},
+        {id:'reg',label:'Regional field',type:'select',options:[['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3'],
+          ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)']]}]},
     {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
       opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]}]},
   ];
@@ -4280,6 +4315,10 @@ window.GeoPreview=GeoPreview;
       <div class="up-files" id="up-files-${t.key}"></div>
       ${t.key==='gravity'?'<div id="up-check-gravity"></div>':''}
       <div class="up-row">${optsHtml}</div>
+      ${t.key==='gravity'||t.key==='magnetic'?`<div class="up-row" id="up-${t.key}-regp" hidden>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-rega" id="up-${t.key}-rega-l"></label><input id="up-${t.key}-rega" type="number" step="any" min="0" class="up-in"></div>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-regb" id="up-${t.key}-regb-l"></label><input id="up-${t.key}-regb" type="number" step="any" min="0" class="up-in"></div>
+      </div>`:''}
       ${t.key==='magnetic'?`<div class="up-row up-igrf">
         <div class="up-col"><label class="up-lbl" for="up-magnetic-date">Survey date</label><input id="up-magnetic-date" type="date" class="up-in"></div>
         <div class="up-col"><button type="button" class="up-btn up-btn-sm" id="up-igrf" title="The International Geomagnetic Reference Field at the centre of the data on the survey date; the declination from the grid north of the data's coordinates">🧭 Field from IGRF-14</button></div>
@@ -4479,7 +4518,13 @@ window.GeoPreview=GeoPreview;
         setv('up-magnetic-mag',k.magnetization==='vector'?'vector':'induced');
       }
       const reg=d.regional;
-      setv(`up-${type}-reg`,!reg?'none':reg.method==='mean'?'mean':'poly'+(reg.order||1),notes);
+      setv(`up-${type}-reg`,!reg?'none':reg.method==='mean'?'mean':reg.method==='polynomial'?'poly'+(reg.order||1):reg.method,notes);
+      if(reg&&REG_PARAMS[reg.method]){
+        const [a,b]={upward:[reg.height_m,null],butterworth:[reg.cutoff_m,reg.order],bandpass:[reg.short_m,reg.long_m]}[reg.method];
+        renderRegParams(type);
+        if(a!=null){$u(`up-${type}-rega`).value=a;$u(`up-${type}-rega`).dataset.for=reg.method;}
+        if(b!=null){$u(`up-${type}-regb`).value=b;$u(`up-${type}-regb`).dataset.for=reg.method;}
+      }
       if(d.decimate_spacing_m){decChoice[type]='custom';decCustom[type]=d.decimate_spacing_m;}else decChoice[type]='1';
     }
     // ground, coordinates, survey date
@@ -4606,6 +4651,139 @@ window.GeoPreview=GeoPreview;
     }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
     e.target.value='';
   });
+
+  // ── Regional field by wavenumber: upward continuation, Butterworth low-pass, band-pass
+  // (geoinv3d/methods/regional.py); their parameters sit under the card's Regional field ──
+  const REG_PARAMS={upward:[['Continuation height (m)',()=>1000],null],
+    butterworth:[['Cutoff wavelength (m)',w=>Math.round((w||60000)/3/1000)*1000],['Filter order',()=>4]],
+    bandpass:[['Shortest wavelength kept (m)',(w,sp)=>Math.round(2*(sp||1000))],['Longest wavelength kept (m)',w=>Math.round((w||60000)/3/1000)*1000]]};
+  function surveyWidth(){const e=analysis&&analysis.native&&analysis.native.extent;return e?Math.max(e[1]-e[0],e[3]-e[2]):null;}
+  function renderRegParams(key){
+    const sel=$u(`up-${key}-reg`), box=$u(`up-${key}-regp`); if(!sel||!box)return;
+    const spec=REG_PARAMS[sel.value]; box.hidden=!spec;
+    if(!spec)return;
+    const d=analysis&&analysis.ds&&analysis.ds.find(x=>x.t.key===key);
+    ['a','b'].forEach((ab,i)=>{
+      const f=spec[i], col=$u(`up-${key}-reg${ab}`).closest('.up-col');
+      col.hidden=!f; if(!f)return;
+      $u(`up-${key}-reg${ab}-l`).textContent=f[0];
+      const inp=$u(`up-${key}-reg${ab}`);
+      if(inp.dataset.for!==sel.value||!inp.value){inp.value=f[1](surveyWidth(),d&&d.spacing); inp.dataset.for=sel.value;}
+    });
+  }
+  function regionalSpec(key){
+    const v=$u(`up-${key}-reg`)?.value;
+    if(!v||v==='none')return null;
+    if(v==='mean')return {method:'mean'};
+    if(v.startsWith('poly'))return {method:'polynomial',order:+v.slice(4)};
+    const a=num(`up-${key}-rega`,REG_PARAMS[v][0][0].toLowerCase(),{min:0}), b=REG_PARAMS[v][1]?num(`up-${key}-regb`,REG_PARAMS[v][1][0].toLowerCase(),{min:0}):null;
+    if(v==='upward')return {method:'upward',height_m:a};
+    if(v==='butterworth')return {method:'butterworth',cutoff_m:a,order:Math.max(1,Math.round(b||4))};
+    if(!(a<b))throw new Error('The band-pass needs the shortest wavelength below the longest');
+    return {method:'bandpass',short_m:a,long_m:b};
+  }
+  ['gravity','magnetic'].forEach(key=>{
+    $u(`up-${key}-reg`).addEventListener('change',()=>{renderRegParams(key);enhSoon();});
+    ['a','b'].forEach(ab=>$u(`up-${key}-reg${ab}`).addEventListener('input',enhSoon));
+  });
+
+  // ── A look at the data (Area step): maps from POST /api/enhance, after the processing of
+  // e.g. Yang et al. (2026): reduced to the pole, continued upwards, derivatives, edge
+  // detectors, and the regional–residual split the inversion will use ──
+  const ENH={id:{},sig:{},timer:null,run:0};
+  const enhTypes=()=>loadedTypes().filter(t=>t.key==='gravity'||t.key==='magnetic');
+  const plotlyScale=M=>M.map(([t,c])=>[t,`rgb(${c[0]},${c[1]},${c[2]})`]);
+  function renderEnhControls(){
+    const types=enhTypes(); $u('enh-sec').hidden=!types.length; if(!types.length)return;
+    const ds=$u('enh-ds'), prev=ds.value;
+    ds.innerHTML=types.map(t=>`<option value="${t.key}">${t.label}</option>`).join('');
+    ds.value=types.some(t=>t.key===prev)?prev:types[types.length-1].key;
+    const mag=ds.value==='magnetic';
+    $u('enh-map').querySelector('[value="rtp"]').disabled=!mag;
+    if(!mag&&$u('enh-map').value==='rtp')$u('enh-map').value='data';
+    // the regional controls mirror the dataset card's
+    const card=$u(`up-${ds.value}-reg`), reg=$u('enh-reg');
+    reg.innerHTML=card.innerHTML; reg.value=card.value;
+    renderRegParams(ds.value);
+    const spec=REG_PARAMS[card.value];
+    ['a','b'].forEach((ab,i)=>{
+      const lab=$u(`enh-reg${ab}-l`), f=spec&&spec[i]; lab.hidden=!f;
+      if(f){lab.querySelector('span').textContent=f[0]; $u(`enh-reg${ab}`).value=$u(`up-${ds.value}-reg${ab}`).value;}
+    });
+  }
+  $u('enh-reg').addEventListener('change',e=>{
+    const key=$u('enh-ds').value, card=$u(`up-${key}-reg`); card.value=e.target.value;
+    card.dispatchEvent(new Event('change')); renderEnhControls();
+    if(['regional','residual','data'].includes($u('enh-map').value)&&e.target.value!=='none')$u('enh-map').value='residual';
+    enhSoon();
+  });
+  ['a','b'].forEach(ab=>$u(`enh-reg${ab}`).addEventListener('input',e=>{
+    $u(`up-${$u('enh-ds').value}-reg${ab}`).value=e.target.value; enhSoon();
+  }));
+  ['enh-ds','enh-map','enh-zero'].forEach(id=>$u(id).addEventListener('change',()=>{renderEnhControls();enhSoon(0);}));
+  ['enh-uc','enh-win'].forEach(id=>$u(id).addEventListener('input',()=>enhSoon()));
+  function enhSoon(ms=350){clearTimeout(ENH.timer); if(step===S.AREA)ENH.timer=setTimeout(enhRun,ms);}
+  // the map follows its box (a narrower window, the panel shown again)
+  new ResizeObserver(()=>{const el=$u('enh-plot'); if(el._fullLayout&&el.offsetWidth>40)Plotly.Plots.resize(el);}).observe($u('enh-plot'));
+  async function enhRun(){
+    const key=$u('enh-ds').value, t=UP_TYPES.find(x=>x.key===key); if(!t||!files[key].length)return;
+    const run=++ENH.run, note=$u('enh-note'), map=$u('enh-map').value;
+    const sig=files[key].map(f=>f.name+':'+f.size).join('|')+'|'+(dataCrs()||detectedCrs());
+    let reg=null;
+    try{reg=regionalSpec(key);}catch(err){note.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;return;}
+    const params={products:[map,...($u('enh-zero').checked&&map!=='vdr'?['vdr']:[])],uc_m:+$u('enh-uc').value||0,
+      window:+$u('enh-win').value||5,regional:reg,max_px:300};
+    if(key==='magnetic'){params.inc=+$u('up-magnetic-inc').value; params.dec=+$u('up-magnetic-dec').value;}
+    const send=async withFiles=>{
+      const fd=new FormData();
+      if(withFiles)files[key].forEach(f=>fd.append('files',f)); else fd.append('data_id',ENH.id[key]);
+      fd.append('method',methodOf(t)); fd.append('component',$u(`up-${key}-comp`)?.value||'');
+      fd.append('crs',dataCrs()||detectedCrs()); fd.append('params_json',JSON.stringify(params));
+      return fetch(apiBase()+'/api/enhance',{method:'POST',body:fd});
+    };
+    note.textContent=ENH.id[key]&&ENH.sig[key]===sig?'Computing…':'Sending the data to the server and gridding them…';
+    try{
+      let r=await send(!(ENH.id[key]&&ENH.sig[key]===sig));
+      if(r.status===404){r=await send(true);}   // the server forgot them (restarted)
+      const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+      if(run!==ENH.run)return;
+      ENH.id[key]=d.data_id; ENH.sig[key]=sig;
+      enhPlot(d,map,t);
+      note.innerHTML=`Gridded at ${fmtLen(d.spacing_m)} (${d.shape[1]} × ${d.shape[0]} nodes${d.display_step>1?`, shown every ${d.display_step}`:''})`+
+        (key==='magnetic'&&params.inc!=null?` · field I ${params.inc}°, D ${params.dec}° for the reduction to the pole`:'')+
+        (params.uc_m?` · continued ${fmtLen(params.uc_m)} upwards before the derivatives`:'')+
+        d.notes.map(n=>`<br><span class="up-en">${escH(n)}</span>`).join('');
+    }catch(err){if(run===ENH.run)note.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
+  }
+  function enhPlot(d,key,t){
+    const m=d.maps[key]; if(!m){Plotly.purge($u('enh-plot'));return;}
+    const unit=m.unit==null?t.unit:m.unit, x=d.x.map(v=>v/1000), y=d.y.map(v=>v/1000);
+    let lo=m.range?m.range[0]:0, hi=m.range?m.range[1]:1;
+    if(m.symmetric){const a=Math.max(Math.abs(lo),Math.abs(hi));lo=-a;hi=a;}
+    const seq=['thdr','asa','tdr_thdr','theta','nstd'].includes(key)||key.startsWith('nvdr');
+    const traces=[{type:'heatmap',x,y,z:m.values,zmin:lo,zmax:hi,colorscale:seq?'Viridis':plotlyScale(CMAP),
+      colorbar:{title:{text:unit,side:'right'},thickness:10,len:0.85,tickfont:{size:10},outlinewidth:0},
+      hovertemplate:`E %{x:.2f} km<br>N %{y:.2f} km<br>%{z:.4g} ${escH(unit)}<extra>${escH(m.label)}</extra>`}];
+    const v=d.maps.vdr;
+    if($u('enh-zero').checked&&v)traces.push({type:'contour',x,y,z:v.values,showscale:false,hoverinfo:'skip',
+      contours:{coloring:'none',start:0,end:0,size:1},line:{color:'rgba(255,255,255,0.75)',width:1}});
+    // the map layers (mines, outlines) as on the results
+    for(const l of mlShown()){
+      if(l.kind==='points')traces.push({type:'scatter',mode:'markers+text',x:l.items.map(p=>p.x/1000),y:l.items.map(p=>p.y/1000),
+        text:l.items.map(p=>p.label||''),textposition:'middle right',textfont:{size:10,color:'#e7ecf2'},
+        marker:{size:8,symbol:'diamond',color:l.color,line:{color:'#0e131a',width:1}},hoverinfo:'text',showlegend:false});
+      else{const lx=[],ly=[];for(const it of l.items){const P=it.closed?[...it.xy,it.xy[0]]:it.xy;P.forEach(([a,b])=>{lx.push(a/1000);ly.push(b/1000);});lx.push(null);ly.push(null);}
+        traces.push({type:'scatter',mode:'lines',x:lx,y:ly,line:{color:l.color,width:1.3},hoverinfo:'skip',showlegend:false});}
+    }
+    const w=aoi;
+    Plotly.react($u('enh-plot'),traces,{margin:{l:58,r:12,t:28,b:44},paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'#1c2530',
+      font:{color:'#8b97a6',size:11},dragmode:'pan',showlegend:false,uirevision:'enh-'+t.key,
+      title:{text:m.label,font:{size:12,color:'#e7ecf2'},x:0.01,y:0.98},
+      xaxis:{title:{text:'Easting (km)'},gridcolor:'#2a3644',zeroline:false,range:[x[0],x[x.length-1]]},
+      yaxis:{title:{text:'Northing (km)'},gridcolor:'#2a3644',zeroline:false,scaleanchor:'x',scaleratio:1,range:[y[0],y[y.length-1]]},
+      shapes:w?[{type:'rect',x0:w[0]/1000,x1:w[1]/1000,y0:w[2]/1000,y1:w[3]/1000,line:{color:'#d98e4a',width:2},fillcolor:'rgba(0,0,0,0)'}]:[]},
+      {displaylogo:false,responsive:true,scrollZoom:true,modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d','toggleSpikelines']});
+  }
 
   // ── Geology constraints (geoinv3d/methods/geology.py): a spec and the files it names ──
   function geoNeeded(spec){
@@ -5767,7 +5945,7 @@ window.GeoPreview=GeoPreview;
     }
     $u('upload-status').hidden=true;
     showStep(n);
-    if(n===S.AREA)renderArea();
+    if(n===S.AREA){renderArea(); renderEnhControls(); enhSoon(0);}
     if(n===S.MESH)renderMesh();
     if(n===S.MODEL)mbRender(true);
     if(n===S.JOBS)loadJobs();
@@ -6885,7 +7063,7 @@ window.GeoPreview=GeoPreview;
     }
     // Regional field removed before inverting (least-squares polynomial trend surface)
     const reg=$u(`up-${t.key}-reg`)?.value;
-    if(reg&&reg!=='none')spec.regional=reg==='mean'?{method:'mean'}:{method:'polynomial',order:+reg.slice(4)};
+    if(reg&&reg!=='none')spec.regional=$u(`up-${t.key}-regp`)?regionalSpec(t.key):reg==='mean'?{method:'mean'}:{method:'polynomial',order:+reg.slice(4)};
     if(t.key==='magnetic'){
       spec.component=$u('up-magnetic-comp').value;
       spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};

@@ -14,6 +14,8 @@ Endpoints:
     POST   /api/dem, GET /api/dem/{id}    — a DEM downloaded for a box (SRTM, else ETOPO 2022)
     GET    /api/igrf                      — the IGRF-14 field at a place and date
     GET    /api/crs                       — check a coordinate system (e.g. EPSG:32643)
+    POST   /api/enhance                   — maps of a data file: reduced to the pole, derivatives,
+                                            edge detectors, a regional-residual separation
     GET    /api/jobs                      — jobs submitted from here: live status, progress,
                                             result summary
     GET    /api/inversion/{job_id}        — one job, refreshed
@@ -70,6 +72,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 from fastapi import Body, FastAPI, File, Form, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -1049,6 +1052,127 @@ async def igrf_field(x: float, y: float, crs: str = "EPSG:4326", alt_m: float = 
         raise HTTPException(status_code=400, detail=str(e))
     return JSONResponse({"ok": True, "crs": crs, **{k: float(v) if hasattr(v, "dtype") else v
                                                      for k, v in f.items()}})
+
+
+# ── Data enhancement: the maps an interpreter looks at before inverting (methods/enhance.py) ──
+from collections import OrderedDict   # noqa: E402
+
+_ENHANCE_DATA: "OrderedDict[str, tuple]" = OrderedDict()   # data id -> (x, y, values, method)
+ENHANCE_KEEP = 6
+ENHANCE_MAPS = {   # key: (label, unit or None for the data's own, symmetric about 0)
+    "data": ("Data", None, False), "rtp": ("Reduced to the pole", None, False),
+    "continued": ("Continued upwards", None, False),
+    "vdr": ("Vertical derivative", "/km", True), "thdr": ("Total horizontal derivative", "/km", False),
+    "asa": ("Analytic signal amplitude", "/km", False), "tilt": ("Tilt angle", "°", True),
+    "theta": ("Theta map (THDR / ASA)", "", False), "tdr_thdr": ("Horizontal derivative of the tilt", "°/km", False),
+    "nstd": ("Normalized standard deviation", "", False),
+    "nvdr_thdr": ("NVDR of THDR", "", False), "nvdr_tilt": ("NVDR of the tilt", "", False),
+    "nvdr_theta": ("NVDR of theta", "", False), "nvdr_nstd": ("NVDR of NSTD", "", False),
+    "regional": ("Regional field", None, False), "residual": ("Residual field", None, True),
+}
+
+
+def enhancement_maps(x, y, v, method: str, p: dict) -> dict:
+    """The requested maps (``p["products"]``) of station or grid values, for the page."""
+    from ..methods import enhance as E
+    xg, yg, g = E.to_grid(x, y, v)
+    dx, dy = float(xg[1] - xg[0]), float(yg[1] - yg[0])
+    notes, want = [], set(p.get("products") or ["data"])
+    maps = {"data": g}
+    magnetic = method in ("magnetics", "magnetic")
+    work = g
+    if magnetic and p.get("inc") is not None:
+        inc, dec = float(p["inc"]), float(p.get("dec") or 0.0)
+        maps["rtp"] = E.rtp(g, dx, dy, inc, dec)
+        work = maps["rtp"]
+        if abs(inc) < 30:
+            notes.append(f"Near the magnetic equator (I = {inc:g}°) the reduction to the pole is "
+                         "damped along the declination; trust the derivatives of the RTP less there")
+    uc = float(p.get("uc_m") or 0.0)
+    if uc > 0:
+        work = maps["continued"] = E.upward(work, dx, dy, uc)
+    if want & {"vdr", "thdr", "asa", "tilt", "theta", "tdr_thdr", "nstd"} or any(k.startswith("nvdr") for k in want):
+        maps.update(E.edges(work, dx, dy, int(p.get("window") or 5)))
+        for k in ("thdr", "tilt", "theta", "nstd"):
+            if f"nvdr_{k}" in want:
+                maps[f"nvdr_{k}"] = E.nvdr(maps[k], dx, dy)
+        for k in ("vdr", "thdr", "asa"):
+            maps[k] = maps[k] * 1000.0          # per km
+    reg = p.get("regional")
+    if reg and reg.get("method") not in (None, "none") and want & {"regional", "residual"}:
+        from ..methods.regional import remove_regional
+        X, Y = np.meshgrid(xg, yg)
+        ok = np.isfinite(g)
+        res, info = remove_regional(np.c_[X[ok], Y[ok]], g[ok], reg)
+        maps["residual"] = np.full_like(g, np.nan); maps["residual"][ok] = res
+        maps["regional"] = g - maps["residual"]
+        notes.append(f"Regional field: {info['label']} (on the data as inverted, not the RTP); "
+                     f"std {info['data_std_before']:.4g} → {info['data_std_after']:.4g}")
+        if reg.get("method") == "upward":
+            notes.append("Upward continuation also weakens the broad field itself, so the residual "
+                         "keeps part of it; a Butterworth low-pass separates it more cleanly")
+    step = max(1, int(np.ceil(max(g.shape) / int(p.get("max_px") or 300))))
+    out = {}
+    for k in want:
+        if k not in maps:
+            continue
+        a = maps[k][::step, ::step]
+        label, unit, sym = ENHANCE_MAPS.get(k, (k, "", False))
+        finite = a[np.isfinite(a)]
+        out[k] = {"label": label, "unit": unit, "symmetric": sym,
+                  "range": [float(np.percentile(finite, 1)), float(np.percentile(finite, 99))] if finite.size else None,
+                  "values": [[None if not np.isfinite(val) else float(f"{val:.4g}") for val in row] for row in a]}
+    return {"x": [float(v) for v in xg[::step]], "y": [float(v) for v in yg[::step]],
+            "spacing_m": dx, "shape": list(g.shape), "display_step": step, "maps": out, "notes": notes}
+
+
+@app.post("/api/enhance")
+async def enhance_data(files: list[UploadFile] = File(default=[]), data_id: str = Form(""),
+                       method: str = Form("magnetics"), component: str = Form(""),
+                       crs: str = Form(""), params_json: str = Form("{}")):
+    """Maps of a dataset for interpretation (methods/enhance.py).  The first call sends the
+    files (read as the worker reads them, gridded at their spacing) and gets a ``data_id``;
+    later calls send only the id with other settings.  ``params_json``: products (keys of
+    ENHANCE_MAPS), inc and dec (the field, declination from grid north, for the reduction to
+    the pole), uc_m (continue upwards first), window (NSTD), regional (a methods/regional
+    spec), max_px (the returned maps' size)."""
+    from starlette.concurrency import run_in_threadpool
+    try:
+        p = json.loads(params_json)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"params_json is not JSON: {e}")
+    if files:
+        from ..cloud.worker import _DEFAULT_COMPONENT, _read_observations
+        folder = Path(tempfile.mkdtemp(prefix="enhance_", dir=_upload_dir))
+        digest = hashlib.sha1((method + component + crs).encode())
+        try:
+            xs, ys, vs = [], [], []
+            for f in files:
+                data = await f.read()
+                digest.update(data)
+                path = folder / Path(f.filename or "data").name
+                path.write_bytes(data)
+                locs, values, _ = await run_in_threadpool(
+                    _read_observations, str(path), component or _DEFAULT_COMPONENT.get(method, "tmi"),
+                    1, None, None, crs or None)
+                xs.append(locs[:, 0]); ys.append(locs[:, 1]); vs.append(values)
+        except (ValueError, OSError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        data_id = digest.hexdigest()[:12]
+        _ENHANCE_DATA[data_id] = (np.concatenate(xs), np.concatenate(ys), np.concatenate(vs), method)
+        while len(_ENHANCE_DATA) > ENHANCE_KEEP:
+            _ENHANCE_DATA.popitem(last=False)
+    if data_id not in _ENHANCE_DATA:
+        raise HTTPException(status_code=404, detail="Unknown data: send the files again")
+    _ENHANCE_DATA.move_to_end(data_id)
+    x, y, v, m = _ENHANCE_DATA[data_id]
+    try:
+        out = await run_in_threadpool(enhancement_maps, x, y, v, m, p)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"ok": True, "data_id": data_id, **out})
 
 
 # Map layers: points (mines, towns) and lines or outlines (geology) drawn over every run
