@@ -7,7 +7,13 @@ Endpoints:
     GET    /api/inversion/{job_id}/params — the parameters and input files a job ran with
     POST   /api/inversion/{job_id}/rerun  — run a job again on its own inputs, with changes
                                             (or a preview's full-resolution settings)
+    GET    /api/inversion/{job_id}/inputs/{name} — one of a job's input files
+    GET    /api/inversion/{job_id}/bundle — a job's inputs as a zip (params.json, data/), to
+                                            run it again anywhere: geoinv3d.cloud.worker --local
     GET    /api/estimates                 — run times of finished jobs, to estimate new ones
+    POST   /api/dem, GET /api/dem/{id}    — a DEM downloaded for a box (SRTM, else ETOPO 2022)
+    GET    /api/igrf                      — the IGRF-14 field at a place and date
+    GET    /api/crs                       — check a coordinate system (e.g. EPSG:32643)
     GET    /api/jobs                      — jobs submitted from here: live status, progress,
                                             result summary
     GET    /api/inversion/{job_id}        — one job, refreshed
@@ -492,6 +498,46 @@ async def job_params(job_id: str):
                          "instance_type": record.get("instance_type"), "note": record.get("note")})
 
 
+@app.get("/api/inversion/{job_id}/inputs/{name}")
+async def job_input(job_id: str, name: str):
+    """One input file of a job (the page loads a job's files to start a new setup from it)."""
+    _, folder, _, _ = _job_inputs(job_id)
+    path = folder / "data" / Path(name).name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail=f"No input file '{name}'")
+    return FileResponse(path, filename=path.name)
+
+
+BUNDLE_README = """GeoInv3D job {job_id}: its parameters and input files.
+
+Run it again on any machine with geoinv3d installed (pip install -e . from the repository):
+
+    python -m geoinv3d.cloud.worker --local params.json data out
+
+(or, without installing, with the repository on the path:
+    PYTHONPATH=/path/to/3d-inversion python -m geoinv3d.cloud.worker --local params.json data out)
+
+out/ then holds progress.json while it runs, and result.zip and result.json at the end;
+open result.zip in the viewer (python -m geoinv3d.viz.serve_dag) or load it on the upload page.
+Edit params.json to change the settings; see README.md of the repository for the keys.
+"""
+
+
+@app.get("/api/inversion/{job_id}/bundle")
+async def job_bundle(job_id: str):
+    """A job's inputs as one zip: params.json, data/ and a README on running it."""
+    import zipfile
+    record, folder, params, _ = _job_inputs(job_id)
+    out = _upload_dir / f"bundle_{record['task_id']}.zip"
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("params.json", json.dumps(params, indent=1))
+        zf.writestr("README.txt", BUNDLE_README.format(job_id=job_id))
+        for f in sorted((folder / "data").iterdir()):
+            zf.write(f, f"data/{f.name}")
+    return FileResponse(out, media_type="application/zip",
+                        filename=f"{record['task_id']}_inputs.zip")
+
+
 @app.post("/api/inversion/{job_id}/rerun")
 async def rerun_job(job_id: str, body: dict = Body(default={})):
     """Run a job again on its own input files.
@@ -935,6 +981,74 @@ async def workspace_workflow(workspace_id: str, known: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
     _write_json(cache, {"key": key, "workflow": workflow}, separators=(",", ":"))
     return JSONResponse({"ok": True, **counts, "workflow": workflow})
+
+
+# ── Ground and field for a survey area: a DEM, the IGRF, the coordinate system ──
+def _check_crs(crs) -> str:
+    from rasterio.crs import CRS
+    text = str(crs or "").strip()
+    if text.isdigit():
+        text = f"EPSG:{text}"
+    try:
+        return CRS.from_user_input(text).to_string()
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Unknown coordinate system '{crs}'")
+
+
+@app.get("/api/crs")
+async def check_crs(crs: str):
+    """A coordinate system the page was given: its canonical name, and whether it is degrees."""
+    from rasterio.crs import CRS
+    name = _check_crs(crs)
+    c = CRS.from_user_input(name)
+    units = c.linear_units if not c.is_geographic else "degree"
+    return JSONResponse({"ok": True, "crs": name, "geographic": bool(c.is_geographic),
+                         "units": units, "description": c.to_wkt().split('"')[1] if '"' in c.to_wkt() else name})
+
+
+@app.post("/api/dem")
+def make_dem(body: dict = Body(...)):
+    """A DEM over {"bounds": [west, east, south, north], "crs": ...} (the data's CRS), widened
+    by "margin_m", from "source" ("auto": SRTM 30 m, else ETOPO 2022; "srtm"; "etopo").
+    Downloads (and caches) the tiles it needs; GET /api/dem/{id} returns the GeoTIFF."""
+    from ..io.dem import build_dem
+    bounds, crs = body.get("bounds"), _check_crs(body.get("crs"))
+    if not isinstance(bounds, list) or len(bounds) != 4:
+        raise HTTPException(status_code=400, detail="bounds must be [west, east, south, north]")
+    try:
+        meta = build_dem([float(v) for v in bounds], crs, source=str(body.get("source") or "auto"),
+                         margin_m=float(body.get("margin_m") or 0.0),
+                         max_pixels=int(body.get("max_pixels") or 3000))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except OSError as e:
+        raise HTTPException(status_code=502, detail=f"Could not download the DEM tiles: {e}")
+    return JSONResponse({"ok": True, **{k: v for k, v in meta.items() if k != "path"}})
+
+
+@app.get("/api/dem/{dem_id}")
+async def get_dem(dem_id: str):
+    from ..io.dem import cached_dem
+    meta = cached_dem(dem_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Unknown DEM")
+    return FileResponse(meta["path"], media_type="image/tiff", filename=meta["file_name"])
+
+
+@app.get("/api/igrf")
+async def igrf_field(x: float, y: float, crs: str = "EPSG:4326", alt_m: float = 0.0,
+                     date: str = ""):
+    """The IGRF-14 field at (x, y) of ``crs`` on ``date`` (YYYY-MM-DD, default today):
+    F, I, D from true and from grid north, and ``inducing_field`` for a magnetic job."""
+    import datetime as dt
+    from ..methods.igrf import inducing_field
+    crs = _check_crs(crs)
+    try:
+        f = inducing_field(x, y, crs, alt_m=alt_m, date=date or dt.date.today().isoformat())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return JSONResponse({"ok": True, "crs": crs, **{k: float(v) if hasattr(v, "dtype") else v
+                                                     for k, v in f.items()}})
 
 
 # Map layers: points (mines, towns) and lines or outlines (geology) drawn over every run

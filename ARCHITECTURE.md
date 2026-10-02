@@ -161,6 +161,11 @@ settings, without uploading again. The worker's `progress.json` carries the iter
 far (the page's live curves) and its `result.json` a `convergence` record (chi^2 = N
 reached before the iteration limit, or why not).
 
+Two helpers serve the page's Data step: `io/dem.py` builds a GeoTIFF DEM for a box in the
+data's CRS from downloaded SRTM or ETOPO 2022 tiles (cached in `~/.geoinv3d/dem/`), which the
+page then treats like a dropped DEM; `methods/igrf.py` synthesizes IGRF-14 from IAGA's
+coefficients (`data/igrf14coeffs.txt`) and turns the declination to grid north.
+
 ## Invariants
 
 1. **The graph is the system of record.** If it's not in the DAG, it didn't happen.

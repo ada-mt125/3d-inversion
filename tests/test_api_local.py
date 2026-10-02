@@ -400,3 +400,64 @@ class TestMapLayers:
         assert client.get(f"/api/workspaces/{ws}").json()["layers"] == layers   # the page reads them here
         bad = [{"name": "x", "kind": "raster", "items": []}]
         assert client.put(f"/api/workspaces/{ws}/layers", json={"layers": bad}).status_code == 400
+
+
+class TestInputsAndBundle:
+    def test_input_files_and_bundle(self, api):
+        import io
+        import zipfile
+        client, _, store = api
+        job = _submit(client, params={"max_iter": 30}).json()["job_id"]
+        r = client.get(f"/api/inversion/{job}/inputs/g.csv")
+        assert r.status_code == 200 and r.content == b"x,y,v\n0,0,1\n"
+        assert client.get(f"/api/inversion/{job}/inputs/..%2Fparams.json").status_code == 404
+        assert client.get(f"/api/inversion/{job}/inputs/nope.csv").status_code == 404
+        r = client.get(f"/api/inversion/{job}/bundle")
+        assert r.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+            assert sorted(zf.namelist()) == ["README.txt", "data/g.csv", "params.json"]
+            assert json.loads(zf.read("params.json"))["max_iter"] == 30
+            assert b"geoinv3d.cloud.worker --local params.json data out" in zf.read("README.txt")
+
+
+class TestGroundAndField:
+    def test_crs(self, api):
+        pytest.importorskip("rasterio")
+        client, _, _ = api
+        d = client.get("/api/crs", params={"crs": "32643"}).json()
+        assert d["crs"] == "EPSG:32643" and d["geographic"] is False and "43N" in d["description"]
+        assert client.get("/api/crs", params={"crs": "EPSG:4326"}).json()["geographic"] is True
+        assert client.get("/api/crs", params={"crs": "nonsense"}).status_code == 400
+
+    def test_igrf(self, api):
+        pytest.importorskip("rasterio")
+        client, _, _ = api
+        d = client.get("/api/igrf", params={"x": 676000, "y": 1669000, "crs": "EPSG:32643",
+                                            "alt_m": 500, "date": "2020-01-01"}).json()
+        assert d["inducing_field"] == [42094.0, 19.27, -1.35] and d["model"] == "IGRF-14"
+        assert client.get("/api/igrf", params={"x": 76, "y": 15, "date": "1850-01-01"}).status_code == 400
+
+    def test_dem(self, api, tmp_path, monkeypatch):
+        client, _, _ = api
+        import geoinv3d.io.dem as dem
+        tif = tmp_path / "dem_abc123.tif"
+        tif.write_bytes(b"II*\x00")
+        meta = {"id": "abc123", "source": "srtm", "tiles": ["N15E076"], "sea_tiles": [], "pixel_m": 30.0,
+                "shape": [2, 2], "elev_min": 1.0, "elev_max": 2.0, "bounds": [0, 1, 0, 1], "crs": "EPSG:32643",
+                "file_name": "srtm30_dem_abc123.tif"}
+        asked = {}
+
+        def fake_build(bounds, crs, source="auto", margin_m=0.0, max_pixels=3000, **kw):
+            asked.update(bounds=bounds, crs=crs, source=source, margin_m=margin_m)
+            return {**meta, "path": str(tif), "cached": False}
+
+        monkeypatch.setattr(dem, "build_dem", fake_build)
+        monkeypatch.setattr(dem, "cached_dem", lambda i: {**meta, "path": str(tif)} if i == "abc123" else None)
+        r = client.post("/api/dem", json={"bounds": [641000, 711000, 1634000, 1704000], "crs": "32643",
+                                          "margin_m": 44000})
+        assert r.status_code == 200 and r.json()["id"] == "abc123" and "path" not in r.json()
+        assert asked == {"bounds": [641000.0, 711000.0, 1634000.0, 1704000.0], "crs": "EPSG:32643",
+                         "source": "auto", "margin_m": 44000.0}
+        assert client.get("/api/dem/abc123").content == b"II*\x00"
+        assert client.get("/api/dem/zzz").status_code == 404
+        assert client.post("/api/dem", json={"bounds": [1, 2], "crs": "EPSG:32643"}).status_code == 400

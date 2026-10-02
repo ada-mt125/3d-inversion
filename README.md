@@ -175,8 +175,8 @@ Outputs go to `examples/output/<example>/` (tables, JSON and figures).
 python -m geoinv3d.api            # then open http://127.0.0.1:8000/
 ```
 
-Drop the data on the page, check the area, mesh and model, choose the inversion, and run
-it **on this computer** (free, no set-up; jobs queue one at a time, `--local-jobs N` for
+Drop the data on the page (or start from a saved setup, or from a finished job with its
+files), check the area, mesh and model, choose the inversion, and run it **on this computer** (free, no set-up; jobs queue one at a time, `--local-jobs N` for
 more) or **on AWS** (EC2 or Batch, with this machine's AWS credentials). Before
 submitting, the page estimates the run time, the memory and (on AWS) the cost; the rates
 come from the jobs that finished here, so the estimates improve with use. *Preview first*
@@ -192,6 +192,18 @@ workspace's workflow next to the old one. Map layers (GeoJSON or CSV: mines, tow
 geological outlines) are drawn over the 3D view, the depth slice, the sections and the
 data-fit maps; a workspace keeps them for all its runs, and a workflow file can carry its
 own (`map_layers`).
+
+The page also fetches what a survey needs but its files often lack: **a DEM** for the data
+area and the mesh's padding (SRTM 1 arc-second from the public AWS terrain tiles, else
+ETOPO 2022 from NOAA; cached, resampled into the data's coordinates; `geoinv3d/io/dem.py`)
+and **the inducing field** from IGRF-14 at the centre of the magnetic data on the survey
+date, with the declination from the grid north of the data's coordinates
+(`geoinv3d/methods/igrf.py`). The Review step lists **checks before running** (data in the
+window, cells against the data spacing, core depth and padding against the survey width,
+DEM coverage and relief, the magnetic field, noise floors, memory, AWS credentials), with a
+fix button where one applies; errors block the submit. **Save this setup** writes every
+setting as JSON (its `params` are what the worker runs), and a job's **Inputs (.zip)** runs
+anywhere with `python -m geoinv3d.cloud.worker --local params.json data out`.
 
 ## How the DAG Works
 

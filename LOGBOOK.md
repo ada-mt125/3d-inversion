@@ -1394,3 +1394,41 @@ through a test harness: jobs could only go to AWS. Changes, as agreed with the u
   stack the side panels; a workflow laid out while its tab was hidden is redrawn when shown;
   the depth slice starts at the top layer that holds rock (it opened in the air above a flat
   earth); the re-run dialog is centred.
+
+---
+
+## 2026-10-02 — The upload page fetches the ground and the field; setups; checks before running
+
+Ideas taken from an EDI → ModEM preprocessor (kashkoulimohammad/edi-to-modem-mtpy-v2:
+automatic topography, a JSON configuration shared by its GUI and command line, hard checks
+before writing the files), as agreed with the user:
+
+- **Automatic DEM** (`geoinv3d/io/dem.py`, `POST /api/dem`): SRTM 1" tiles from the AWS
+  terrain-tile archive (8 MB each, cached; a missing tile is sea), else ETOPO 2022 15" read by
+  window from NOAA's tiled GeoTIFFs (named by their north-west corner, which the reference
+  tool gets wrong), averaged onto a grid in the data's CRS (30 m × the factor that keeps
+  3000 px), over the data plus 0.6 × the survey width (the padding a recommended mesh adds).
+  For Karnataka: 6 tiles, 60 m, against the study's 450 m DEM a median difference of 3 m
+  (r = 0.9987). The page fetches the file and uses it like a dropped DEM; a magnetic job on it
+  ran as before.
+- **IGRF-14** (`geoinv3d/methods/igrf.py`, `GET /api/igrf`): IAGA's coefficients (shipped in
+  `geoinv3d/data/`), the igrf14syn geodetic conversion, Schmidt recursion; checked against
+  finite differences of the potential with scipy's Legendre functions (< 0.5 nT) and the
+  Karnataka study's field (42,094 nT, I 19.27°, D -0.93° true / -1.35° grid north, the study
+  used 42,100, 19.3, -1.4 to grid north). The page computes it at the centre of the magnetic
+  data on the survey date and fills the card; it needs the data's CRS (new field, detected
+  from GeoTIFFs or the zone of lon/lat tables, typed for tables in metres; also sent to the
+  worker as `crs`).
+- **Setups**: *Save this setup* (Review) writes the jobs' params and the page's choices;
+  *Start from* (Data) loads such a file or a bare params.json (applied once its files are
+  dropped), or a finished job with its files from the server (`/inputs/{name}`; a preview
+  starts from its full-resolution settings). Round trip checked: every manual setting and the
+  thinning came back. A job's *Inputs (.zip)* (`/bundle`) has params.json, data/ and a README;
+  run headless it reproduced the page's job (χ²/N 4.49).
+- **Checks before running** (Review): data in the window, cells vs data spacing, core depth
+  and padding vs the survey width (the shallow core behind the 51 % padding share), DEM
+  coverage and relief, the inducing field (warns on the 50,000 nT vertical default), zero
+  noise floors, few iterations, memory, AWS credentials, the CRS; fix buttons (recommended
+  mesh, IGRF, get a DEM, run on AWS / here); errors disable the submit.
+- The size check used the instance's memory for jobs on this computer; it now uses this
+  computer's.

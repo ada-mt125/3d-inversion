@@ -314,6 +314,21 @@ svg#dag:active{cursor:grabbing;}
 .stat-card .label{font-size:9px;text-transform:uppercase;color:var(--text3);letter-spacing:.5px;}
 .stat-card .value{font-size:18px;font-weight:600;color:var(--accent);margin-top:2px;}
 
+/* Data step: start from a setup or a job; the automatic DEM and field */
+.up-start{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:16px;border:1px dashed var(--border);border-radius:10px;font-size:12px;color:var(--text2);}
+.up-start .up-in{width:auto;min-width:200px;}
+.up-auto-dem{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px;}
+.up-auto-dem .up-in{width:auto;}
+.up-igrf{align-items:flex-end;}
+.up-igrf .up-btn{white-space:nowrap;}
+.up-ok{color:#6fd0c3;}
+/* the pre-submit checks */
+.pf{display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--border-soft);font-size:12px;line-height:1.5;color:var(--text2);}
+.pf:last-child{border-bottom:none;}
+.pf i{font-style:normal;flex:none;width:16px;text-align:center;}
+.pf.ok i{color:#6fd0c3;} .pf.warn i{color:var(--accent2);} .pf.error i{color:#e8837a;}
+.pf.error{color:var(--text);}
+.pf .up-btn{margin-left:auto;flex:none;}
 /* Compute: where the job runs, the preview, the estimate */
 .up-chkline{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5;margin-top:12px;cursor:pointer;}
 .up-chkline input{margin-top:3px;flex:none;}
@@ -589,9 +604,27 @@ svg#dag:active{cursor:grabbing;}
         </nav>
 
         <div class="up-pane" data-pane="1">
+          <div class="up-start" id="up-start">
+            <b>Start from</b>
+            <button type="button" class="up-btn up-btn-sm" id="up-load-setup" title="A setup saved from the Review step, or a job's params.json">⤒ A saved setup (.json)</button>
+            <input type="file" id="up-setup-file" accept=".json" hidden>
+            <select id="up-from-job" class="up-in up-in-md" title="Its files and all its settings, to change and run again"><option value="">A finished job…</option></select>
+            <span class="up-hint" id="up-start-msg">or drop new data below</span>
+          </div>
           <section class="up-sec">
             <div class="up-sec-h">Observed data<span class="up-hint">One card per data type — at least one; two or more can be inverted jointly</span></div>
             <div class="up-grid" id="up-datasets"></div>
+          </section>
+
+          <section class="up-sec">
+            <div class="up-sec-h">Coordinate system<span class="up-hint">needed to download a DEM or compute the magnetic field</span></div>
+            <div class="up-card">
+              <div class="up-row" style="margin-top:0;align-items:flex-end">
+                <div class="up-col" style="flex:0 1 230px"><label class="up-lbl" for="up-crs">EPSG code of the data's coordinates</label>
+                  <input id="up-crs" class="up-in" placeholder="e.g. EPSG:32643" spellcheck="false"></div>
+                <div class="up-col up-method-desc" id="up-crs-msg" style="flex:3">Read from a GeoTIFF among the files, or the UTM zone of longitude/latitude tables; enter it for tables in metres.</div>
+              </div>
+            </div>
           </section>
 
           <section class="up-sec">
@@ -602,6 +635,16 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-drop-t">Drop a topography file here, or click to browse</div>
                 <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
               </div>
+              <div class="up-auto-dem">
+                <span class="up-en">or</span>
+                <button type="button" class="up-btn up-btn-sm" id="up-dem-get" title="Downloads the tiles over the data and the mesh's padding (cached), in the data's coordinates">⬇ Get a DEM for the data area</button>
+                <select id="up-dem-src" class="up-in up-in-md" aria-label="DEM source">
+                  <option value="auto">SRTM 30 m, else ETOPO 2022</option>
+                  <option value="srtm">SRTM 30 m (56° S – 60° N)</option>
+                  <option value="etopo">ETOPO 2022 450 m (with the sea floor)</option>
+                </select>
+              </div>
+              <div class="up-method-desc" id="up-dem-msg"></div>
               <div class="up-files" id="up-topo-list"></div>
               <div class="up-flat" id="up-topo-flat">
                 <label style="display:block;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="up-topo-stations">
@@ -1014,9 +1057,16 @@ svg#dag:active{cursor:grabbing;}
             <div id="up-estimate-review"></div>
           </section>
           <section class="up-sec">
+            <div class="up-sec-h">Checks before running<span class="up-hint">errors must be fixed; warnings are worth a look</span></div>
+            <div class="up-card" id="up-preflight"></div>
+          </section>
+          <section class="up-sec">
             <label class="up-lbl" for="upload-note">Note (optional)</label>
             <input id="upload-note" type="text" class="up-in" placeholder="e.g. Karnataka 70 km deep inversion">
           </section>
+          <div class="up-row" style="justify-content:flex-end;margin:-6px 0 10px">
+            <button type="button" class="up-btn up-btn-sm" id="up-save-setup" title="All the settings of this job (not the data files): load it later from the Data step, or run its params.json with python -m geoinv3d.cloud.worker --local">⤓ Save this setup (.json)</button>
+          </div>
           <button id="upload-submit" class="up-submit">▶ Run on this computer</button>
         </div>
 
@@ -3071,6 +3121,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#ws-bar'))wsEl('ws-m
 // ══════════════════════════════════════════
 const GeoCRS=(function(){
   let hint=null;   // EPSG code (326zz / 327zz) of a GeoTIFF among the files
+  let used=null;   // the UTM zone longitude/latitude tables were projected to
   const isUtm=e=>e>=32601&&e<=32660||e>=32701&&e<=32760;
   function looksGeographic(xs,ys){
     let n=0,x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
@@ -3098,6 +3149,7 @@ const GeoCRS=(function(){
     let epsg=hint;
     if(!epsg){const lon=median(Array.from(xs,Number)),lat=median(Array.from(ys,Number));
       epsg=(lat>=0?32600:32700)+(Math.floor((lon+180)/6)%60+1);}
+    used=epsg;
     const zone=epsg%100, south=epsg>32700, px=new Array(xs.length), py=new Array(xs.length);
     for(let i=0;i<xs.length;i++){const x=+xs[i],y=+ys[i];
       if(Number.isFinite(x)&&Number.isFinite(y))[px[i],py[i]]=toUtm(x,y,zone,south);else{px[i]=NaN;py[i]=NaN;}}
@@ -3120,7 +3172,9 @@ const GeoCRS=(function(){
     }catch(err){/* not a GeoTIFF we can read: no hint */}
     return null;
   }
-  return {looksGeographic,toUtm,project,scanTiff,reset:()=>{hint=null;}};
+  // the EPSG code the page knows the data to be in (a GeoTIFF's, or the zone degrees went to)
+  const detected=()=>hint||used;
+  return {looksGeographic,toUtm,project,scanTiff,detected,reset:()=>{hint=null;used=null;}};
 })();
 window.GeoCRS=GeoCRS;
 
@@ -4174,6 +4228,8 @@ window.GeoPreview=GeoPreview;
   }
 
   let gravityCheckKey='';
+  // 'none' when a gravity file shows no terrain correction (the checks before running use it)
+  const gravityCheckVerdict=()=>files.gravity.some(f=>f.bouguerCheck&&f.bouguerCheck.verdict==='none')?'none':'';
   async function checkGravity(){
     const box=$u('up-check-gravity'); if(!box)return;
     const list=files.gravity, key=list.map(f=>f.name+':'+f.size).join('|');
@@ -4224,6 +4280,10 @@ window.GeoPreview=GeoPreview;
       <div class="up-files" id="up-files-${t.key}"></div>
       ${t.key==='gravity'?'<div id="up-check-gravity"></div>':''}
       <div class="up-row">${optsHtml}</div>
+      ${t.key==='magnetic'?`<div class="up-row up-igrf">
+        <div class="up-col"><label class="up-lbl" for="up-magnetic-date">Survey date</label><input id="up-magnetic-date" type="date" class="up-in"></div>
+        <div class="up-col"><button type="button" class="up-btn up-btn-sm" id="up-igrf" title="The International Geomagnetic Reference Field at the centre of the data on the survey date; the declination from the grid north of the data's coordinates">🧭 Field from IGRF-14</button></div>
+      </div><div class="up-method-desc" id="up-igrf-msg"></div>`:''}
       <div class="up-row">
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"></div>
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-floor">Noise floor${t.unit?' ('+t.unit+')':''}</label><input id="up-${t.key}-floor" type="number" step="any" min="0" class="up-in" value="${t.floor}"></div>
@@ -4246,6 +4306,306 @@ window.GeoPreview=GeoPreview;
   });
   $u('up-topo-list').addEventListener('click',e=>{if(e.target.closest('[data-act]')){topoFile=null;refresh();}});
   $u('up-topo-stations').addEventListener('change',refresh);
+
+  // ── The data's coordinate system: read from the files where they say it, else typed ──
+  let crsTyped=false, crsCheck=null;
+  function detectedCrs(){
+    const e=GeoCRS.detected(); if(e)return 'EPSG:'+e;
+    for(const r of (analysis&&analysis.rows)||[]){
+      const m=/lon\/lat → UTM (\d+)([NS])/.exec(r.info&&r.info.format||'');
+      if(m)return 'EPSG:'+((m[2]==='S'?32700:32600)+(+m[1]));
+    }
+    return '';
+  }
+  const normCrs=v=>{v=String(v||'').trim(); return /^\d{4,5}$/.test(v)?'EPSG:'+v:v.toUpperCase().startsWith('EPSG:')?'EPSG:'+v.slice(5).trim():v;};
+  function dataCrs(){return normCrs($u('up-crs').value);}
+  async function checkCrs(){
+    const v=dataCrs(), msg=$u('up-crs-msg');
+    crsCheck=null;
+    if(!v){msg.textContent='Read from a GeoTIFF among the files, or the UTM zone of longitude/latitude tables; enter it for tables in metres.';return null;}
+    try{
+      const r=await fetch(`${apiBase()}/api/crs?crs=${encodeURIComponent(v)}`), d=await r.json();
+      if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+      crsCheck=d;
+      msg.innerHTML=d.geographic?`<span class="up-warn">⚠ ${escH(d.description)} is in degrees: give the projected system the data are in (metres)</span>`
+        :`<span class="up-ok">✓</span> ${escH(d.description)} (${escH(d.units||'metre')})`+(crsTyped?'':' <span class="up-en">· from the files</span>');
+      return d;
+    }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;return null;}
+  }
+  async function fillCrs(){   // after the files were read: the system they give, unless one was typed
+    if(crsTyped)return;
+    const d=detectedCrs();
+    if(d&&d!==dataCrs()){$u('up-crs').value=d; await checkCrs();}
+  }
+  $u('up-crs').addEventListener('change',()=>{crsTyped=!!$u('up-crs').value.trim(); $u('up-crs').value=dataCrs(); checkCrs();});
+  // the area and the CRS a download or the field needs: the files are read (and projected) first
+  async function areaAndCrs(){
+    if(!loadedTypes().length)throw new Error('Load the observed data first');
+    await analyse(); await fillCrs();
+    const crs=dataCrs();
+    if(!crs){$u('up-crs').focus(); throw new Error('Enter the coordinate system of the data (an EPSG code, e.g. EPSG:32643) under Coordinate system');}
+    const d=crsCheck&&crsCheck.crs===crs?crsCheck:await checkCrs();
+    if(!d)throw new Error(`The coordinate system ${crs} is not known`);
+    if(d.geographic)throw new Error('The data coordinates must be projected (metres), not degrees');
+    return {ext:analysis.native.extent,crs};
+  }
+
+  // ── A DEM for the data area, downloaded by the server (SRTM 30 m, else ETOPO 2022) ──
+  // It covers the data and about the padding a recommended mesh adds (half the survey width),
+  // in the data's coordinates, and then is the topography file like a dropped DEM.
+  let demInfo=null;
+  async function getDem(){
+    const btn=$u('up-dem-get'), msg=$u('up-dem-msg'), label=btn.textContent;
+    btn.disabled=true; btn.textContent='⏳ Downloading…';
+    msg.textContent='The first time, the server downloads the tiles (about 8 MB each for SRTM); later they come from its cache.';
+    try{
+      const {ext,crs}=await areaAndCrs();
+      const w=ext[1]-ext[0], h=ext[3]-ext[2], margin=Math.round(0.6*Math.max(w,h)+2000);
+      const r=await fetch(`${apiBase()}/api/dem`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({bounds:ext,crs,source:$u('up-dem-src').value,margin_m:margin})});
+      const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+      const blob=await (await fetch(`${apiBase()}/api/dem/${d.id}`)).blob();
+      topoFile=new File([blob],d.file_name,{type:'image/tiff'});
+      demInfo={...d,margin};
+      $u('up-topo-stations').checked=false;
+      refresh(); dataChanged();
+      msg.innerHTML=`<span class="up-ok">✓</span> ${d.source==='srtm'?'SRTM 1 arc-second':'ETOPO 2022 15 arc-second'} `+
+        `(${d.tiles.length} tile${d.tiles.length>1?'s':''}${d.sea_tiles.length?`, ${d.sea_tiles.length} at sea`:''}${d.cached?', from the cache':''}) `+
+        `on a ${fmtLen(d.pixel_m)} grid in ${escH(crs)}: ${fmtInt(d.elev_min)}–${fmtInt(d.elev_max)} m, `+
+        `the data area and ${fmtLen(margin)} around it.<br><span class="up-en">${d.source==='srtm'
+          ?'SRTM: NASA / USGS, from the AWS terrain tiles (public domain); heights above the EGM96 geoid.'
+          :'ETOPO 2022: NOAA NCEI (public domain); heights above the EGM2008 geoid, with the sea floor.'}</span>`;
+    }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
+    btn.disabled=false; btn.textContent=label;
+  }
+  $u('up-dem-get').addEventListener('click',getDem);
+
+  // ── The inducing field from IGRF-14 at the centre of the magnetic data on the survey date ──
+  let igrfInfo=null;
+  async function getIgrf(){
+    const btn=$u('up-igrf'), msg=$u('up-igrf-msg');
+    btn.disabled=true;
+    try{
+      const {crs}=await areaAndCrs();
+      const d=(analysis.ds.find(x=>x.t.key==='magnetic')||{}).extent||analysis.native.extent;
+      const date=$u('up-magnetic-date').value||new Date().toISOString().slice(0,10);
+      const q=new URLSearchParams({x:(d[0]+d[1])/2,y:(d[2]+d[3])/2,crs,date});
+      const r=await fetch(`${apiBase()}/api/igrf?${q}`), f=await r.json();
+      if(!r.ok)throw new Error(f.detail||('HTTP '+r.status));
+      const [F,I,D]=f.inducing_field;
+      $u('up-magnetic-amp').value=F; $u('up-magnetic-inc').value=I; $u('up-magnetic-dec').value=D;
+      if(!$u('up-magnetic-date').value)$u('up-magnetic-date').value=date;
+      igrfInfo={date,F,I,D,crs,lon:f.lon,lat:f.lat,D_true:f.D,convergence:f.convergence};
+      msg.innerHTML=`<span class="up-ok">✓</span> IGRF-14 on ${escH(date)} at ${f.lon.toFixed(2)}° E, ${f.lat.toFixed(2)}° N: `+
+        `<b>F ${fmtInt(F)} nT, I ${I.toFixed(2)}°, D ${D.toFixed(2)}°</b> from the grid north of ${escH(crs)} `+
+        `<span class="up-en">(${f.D.toFixed(2)}° from true north; meridian convergence ${f.convergence.toFixed(2)}°)</span>`;
+      if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
+    btn.disabled=false;
+  }
+  $u('up-igrf').addEventListener('click',getIgrf);
+  // a field typed by hand is no longer the computed one
+  ['amp','inc','dec'].forEach(k=>$u('up-magnetic-'+k).addEventListener('input',()=>{
+    if(igrfInfo){igrfInfo=null;$u('up-igrf-msg').textContent='Set by hand.';}
+  }));
+
+  // ── Setups: every setting of a job in one JSON (its params are what the worker runs:
+  // python -m geoinv3d.cloud.worker --local params.json data out), saved from the Review step
+  // and loaded again here; or a finished job's settings with its files, from the server ──
+  const SETUP_VERSION=1;
+  let pendingSetup=null, pendingAoi=null;
+  function setupJSON(jobs){
+    return {geoinv3d_setup:SETUP_VERSION,saved:new Date().toISOString(),
+      jobs:jobs.map(j=>({method:j.method,variant:j.variant||null,files:j.files.map(f=>f.name),params:j.params})),
+      page:{method:$u('upload-method').value,where,instance:$u('upload-instance').value,preview:$u('up-preview').checked,
+        mesh_type:$u('upload-mesh').value,note:$u('upload-note').value,aoi,crs:dataCrs(),
+        survey_date:$u('up-magnetic-date').value,sweep:{param:$u('up-sweep-param').value,values:$u('up-sweep-values').value}}};
+  }
+  $u('up-save-setup').addEventListener('click',()=>{
+    let jobs; try{jobs=buildJobs();}catch(err){showStatus(`<div class="up-err">⚠ ${escH(err.message)}</div>`);return;}
+    const name=($u('upload-note').value.trim()||jobs[0].method+'_setup').replace(/[^A-Za-z0-9._-]+/g,'_').slice(0,60);
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(setupJSON(jobs),null,1)],{type:'application/json'}));
+    a.download=name+'.geoinv3d_setup.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  });
+  // set a field if the setup has a value for it (a select only to one of its options)
+  function setv(id,v,notes){
+    const el=$u(id); if(!el||v==null)return false;
+    if(el.type==='checkbox'){el.checked=!!v;return true;}
+    if(el.tagName==='SELECT'&&![...el.options].some(o=>o.value===String(v))){if(notes)notes.push(`${id.replace(/^up-/,'')} = ${v}`);return false;}
+    el.value=String(v); return true;
+  }
+  const fire=id=>{const el=$u(id); if(el)el.dispatchEvent(new Event('change',{bubbles:true}));};
+  const typeOf=d=>d.type||(d.method==='magnetics'?'magnetic':d.method==='gravity'?'gravity':'electrical');
+  function setupFiles(setup){
+    const p=setup.jobs[0].params, names=new Set();
+    setup.jobs.forEach(j=>(j.params.datasets||[]).forEach(d=>(d.files||[]).forEach(n=>names.add(n))));
+    if(p.topography&&p.topography.file)names.add(p.topography.file);
+    return [...names];
+  }
+  const missingFiles=setup=>setupFiles(setup).filter(n=>!allNames().includes(n));
+  function methodOfSetup(setup){
+    const p=setup.jobs[0].params, page=setup.page||{};
+    if(page.method)return page.method;
+    if(setup.jobs.length>1&&setup.jobs.every(j=>j.params.inversion_mode!=='joint'))return 'separate';
+    const types=(p.datasets||[]).map(typeOf);
+    return (p.inversion_mode==='joint'?'joint:':'single:')+types.join(p.inversion_mode==='joint'?'+':'');
+  }
+  async function applySetup(setup,fileMap){
+    const jobs=setup.jobs||[], p=jobs[0]&&jobs[0].params, page=setup.page||{}, notes=[];
+    if(!p)throw new Error('The setup holds no job');
+    if(fileMap){   // a finished job: its files come with it
+      UP_TYPES.forEach(t=>{files[t.key]=[];}); topoFile=null; demInfo=null; geoFiles=[]; geoSpec=null;
+      jobs.forEach(j=>(j.params.datasets||[]).forEach(d=>(d.files||[]).forEach(n=>{
+        const t=typeOf(d); if(fileMap[n]&&files[t]&&!files[t].some(f=>f.name===n))files[t].push(fileMap[n]);})));
+      if(p.topography&&p.topography.file&&fileMap[p.topography.file])topoFile=fileMap[p.topography.file];
+      if(p.geology){
+        geoFiles=[new File([JSON.stringify(p.geology)],'constraints.json',{type:'application/json'}),
+          ...geoNeeded(p.geology).filter(n=>fileMap[n]).map(n=>fileMap[n])];
+        await readGeoSpec(); renderGeo();
+      }
+    }
+    // the data cards
+    const dss={}; jobs.forEach(j=>(j.params.datasets||[]).forEach(d=>{dss[typeOf(d)]=d;}));
+    for(const [type,d] of Object.entries(dss)){
+      if(!$u(`up-${type}-pct`))continue;
+      setv(`up-${type}-pct`,d.noise_pct!=null?+(d.noise_pct*100).toPrecision(6):null);
+      setv(`up-${type}-floor`,d.noise_floor);
+      setv(`up-${type}-comp`,d.component,notes);
+      if(type==='gravity')setv('up-gravity-sign',d.gz_convention,notes);
+      if(type==='magnetic'){
+        const k=d.method_kwargs||{}, f=k.inducing_field;
+        if(f){setv('up-magnetic-amp',f[0]);setv('up-magnetic-inc',f[1]);setv('up-magnetic-dec',f[2]);}
+        setv('up-magnetic-mag',k.magnetization==='vector'?'vector':'induced');
+      }
+      const reg=d.regional;
+      setv(`up-${type}-reg`,!reg?'none':reg.method==='mean'?'mean':'poly'+(reg.order||1),notes);
+      if(d.decimate_spacing_m){decChoice[type]='custom';decCustom[type]=d.decimate_spacing_m;}else decChoice[type]='1';
+    }
+    // ground, coordinates, survey date
+    const topo=p.topography||{};
+    $u('up-topo-stations').checked=!!topo.from_data;
+    if(topo.flat_elevation!=null)setv('up-flat-elev',topo.flat_elevation);
+    if(page.crs||p.crs){$u('up-crs').value=page.crs||p.crs; crsTyped=true; checkCrs();}
+    if(page.survey_date||(p.igrf&&p.igrf.date))setv('up-magnetic-date',page.survey_date||p.igrf.date);
+    igrfInfo=null;
+    const mag=dss.magnetic&&(dss.magnetic.method_kwargs||{}).inducing_field;
+    if(p.igrf&&mag)igrfInfo={date:p.igrf.date,F:mag[0],I:mag[1],D:mag[2],crs:p.crs};   // still the computed field
+    $u('up-igrf-msg').textContent=igrfInfo?`IGRF-14 for ${igrfInfo.date}, as in the setup.`:'';
+    // mesh and area (the window is placed once the files have been read)
+    MESH_INPUTS.forEach(([k,id])=>{if(p[k]!=null)$u(id).value=p[k];});
+    if(MESH_INPUTS.some(([k])=>p[k]!=null))meshEdited=true;
+    if(setv('upload-mesh',page.mesh_type||p.mesh_type))fire('upload-mesh');
+    pendingAoi=page.aoi||p.aoi||null;
+    // where it runs
+    if(page.where==='aws'||page.where==='local'){where=page.where; renderWhere();}
+    if(page.instance&&page.instance!=='local')setv('upload-instance',page.instance);
+    if(page.preview!=null)$u('up-preview').checked=!!page.preview;
+    if(page.note!=null)$u('upload-note').value=page.note;
+    // what to invert: the options follow the files
+    refresh();
+    const m=methodOfSetup(setup);
+    if(setv('upload-method',m)){methodPicked=true; updateMode();}
+    else if(!missingFiles(setup).length)notes.push(`the inversion "${m}"`);
+    applyInversion(p,notes);
+    if(page.sweep&&page.sweep.param){setv('up-sweep-param',page.sweep.param); $u('up-sweep-values').value=page.sweep.values||''; sweepHint();}
+    dataChanged();
+    return notes;
+  }
+  function applyInversion(p,notes){
+    const manual=p.param_mode==='manual';
+    $u('up-pmode').querySelector(`[data-mode="${manual?'manual':'auto'}"]`).click();
+    ['up-auto-maxit','up-maxit'].forEach(id=>setv(id,p.max_iter));
+    ['up-auto-maxirls','up-maxirls'].forEach(id=>setv(id,p.max_irls_iterations));
+    if(p.inversion_mode==='joint'){
+      const kind=p.regularization_type==='group_lasso'?'group_lasso':p.coupling;
+      if(setv('up-coupling-kind',kind,notes)){fire('up-coupling-kind');}
+      setv('up-coupling-w',p.coupling_weight);
+      const types=(p.datasets||[]).map(typeOf);
+      (p.joint_weights||[]).forEach((w,i)=>setv('up-jw-'+types[i],w));
+    }
+    if(p.regularization_type==='group_lasso'){
+      [['up-gl-sel','gl_lambda1_selection'],['up-gl-lambda2','gl_lambda2'],['up-gl-scaling','gl_data_scaling'],['up-gl-maxit','gl_max_iter'],
+       ['up-gl-weighting','gl_weighting'],['up-gl-balance','gl_balance'],['up-gl-beta','depth_weighting_exponent'],['up-gl-ratio','gl_lambda1_ratio'],
+       ['up-gl-n','gl_n_lambda1'],['up-gl-decades','gl_lambda1_decades'],['up-gl-mu','gl_mu'],['up-gl-xgrad','gl_cross_gradient']]
+        .forEach(([id,k])=>setv(id,p[k],notes));
+      fire('up-gl-sel'); fire('up-gl-weighting');
+      setv('up-lower',p.bounds_lower??''); setv('up-upper',p.bounds_upper??'');
+      return;
+    }
+    if(!manual)return;
+    const rt=p.regularization_type;
+    setv('up-reg-type',rt==='sparse'?'lp':rt==='l2'?(p.norms?'lp':'l2'):rt,notes); fire('up-reg-type');
+    if(Array.isArray(p.norms)){
+      const v=p.norms.join(',');
+      setv('up-norm-preset',[...$u('up-norm-preset').options].some(o=>o.value===v)?v:'custom'); fire('up-norm-preset');
+      ['s','x','y','z'].forEach((a,i)=>setv('up-p-'+a,p.norms[i]));
+    }
+    [['up-alpha-s','alpha_s'],['up-alpha-x','alpha_x'],['up-alpha-y','alpha_y'],['up-alpha-z','alpha_z'],['up-dw','depth_weighting'],
+     ['up-dw-exp','depth_weighting_exponent'],['up-beta-sel','beta_selection'],['up-beta0','beta0_ratio'],['up-cool','cooling_factor'],
+     ['up-precond','use_preconditioner'],['up-l1-ratio','l1_ratio'],['up-l1l2-solver','l1l2_solver'],['up-l1l2-weighting','l1l2_weighting'],
+     ['up-lambda-decades','lambda_decades'],['up-focus-pct','focusing_percentile'],['up-focus-scale','focusing_scale']]
+      .forEach(([id,k])=>setv(id,p[k],notes));
+    ['up-dw','up-beta-sel','up-l1l2-solver'].forEach(fire);
+    $u('up-lower').value=p.bounds_lower??''; $u('up-upper').value=p.bounds_upper??'';
+  }
+  // a setup file waits for its data files; it is applied once they are all there
+  async function applyPending(){
+    if(!pendingSetup||missingFiles(pendingSetup).length)return;
+    const s=pendingSetup; pendingSetup=null;
+    const notes=await applySetup(s,null);
+    $u('up-start-msg').innerHTML=`<span class="up-ok">✓</span> The setup is applied`+(notes.length?`; not restored: ${notes.map(escH).join(', ')}`:'')+'. Check the steps, then run.';
+  }
+  $u('up-load-setup').addEventListener('click',()=>$u('up-setup-file').click());
+  $u('up-setup-file').addEventListener('change',async e=>{
+    const f=e.target.files[0]; e.target.value=''; if(!f)return;
+    const msg=$u('up-start-msg');
+    try{
+      const obj=JSON.parse(await f.text());
+      const setup=obj.geoinv3d_setup?obj:(obj.datasets||obj.method_type)?{jobs:[{params:obj,files:[]}],page:{}}:null;
+      if(!setup||!(setup.jobs||[]).length)throw new Error('not a GeoInv3D setup or params.json');
+      const notes=await applySetup(setup,null);
+      const miss=missingFiles(setup);
+      if(miss.length){pendingSetup=setup;
+        msg.innerHTML=`Setup read. Now drop its data: <b>${miss.map(escH).join(', ')}</b> — the settings are applied once they are here.`;}
+      else msg.innerHTML=`<span class="up-ok">✓</span> The setup is applied`+(notes.length?`; not restored: ${notes.map(escH).join(', ')}`:'')+'.';
+    }catch(err){msg.innerHTML=`<span class="up-err">⚠ Could not read ${escH(f.name)}: ${escH(err.message)}</span>`;}
+  });
+  // the finished jobs whose inputs the server kept
+  async function listStartJobs(){
+    const sel=$u('up-from-job');
+    try{
+      const only=WS.id?'?workspace='+encodeURIComponent(WS.id):'';
+      const jobs=((await (await fetch(apiBase()+'/api/jobs'+only)).json()).jobs||[]).filter(j=>j.rerun&&j.display_status==='SUCCEEDED');
+      sel.innerHTML='<option value="">A finished job…</option>'+jobs.map(j=>`<option value="${escH(j.job_id)}">`+
+        escH([j.inversion_mode==='joint'?'Joint':j.method,j.regularization_type,j.note||j.variant,new Date(j.submitted_at).toLocaleDateString()].filter(Boolean).join(' · ').slice(0,90))+'</option>').join('');
+      sel.disabled=!jobs.length;
+    }catch(err){sel.disabled=true;}
+  }
+  $u('up-from-job').addEventListener('focus',listStartJobs);
+  $u('up-from-job').addEventListener('change',async e=>{
+    const id=e.target.value, msg=$u('up-start-msg'); if(!id)return;
+    msg.textContent='Loading the job’s files and settings…';
+    try{
+      const r=await fetch(`${apiBase()}/api/inversion/${encodeURIComponent(id)}/params`), d=await r.json();
+      if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+      const fileMap={};
+      for(const n of d.files){
+        const b=await (await fetch(`${apiBase()}/api/inversion/${encodeURIComponent(id)}/inputs/${encodeURIComponent(n)}`)).blob();
+        fileMap[n]=new File([b],n);
+      }
+      // a preview starts from the full-resolution settings it previewed
+      const full=d.preview_of, params=full?full.params:d.params;
+      const setup={jobs:[{method:params.method_type,params,files:d.files}],
+        page:{where:full?full.backend:(d.backend==='local'?'local':'aws'),instance:full?full.instance_type:d.instance_type,
+          note:(d.note||'').replace(/ · preview \(cells ×\d\)$/,''),preview:false}};
+      const notes=await applySetup(setup,fileMap);
+      msg.innerHTML=`<span class="up-ok">✓</span> ${d.files.length} file${d.files.length>1?'s':''} and the settings of <code>${escH(id)}</code>`+
+        (full?' (the full-resolution settings it previewed)':'')+(notes.length?`; not restored: ${notes.map(escH).join(', ')}`:'')+
+        '. Change what you like in the steps, then run.';
+    }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
+    e.target.value='';
+  });
 
   // ── Geology constraints (geoinv3d/methods/geology.py): a spec and the files it names ──
   function geoNeeded(spec){
@@ -5119,6 +5479,7 @@ window.GeoPreview=GeoPreview;
     });
     $u('up-topo-list').innerHTML=topoFile?fileRow(topoFile,'topo'):'';
     $u('up-topo-flat').hidden=!!topoFile;
+    if(pendingSetup)setTimeout(applyPending,0);
     $u('up-topo-flat-line').hidden=$u('up-topo-stations').checked;
     checkGravity();
 
@@ -5397,7 +5758,8 @@ window.GeoPreview=GeoPreview;
     if(n===step)return;
     if(n<=S.REVIEW){
       try{
-        if(step<=S.DATA&&n>=S.AREA){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();}
+        if(step<=S.DATA&&n>=S.AREA){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();
+          fillCrs(); if(pendingAoi){aoi=pendingAoi.slice(); pendingAoi=null;}}
         if(step<=S.AREA&&n>=S.MESH){applyArea();renderResolution();recommend();}
         if(step<=S.MESH&&n>=S.MODEL)meshParams();
         if(n===S.REVIEW)renderReview(buildJobs());
@@ -6114,6 +6476,8 @@ window.GeoPreview=GeoPreview;
         ${j.display_status==='SUCCEEDED'?`<a class="up-btn up-btn-sm" href="${escH(apiBase())}/api/inversion/${encodeURIComponent(j.job_id)}/result" download>⬇ Download result</a>`:''}
         ${j.display_status==='SUCCEEDED'&&j.preview&&j.rerun?`<button type="button" class="up-btn up-btn-sm up-btn-primary" data-full="${escH(j.job_id)}" title="The settings this job previews, at full resolution">🚀 Run at full resolution</button>`:''}
         ${!ACTIVE(j.display_status)&&j.rerun?`<button type="button" class="up-btn up-btn-sm" data-rerun-job="${escH(j.job_id)}" title="Same data, changed settings">↻ Run again with changes…</button>`:''}
+        ${j.display_status==='SUCCEEDED'&&j.rerun?`<button type="button" class="up-btn up-btn-sm" data-start-job="${escH(j.job_id)}" title="Its files and settings in the steps above, to change anything (area, mesh, model…) before running">⤴ New setup from it</button>`:''}
+        ${j.rerun?`<a class="up-btn up-btn-sm" href="${escH(apiBase())}/api/inversion/${encodeURIComponent(j.job_id)}/bundle" download title="params.json and the data files: run it anywhere with python -m geoinv3d.cloud.worker --local params.json data out">⬇ Inputs (.zip)</a>`:''}
         ${j.display_status==='SUCCEEDED'&&s&&s.convergence&&s.convergence.at_iteration_limit&&s.convergence.status!=='converged'&&j.rerun
           ?`<button type="button" class="up-btn up-btn-sm" data-rerun-job="${escH(j.job_id)}" data-more="${2*s.convergence.max_iter}">↻ With ${2*s.convergence.max_iter} iterations…</button>`:''}
       </div>
@@ -6215,8 +6579,14 @@ window.GeoPreview=GeoPreview;
   }
 
   $u('up-jobs').addEventListener('click',e=>{
-    const full=e.target.closest('[data-full]'), rr=e.target.closest('[data-rerun-job]');
+    const full=e.target.closest('[data-full]'), rr=e.target.closest('[data-rerun-job]'), st=e.target.closest('[data-start-job]');
     if(full)runFull(full.dataset.full,full);
+    if(st){
+      goTo(S.DATA).then(async()=>{
+        await listStartJobs();
+        const sel=$u('up-from-job'); sel.value=st.dataset.startJob; sel.dispatchEvent(new Event('change'));
+      });
+    }
     if(rr){const j=jobsCache.find(x=>x.job_id===rr.dataset.rerunJob);
       openRerun(rr.dataset.rerunJob,j&&([j.method,j.regularization_type,j.note].filter(Boolean).join(' · ')),rr.dataset.more?{max_iter:rr.dataset.more}:null);}
     const view=e.target.closest('[data-view]');
@@ -6307,6 +6677,103 @@ window.GeoPreview=GeoPreview;
       :where==='local'?`▶ Run ${nj||'it'} on this computer`:`🚀 Submit ${nj||'the job'} to AWS (${$u('upload-instance').value})`;
     renderSizeCheck(jobs);
     $u('up-estimate-review').innerHTML=estimateHTML(jobs);
+    renderPreflight(jobs);
+  }
+
+  // ── Checks before running: what would make the job fail, or its result misleading ──
+  // Each is {level: 'ok' | 'warn' | 'error', text, fix?: [label, action]}; errors block the submit.
+  async function topoExtent(){
+    if(!topoFile)return null;
+    if(demInfo&&topoFile.name===demInfo.file_name){const b=demInfo.bounds;return {ext:[b[0],b[1],b[2],b[3]],zmin:demInfo.elev_min,zmax:demInfo.elev_max};}
+    const i=await inspect(topoFile);
+    return i&&!i.error&&i.extent?{ext:i.extent,zmin:i.zmin,zmax:i.zmax}:null;
+  }
+  async function preflight(jobs){
+    const out=[], add=(level,text,fix)=>out.push({level,text,fix});
+    const s=selection(), m=meshParams(), sp=analysis&&analysis.spacing, e=analysis&&analysis.extent;
+    // the data
+    const bad=(analysis&&analysis.rows||[]).filter(r=>r.info.error);
+    if(bad.length)add('warn',`${bad.map(r=>escH(r.f.name)).join(', ')} could not be read in the browser; the server will try, but nothing here was checked against ${bad.length>1?'them':'it'}`);
+    const n=analysis&&analysis.counts?analysis.counts.reduce((a,c)=>a+c.after,0):null;
+    if(n===0)add('error','No data are left in the window after thinning: widen the window or keep more data (Area step)');
+    else if(n)add('ok',`${fmtInt(n)} data in the window`);
+    // the mesh against the data
+    if(sp&&e){
+      const w=Math.max(e[1]-e[0],e[3]-e[2]);
+      if(m.core_cell_m<0.5*sp)add('warn',`Cells of ${fmtLen(m.core_cell_m)} are much finer than the ${fmtLen(sp)} data spacing: more cost, little more resolution`);
+      else if(m.core_cell_m>4*sp)add('warn',`Cells of ${fmtLen(m.core_cell_m)} are coarse for ${fmtLen(sp)} data: detail the data hold is lost`);
+      else add('ok',`Cells of ${fmtLen(m.core_cell_m)} for data ${fmtLen(sp)} apart`);
+      if(m.depth_core_m<0.25*w)add('warn',`The core is ${fmtLen(m.depth_core_m)} deep for a ${fmtLen(w)} wide survey: deep sources end up in the padding cells, where they are poorly constrained (about half the width is safer)`,
+        recommended&&recommended.depth_core_m>m.depth_core_m?['Use the recommended mesh',()=>{meshEdited=false;setMeshInputs(recommended);renderMesh();}]:null);
+      if(m.pad_distance_m<0.25*w)add('warn',`Padding of ${fmtLen(m.pad_distance_m)} is narrow for a ${fmtLen(w)} survey: the edges of the model take up the anomalies of their surroundings`);
+    }
+    // the ground
+    if(topoFile){
+      const t=await topoExtent();
+      if(t&&e){
+        const pad=m.pad_distance_m, inside=t.ext[0]<=e[0]&&t.ext[1]>=e[1]&&t.ext[2]<=e[2]&&t.ext[3]>=e[3];
+        const covers=t.ext[0]<=e[0]-pad&&t.ext[1]>=e[1]+pad&&t.ext[2]<=e[2]-pad&&t.ext[3]>=e[3]+pad;
+        if(!inside)add('error',`The DEM (${escH(topoFile.name)}) does not cover the data: is it in the same coordinates?`,
+          ['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]);
+        else if(!covers)add('warn','The DEM covers the data but not all of the padding: the ground there is extended from its edges');
+        else add('ok',`The DEM covers the data and the padding${t.zmax!=null?` · ${fmtInt(t.zmin)}–${fmtInt(t.zmax)} m`:''}`);
+        if(t.zmax!=null&&t.zmin!=null&&t.zmax-t.zmin>20*m.core_cell_z_m)
+          add('warn',`The relief (${fmtInt(t.zmax-t.zmin)} m) spans ${Math.round((t.zmax-t.zmin)/m.core_cell_z_m)} vertical cells: many cells go to the topography`);
+      }else if(!t)add('warn',`The DEM ${escH(topoFile.name)} could not be read in the browser to check its extent`);
+    }else if(!$u('up-topo-stations').checked){
+      const g=gravityCheckVerdict();
+      add(g==='none'?'warn':'ok',g==='none'?'Flat ground, but the gravity still holds the effect of the terrain (Data step): give the topography'
+        :`Flat ground at ${escH($u('up-flat-elev').value)} m`,g==='none'?['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]:null);
+    }
+    // the magnetic field
+    if(s&&s.types.some(t=>t.key==='magnetic')){
+      const F=+$u('up-magnetic-amp').value, I=+$u('up-magnetic-inc').value, D=+$u('up-magnetic-dec').value;
+      if(!(F>0))add('error','The inducing field strength must be above 0 nT');
+      else if(igrfInfo&&Math.abs(igrfInfo.F-F)<1&&Math.abs(igrfInfo.I-I)<0.01)add('ok',`Inducing field from IGRF-14 for ${escH(igrfInfo.date)}: F ${fmtInt(F)} nT, I ${I}°, D ${D}° (grid north)`);
+      else if(F===50000&&I===90&&D===0)add('warn','The inducing field is the default (50,000 nT, straight down), right only near a magnetic pole: compute it for the survey',
+        ['Field from IGRF-14',()=>getIgrf()]);
+      else add('ok',`Inducing field F ${fmtInt(F)} nT, I ${I}°, D ${D}° (set by hand)`);
+    }
+    // the data errors
+    for(const t of s?s.types:[]){
+      const fl=$u(`up-${t.key}-floor`);
+      if(fl&&!(+fl.value>0)&&t.key!=='electrical')add('warn',`${t.label}: a noise floor of 0 gives the smallest data almost no error, and χ² = N may be out of reach`);
+    }
+    // the iterations
+    const mi=currentMaxIter();
+    if(mi<15&&!(s&&s.gl))add('warn',`At most ${mi} iterations: sparse (IRLS) runs often need 30–60 to reach χ² = N`);
+    // the machine
+    let est=null; try{est=sizeEstimate(jobs);}catch(err){}
+    const inst=$u('upload-instance').value, ram=where==='local'?localMem():INSTANCE_MEM_GB[inst];
+    if(est&&ram){
+      if(est.gb>ram)add('error',`The job needs ≈ ${est.gb.toFixed(1)} GB, more than the ${ram} GB ${where==='local'?'of this computer':'of '+escH(inst)}`,
+        where==='local'?['Run it on AWS',()=>{$u('up-where').querySelector('[data-where="aws"]').click();}]:null);
+      else add('ok',`Memory ≈ ${est.gb.toFixed(1)} of ${ram} GB`);
+    }
+    if(where==='aws'&&!$u('up-preview').checked&&ENV.health&&!ENV.health.aws_configured)
+      add('error','No AWS credentials on the computer running the server',['Run it here',()=>{$u('up-where').querySelector('[data-where="local"]').click();}]);
+    // the coordinates
+    if(dataCrs())add(crsCheck&&!crsCheck.geographic?'ok':'warn',crsCheck?`Coordinates ${escH(crsCheck.crs)}: ${escH(crsCheck.description)}`:`Coordinates ${escH(dataCrs())} (not checked)`);
+    return out;
+  }
+  let pfErrors=0, pfRun=0;
+  async function renderPreflight(jobs){
+    const run=++pfRun, box=$u('up-preflight');
+    let items;
+    try{items=await preflight(jobs);}catch(err){items=[{level:'warn',text:'The checks could not run: '+escH(err.message)}];}
+    if(run!==pfRun)return;
+    const order={error:0,warn:1,ok:2};
+    items.sort((a,b)=>order[a.level]-order[b.level]);
+    pfErrors=items.filter(i=>i.level==='error').length;
+    box.innerHTML=items.map((it,k)=>`<div class="pf ${it.level}"><i>${it.level==='ok'?'✓':it.level==='warn'?'⚠':'✗'}</i><span>${it.text}</span>`+
+      (it.fix?`<button type="button" class="up-btn up-btn-sm" data-pf="${k}">${escH(it.fix[0])}</button>`:'')+'</div>').join('');
+    box.querySelectorAll('[data-pf]').forEach(b=>b.addEventListener('click',async()=>{
+      await items[+b.dataset.pf].fix[1]();
+      if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    }));
+    const btn=$u('upload-submit');
+    btn.disabled=pfErrors>0;
+    btn.title=pfErrors?`Fix the ${pfErrors} error${pfErrors>1?'s':''} in the checks first`:'';
   }
 
   // ── Size check: the dense sensitivity matrix of a potential-field job against the
@@ -6351,9 +6818,11 @@ window.GeoPreview=GeoPreview;
   function renderSizeCheck(jobs){
     const box=$u('up-sizecheck'), e=sizeEstimate(jobs);
     if(!e){box.innerHTML='';return;}
-    const ram=INSTANCE_MEM_GB[e.inst], fit=Object.keys(INSTANCE_MEM_GB).find(k=>INSTANCE_MEM_GB[k]>=e.gb*1.15);
+    // this computer when the job runs here (a preview always does), else the instance
+    const here=where==='local'||$u('up-preview').checked, machine=here?'this computer':escH(e.inst);
+    const ram=here?(localMem()||16):INSTANCE_MEM_GB[e.inst], fit=Object.keys(INSTANCE_MEM_GB).find(k=>INSTANCE_MEM_GB[k]>=e.gb*1.15);
     const size=`Sensitivity matrix ≈ <b>${fmtInt(e.N)} data × ${fmtInt(e.M)} cells</b> = ${bigCount(e.entries)} entries; `+
-      `the ${e.cda?'L1–L2 coordinate descent':e.gl?'group-lasso ADMM':'inversion'} needs ≈ <b>${e.gb.toFixed(1)} GB</b> of the ${ram} GB on ${escH(e.inst)}.`;
+      `the ${e.cda?'L1–L2 coordinate descent':e.gl?'group-lasso ADMM':'inversion'} needs ≈ <b>${e.gb.toFixed(1)} GB</b> of the ${ram} GB of ${machine}.`;
     const msgs=[];
     let level='';
     if(e.gl&&e.cg)msgs.push('A dataset has too many data for a Cholesky factor (over 4 GB): its ADMM steps use conjugate gradients, '+
@@ -6361,7 +6830,8 @@ window.GeoPreview=GeoPreview;
     if(e.gb>ram){
       level='bad';
       msgs.push('<b>Not enough memory:</b> the job would be killed when it runs out. '+
-        (fit&&fit!==e.inst?`Choose a larger instance, thin the data (Area step) or use coarser cells (Mesh step).`
+        (here?'Run it on AWS, thin the data (Area step) or use coarser cells (Mesh step).'
+          :fit&&fit!==e.inst?`Choose a larger instance, thin the data (Area step) or use coarser cells (Mesh step).`
                           :'Thin the data (Area step) or use coarser cells (Mesh step): no instance here is large enough.'));
     }else if(e.gb>0.75*ram){
       level='warn';
@@ -6375,7 +6845,7 @@ window.GeoPreview=GeoPreview;
     }
     const btns=[];
     if(e.cda&&e.entries>CDA_SLOW_ENTRIES)btns.push('<button type="button" class="up-btn up-btn-sm up-btn-primary" data-size-fix="irls">Use SimPEG IRLS</button>');
-    if(level==='bad'||level==='warn'&&e.gb>0.75*ram){
+    if(!here&&(level==='bad'||level==='warn'&&e.gb>0.75*ram)){
       if(fit&&fit!==e.inst&&INSTANCE_MEM_GB[fit]>ram)
         btns.push(`<button type="button" class="up-btn up-btn-sm" data-size-fix="inst:${fit}">Use ${escH(fit)} (${INSTANCE_MEM_GB[fit]} GB)</button>`);
     }
@@ -6563,7 +7033,10 @@ window.GeoPreview=GeoPreview;
     const topography=topoFile?{file:topoFile.name}:$u('up-topo-stations').checked?{from_data:true}
       :{flat_elevation:num('up-flat-elev','flat topography elevation')};
     const extra=topoFile?[topoFile]:[];
-    const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams()};
+    // the field's source travels with the job (the worker ignores it): a new setup from the job keeps the date
+    const igrf=igrfInfo&&s.types.some(t=>t.key==='magnetic')&&+$u('up-magnetic-amp').value===igrfInfo.F
+      ?{igrf:{model:'IGRF-14',date:igrfInfo.date}}:{};
+    const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams(),...(dataCrs()?{crs:dataCrs()}:{}),...igrf};
     if(s.mode==='joint'&&$u('up-magnetic-mag').value==='vector'&&s.types.some(t=>t.key==='magnetic'))
       throw new Error('The magnetization-vector inversion (MVI) is for single magnetic inversions; set Magnetization to Induced for a joint inversion');
     if(s.mode!=='joint'&&s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag').value==='vector'){
@@ -6596,6 +7069,7 @@ window.GeoPreview=GeoPreview;
   $u('upload-submit').addEventListener('click',async()=>{
     let jobs;
     try{jobs=buildJobs();}catch(err){showStatus(`<div class="up-err">⚠ ${escH(err.message)}</div>`);return;}
+    if(pfErrors){showStatus(`<div class="up-err">⚠ Fix the errors under “Checks before running” first</div>`);return;}
     const btn=$u('upload-submit'), label=btn.textContent;
     btn.disabled=true; btn.textContent='⏳ Uploading...';
     showStatus(`<span style="color:#64B5F6;">Submitting ${jobs.length} job${jobs.length>1?'s':''}...</span>`);

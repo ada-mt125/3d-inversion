@@ -31,6 +31,10 @@ geoinv3d = "geoinv3d.app:main"
 [tool.setuptools.packages.find]
 include = ["geoinv3d*"]
 
+[tool.setuptools.package-data]
+# the page and viewer template; the IGRF-14 coefficients (geoinv3d/methods/igrf.py)
+geoinv3d = ["viz/*.html", "data/*.txt"]
+
 [tool.ruff]
 line-length = 96
 target-version = "py310"
