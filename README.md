@@ -217,9 +217,11 @@ keeps, on the survey date; when the date is not known, for 2020-01-01, and the p
 much 2000–2025 would differ. The map layers can also be shown and added on the Area step's
 window map, to help choose the window.
 
-The page also fetches what a survey needs but its files often lack: **a DEM** for the data
-area and the mesh's padding (SRTM 1 arc-second from the public AWS terrain tiles, else
-ETOPO 2022 from NOAA; cached, resampled into the data's coordinates; `geoinv3d/io/dem.py`)
+The page also fetches what a survey needs but its files often lack: **a DEM**, on the Area
+step after the window is chosen, for the window (else the whole survey) and the mesh's
+padding (SRTM 1 arc-second from the public AWS terrain tiles, else ETOPO 2022 from NOAA;
+cached, resampled into the data's coordinates; `geoinv3d/io/dem.py`; moving the window away
+from it says to get it again)
 and **the inducing field** from IGRF-14 at the centre of the magnetic data on the survey
 date, with the declination from the grid north of the data's coordinates
 (`geoinv3d/methods/igrf.py`). The Review step lists **checks before running** (data in the

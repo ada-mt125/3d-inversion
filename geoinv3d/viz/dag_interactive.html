@@ -635,7 +635,7 @@ svg#dag:active{cursor:grabbing;}
           </section>
 
           <section class="up-sec">
-            <div class="up-sec-h">Coordinate system<span class="up-hint">needed to download a DEM or compute the magnetic field</span></div>
+            <div class="up-sec-h">Coordinate system<span class="up-hint">needed to download a DEM (Area step) or compute the magnetic field</span></div>
             <div class="up-card">
               <div class="up-row" style="margin-top:0;align-items:flex-end">
                 <div class="up-col" style="flex:0 1 230px"><label class="up-lbl" for="up-crs">EPSG code of the data's coordinates</label>
@@ -645,34 +645,6 @@ svg#dag:active{cursor:grabbing;}
             </div>
           </section>
 
-          <section class="up-sec">
-            <div class="up-sec-h">Topography<span class="up-hint">optional</span></div>
-            <div class="up-card" id="up-topo">
-              <div class="up-drop" id="up-topo-drop">
-                <input type="file" id="up-topo-file" accept=".xyz,.csv,.txt,.dat,.asc,.tif,.tiff" hidden>
-                <div class="up-drop-t">Drop a topography file here, or click to browse</div>
-                <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
-              </div>
-              <div class="up-auto-dem">
-                <span class="up-en">or</span>
-                <button type="button" class="up-btn up-btn-sm" id="up-dem-get" title="Downloads the tiles over the window chosen in the Area step (else the whole survey) and the mesh's padding (cached), in the data's coordinates">⬇ Get a DEM for the data area</button>
-                <select id="up-dem-src" class="up-in up-in-md" aria-label="DEM source">
-                  <option value="auto">SRTM 30 m, else ETOPO 2022</option>
-                  <option value="srtm">SRTM 30 m (56° S – 60° N)</option>
-                  <option value="etopo">ETOPO 2022 450 m (with the sea floor)</option>
-                </select>
-              </div>
-              <div class="up-method-desc" id="up-dem-msg"></div>
-              <div class="up-files" id="up-topo-list"></div>
-              <div class="up-flat" id="up-topo-flat">
-                <label style="display:block;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="up-topo-stations">
-                  Use the <b>station elevations</b> in the data files as the topography
-                  <span class="up-en" id="up-topo-stations-note">(station tables with an elevation column, e.g. a gravity station file)</span></label>
-                <span id="up-topo-flat-line">No topography uploaded → using <b>flat topography</b> at elevation
-                <input type="number" id="up-flat-elev" value="0" step="1" class="up-in up-in-sm"> m</span>
-              </div>
-            </div>
-          </section>
 
           <section class="up-sec">
             <div class="up-sec-h">What to invert</div>
@@ -724,6 +696,36 @@ svg#dag:active{cursor:grabbing;}
           <section class="up-sec">
             <div class="up-sec-h">Data density<span class="up-hint">Thinning keeps every k-th grid node, or one station per cell; fewer data make a smaller sensitivity matrix</span></div>
             <div class="up-card" id="up-dec"></div>
+          </section>
+
+          <section class="up-sec">
+            <div class="up-sec-h">Topography<span class="up-hint">optional · for the window above: a DEM is downloaded over it and the mesh's padding</span></div>
+            <div class="up-card" id="up-topo">
+              <div class="up-drop" id="up-topo-drop">
+                <input type="file" id="up-topo-file" accept=".xyz,.csv,.txt,.dat,.asc,.tif,.tiff" hidden>
+                <div class="up-drop-t">Drop a topography file here, or click to browse</div>
+                <div class="up-drop-s">.xyz / .csv / .txt (x, y, z) · .asc / .tif (raster DEM)</div>
+              </div>
+              <div class="up-auto-dem">
+                <span class="up-en">or</span>
+                <button type="button" class="up-btn up-btn-sm" id="up-dem-get" title="Downloads the tiles over the window above (else the whole survey) and the mesh's padding (cached), in the data's coordinates">⬇ Get a DEM for this window</button>
+                <select id="up-dem-src" class="up-in up-in-md" aria-label="DEM source">
+                  <option value="auto">SRTM 30 m, else ETOPO 2022</option>
+                  <option value="srtm">SRTM 30 m (56° S – 60° N)</option>
+                  <option value="etopo">ETOPO 2022 450 m (with the sea floor)</option>
+                </select>
+              </div>
+              <div class="up-method-desc" id="up-dem-msg"></div>
+              <div class="up-method-desc" id="up-dem-stale" hidden></div>
+              <div class="up-files" id="up-topo-list"></div>
+              <div class="up-flat" id="up-topo-flat">
+                <label style="display:block;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="up-topo-stations">
+                  Use the <b>station elevations</b> in the data files as the topography
+                  <span class="up-en" id="up-topo-stations-note">(station tables with an elevation column, e.g. a gravity station file)</span></label>
+                <span id="up-topo-flat-line">No topography uploaded → using <b>flat topography</b> at elevation
+                <input type="number" id="up-flat-elev" value="0" step="1" class="up-in up-in-sm"> m</span>
+              </div>
+            </div>
           </section>
 
           <section class="up-sec" id="enh-sec" hidden>
@@ -4387,9 +4389,9 @@ window.GeoPreview=GeoPreview;
 
   // ── Topography ──
   wireDrop($u('up-topo-drop'),$u('up-topo-file'),list=>{
-    const ok=takeUnique(list.slice(0,1)); if(ok.length){topoFile=ok[0];refresh();}
+    const ok=takeUnique(list.slice(0,1)); if(ok.length){topoFile=ok[0];refresh();demNote();}
   });
-  $u('up-topo-list').addEventListener('click',e=>{if(e.target.closest('[data-act]')){topoFile=null;refresh();}});
+  $u('up-topo-list').addEventListener('click',e=>{if(e.target.closest('[data-act]')){topoFile=null;refresh();demNote();}});
   $u('up-topo-stations').addEventListener('change',refresh);
 
   // ── The data's coordinate system: read from the files where they say it, else typed ──
@@ -4439,6 +4441,26 @@ window.GeoPreview=GeoPreview;
   // It covers the data and about the padding a recommended mesh adds (half the survey width),
   // in the data's coordinates, and then is the topography file like a dropped DEM.
   let demInfo=null;
+  // around the area: the mesh's padding or about the recommended one, whichever is wider
+  function demMargin(ext){
+    let pad=0; try{pad=readMesh().pad_distance_m;}catch(err){}
+    return Math.round(Math.max(0.6*Math.max(ext[1]-ext[0],ext[3]-ext[2])+2000,pad+1000));
+  }
+  // The button names the area it downloads for; a downloaded DEM that no longer fits the
+  // window (moved out of it, or made for a far larger area) says so
+  function demNote(){
+    const btn=$u('up-dem-get'), box=$u('up-dem-stale');
+    if(!btn.disabled)btn.textContent=aoi?'⬇ Get a DEM for this window':'⬇ Get a DEM for the whole survey';
+    let note='';
+    if(analysis&&demInfo&&topoFile&&topoFile.name===demInfo.file_name){
+      const e=windowRect(), b=demInfo.bounds, m=demMargin(e);
+      const inside=b[0]<=e[0]&&b[1]>=e[1]&&b[2]<=e[2]&&b[3]>=e[3];
+      const big=(b[1]-b[0])*(b[3]-b[2])>4*(e[1]-e[0]+2*m)*(e[3]-e[2]+2*m);
+      if(!inside||big)note=`<span class="up-warn">⚠ This DEM (${fmtLen(b[1]-b[0])} × ${fmtLen(b[3]-b[2])}, ${fmtLen(demInfo.pixel_m)} pixels) was made for `+
+        `${inside?'a larger area':'another area'}: get it again for ${aoi?'this window':'the whole survey'}.</span>`;
+    }
+    box.innerHTML=note; box.hidden=!note;
+  }
   async function getDem(){
     const btn=$u('up-dem-get'), msg=$u('up-dem-msg'), label=btn.textContent;
     btn.disabled=true; btn.textContent='⏳ Downloading…';
@@ -4447,8 +4469,7 @@ window.GeoPreview=GeoPreview;
       // the window when one is chosen (the mesh is built there), else the whole survey,
       // and around it the mesh's padding or about the recommended one, whichever is wider
       const {ext,crs,inWindow}=await areaAndCrs();
-      let pad=0; try{pad=readMesh().pad_distance_m;}catch(err){}
-      const w=ext[1]-ext[0], h=ext[3]-ext[2], margin=Math.round(Math.max(0.6*Math.max(w,h)+2000,pad+1000));
+      const margin=demMargin(ext);
       const r=await fetch(`${apiBase()}/api/dem`,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({bounds:ext,crs,source:$u('up-dem-src').value,margin_m:margin})});
       const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
@@ -4464,7 +4485,7 @@ window.GeoPreview=GeoPreview;
           ?'SRTM: NASA / USGS, from the AWS terrain tiles (public domain); heights above the EGM96 geoid.'
           :'ETOPO 2022: NOAA NCEI (public domain); heights above the EGM2008 geoid, with the sea floor.'}</span>`;
     }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
-    btn.disabled=false; btn.textContent=label;
+    btn.disabled=false; btn.textContent=label; demNote();
   }
   $u('up-dem-get').addEventListener('click',getDem);
 
@@ -6475,6 +6496,7 @@ window.GeoPreview=GeoPreview;
   }
 
   function renderAreaInfo(){
+    demNote();
     const w=windowRect(), e=surveyExtent();
     const kmv=m=>+(m/1000).toFixed(3);
     [['up-aoi-w',w[1]-w[0]],['up-aoi-h',w[3]-w[2]],['up-aoi-cx',(w[0]+w[1])/2],['up-aoi-cy',(w[2]+w[3])/2]].forEach(([id,v])=>{
@@ -7024,7 +7046,7 @@ window.GeoPreview=GeoPreview;
         const pad=m.pad_distance_m, inside=t.ext[0]<=e[0]&&t.ext[1]>=e[1]&&t.ext[2]<=e[2]&&t.ext[3]>=e[3];
         const covers=t.ext[0]<=e[0]-pad&&t.ext[1]>=e[1]+pad&&t.ext[2]<=e[2]-pad&&t.ext[3]>=e[3]+pad;
         if(!inside)add('error',`The DEM (${escH(topoFile.name)}) does not cover the data${t.geographic?' (its longitude/latitude box, in the data’s UTM zone)':': is it in the same coordinates?'}`,
-          ['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]);
+          ['Get a DEM for the area',()=>{goTo(S.AREA).then(()=>getDem());}]);
         else if(!covers)add('warn','The DEM covers the data but not all of the padding: the ground there is extended from its edges');
         // the ground within the data: the DEM's own range covers its margin too
         const r=t.id?await demRelief(t.id,e):null, z=r||t, within=!!r;
@@ -7036,7 +7058,7 @@ window.GeoPreview=GeoPreview;
           add('warn',`The DEM ${escH(topoFile.name)} `+(big?`covers ${fmtLen(t.ext[1]-t.ext[0])} × ${fmtLen(t.ext[3]-t.ext[2])}, for a mesh of ${fmtLen(e[1]-e[0]+2*pad)} × ${fmtLen(e[3]-e[2]+2*pad)}`:'')+
             (coarse?`${big?', with':'has'} ${fmtLen(t.px)} pixels for ${fmtLen(m.core_cell_m)} cells: the ground is smoothed over ${Math.round(t.px/m.core_cell_m)} cells`:'')+
             `. Get one for this area${coarse?' (SRTM, 30 m, for areas up to a few hundred km)':''}`,
-            ['Get a DEM for the area',()=>{$u('up-dem-src').value='auto'; goTo(S.DATA).then(()=>getDem());}]);
+            ['Get a DEM for the area',()=>{$u('up-dem-src').value='auto'; goTo(S.AREA).then(()=>getDem());}]);
         // a tensor mesh adds layers from the lowest to the highest ground; an octree follows the ground
         const relief=z.zmax!=null&&z.zmin!=null?z.zmax-z.zmin:null;
         if(relief!=null&&$u('upload-mesh').value!=='octree'&&relief>20*m.core_cell_z_m)
@@ -7045,8 +7067,8 @@ window.GeoPreview=GeoPreview;
       }else if(!t)add('warn',`The DEM ${escH(topoFile.name)} could not be read in the browser to check its extent`);
     }else if(!$u('up-topo-stations').checked){
       const g=gravityCheckVerdict();
-      add(g==='none'?'warn':'ok',g==='none'?'Flat ground, but the gravity still holds the effect of the terrain (Data step): give the topography'
-        :`Flat ground at ${escH($u('up-flat-elev').value)} m`,g==='none'?['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]:null);
+      add(g==='none'?'warn':'ok',g==='none'?'Flat ground, but the gravity still holds the effect of the terrain (Data step): give the topography (Area step)'
+        :`Flat ground at ${escH($u('up-flat-elev').value)} m`,g==='none'?['Get a DEM for the area',()=>{goTo(S.AREA).then(()=>getDem());}]:null);
     }
     // the magnetic field
     if(s&&s.types.some(t=>t.key==='magnetic')){

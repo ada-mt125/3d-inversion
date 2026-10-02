@@ -1576,3 +1576,12 @@ metre of the UTM copy), but the page compared its degrees with the data's metres
 not cover the data" as an error and disabled the submit. `topoExtent` now takes the box into
 the data's UTM zone (the part inside on every side) and its pixel into metres; for data in
 another projected CRS it warns that the extent cannot be checked in the browser.
+
+## 2026-10-02 — Topography moved to the Area step
+
+The user's suggestion: the DEM depends on the window, so choose it after the window. The
+Topography section (drop a DEM, "Get a DEM", station elevations, flat ground) is now on the
+Area step under the data density, its button names the area ("for this window" / "for the
+whole survey"), and a downloaded DEM that no longer fits the window (moved out of it, or
+made for more than 4 times the area) says to get it again. The checks' "Get a DEM" fixes go
+to the Area step.
