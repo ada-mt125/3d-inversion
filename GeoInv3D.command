@@ -1,7 +1,8 @@
 #!/bin/bash
 # GeoInv3D: start the local API server (unless it is already running) and open the upload page.
 # The macOS counterpart of GeoInv3D.bat: double-click it in Finder.  This Terminal window holds
-# the server and this machine's AWS access; close it (or press Ctrl-C) to stop the server.
+# the server (jobs on this computer run under it; AWS jobs use this machine's AWS access);
+# close it (or press Ctrl-C) to stop the server and the jobs running here.
 # While the server runs the Mac is kept from sleeping (caffeinate; closing the lid on battery
 # still sleeps it), so running jobs keep being followed and their results fetched.
 cd "$(dirname "$0")" || exit 1
@@ -31,13 +32,16 @@ if [ ! -x "$PYTHON" ]; then
   uv venv --python 3.13
   uv pip install -e \".[full,dev,cloud]\" rasterio"
 fi
-if ! "$PYTHON" -c "import fastapi, uvicorn, boto3, paramiko" 2>/dev/null; then
+if ! "$PYTHON" -c "import fastapi, uvicorn" 2>/dev/null; then
     fail "The server needs the cloud extras.  Install them here with:
   uv pip install -e \".[cloud]\""
 fi
-if [ -z "$AWS_ACCESS_KEY_ID$AWS_PROFILE" ] && [ ! -f "$HOME/.aws/credentials" ]; then
-    echo "Warning: no AWS credentials (~/.aws/credentials).  The page opens, but jobs cannot"
-    echo "start until you run 'aws configure'."
+if ! "$PYTHON" -c "import boto3, paramiko" 2>/dev/null; then
+    echo "Note: boto3 / paramiko are missing: jobs run on this computer only, not on AWS."
+    echo
+elif [ -z "$AWS_ACCESS_KEY_ID$AWS_PROFILE" ] && [ ! -f "$HOME/.aws/credentials" ]; then
+    echo "Note: no AWS credentials (~/.aws/credentials): jobs run on this computer; for AWS"
+    echo "jobs run 'aws configure' first."
     echo
 fi
 
