@@ -465,6 +465,30 @@ class TestGroundAndField:
         assert client.post("/api/dem", json={"bounds": [1, 2], "crs": "EPSG:32643"}).status_code == 400
 
 
+class TestDemRelief:
+    def test_the_ground_within_bounds(self, api, tmp_path, monkeypatch):
+        rasterio = pytest.importorskip("rasterio")
+        from rasterio.transform import from_origin
+        import geoinv3d.io.dem as dem
+        monkeypatch.setenv("GEOINV3D_DEM_DIR", str(tmp_path))
+        z = np.arange(100, dtype="float32").reshape(10, 10) * 10.0     # rises east and south
+        z[0, 0] = -32768.0                                                # a void
+        with rasterio.open(tmp_path / "dem_abc123.tif", "w", driver="GTiff", width=10, height=10,
+                           count=1, dtype="float32", crs="EPSG:32643", nodata=-32768.0,
+                           transform=from_origin(0, 1000, 100, 100)) as out:
+            out.write(z, 1)
+        (tmp_path / "dem_abc123.json").write_text('{"id": "abc123", "file_name": "x.tif"}')
+        assert dem.cached_dem("abc123")
+        client, _, _ = api
+        whole = client.get("/api/dem/abc123/relief", params={"bounds": "0,1000,0,1000"}).json()
+        assert whole == {"zmin": 10.0, "zmax": 990.0, "n": 99}           # the void left out
+        part = client.get("/api/dem/abc123/relief", params={"bounds": "200,400,600,800"}).json()
+        assert (part["zmin"], part["zmax"], part["n"]) == (220.0, 330.0, 4)
+        assert client.get("/api/dem/abc123/relief", params={"bounds": "5000,6000,0,10"}).json()["n"] == 0
+        assert client.get("/api/dem/abc123/relief", params={"bounds": "1,0,0,1"}).status_code == 400
+        assert client.get("/api/dem/nope/relief", params={"bounds": "0,1,0,1"}).status_code == 404
+
+
 class TestMeshCells:
     """The page's memory estimate counts the octree a job would build, not a tensor mesh."""
 

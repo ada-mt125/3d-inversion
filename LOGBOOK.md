@@ -1542,3 +1542,19 @@ airborne data still need the terrain clearance (Block-8: 80 m). The check now sa
 fires when only a continuation height is set (the continuation then starts from the ground),
 and carries a number box and "Set" that fill the Magnetics card's field. Checks can carry
 such a box (`fix = [label, action(value), {input}]`).
+
+## 2026-10-02 — The ground checks look at the data's window, not the whole DEM
+
+The user's DEM had been downloaded while the whole Block-8 survey was the area: ETOPO at 450 m
+over 461 × 495 km, -44 to 1,817 m (the coast is in it). After choosing a 5 km window the
+Review said "The relief (1,861 m) spans 74 vertical cells", the range of the whole file; within
+the window that DEM gives 577-972 m, from 11 × 11 pixels.
+
+- `GET /api/dem/{id}/relief?bounds=W,E,S,N`: the lowest and highest ground of a DEM the server
+  made, within the bounds (voids left out).
+- The checks report the ground within the data; the relief warning is only for tensor meshes
+  (it adds layers from the lowest to the highest ground there; an octree follows the ground,
+  ±8 % cells on the window measured), and says how many layers.
+- A new warning when the DEM covers more than 16 times the mesh area or its pixels are more
+  than twice the cells, with "Get a DEM for the area" (source back to automatic: SRTM for a
+  window).

@@ -1085,6 +1085,35 @@ async def get_dem(dem_id: str):
     return FileResponse(meta["path"], media_type="image/tiff", filename=meta["file_name"])
 
 
+@app.get("/api/dem/{dem_id}/relief")
+def dem_relief(dem_id: str, bounds: str):
+    """The lowest and highest ground of a DEM made earlier within ``bounds`` (W,E,S,N in
+    its CRS): the relief a mesh over that area follows, not that of the whole file."""
+    import rasterio
+    from rasterio.windows import from_bounds
+    from ..io.dem import cached_dem
+    meta = cached_dem(dem_id)
+    if not meta:
+        raise HTTPException(status_code=404, detail="Unknown DEM")
+    try:
+        w, e, s, n = (float(v) for v in bounds.split(","))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="bounds: W,E,S,N")
+    if not (e > w and n > s):
+        raise HTTPException(status_code=400, detail="bounds: W,E,S,N")
+    with rasterio.open(meta["path"]) as src:
+        win = from_bounds(w, s, e, n, src.transform).round_offsets().round_lengths()
+        try:
+            win = win.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
+        except rasterio.errors.WindowError:      # outside the DEM
+            return {"zmin": None, "zmax": None, "n": 0}
+        z = src.read(1, window=win, masked=True).astype(float).filled(np.nan)
+    z = z[np.isfinite(z)]
+    if not z.size:
+        return {"zmin": None, "zmax": None, "n": 0}
+    return {"zmin": float(z.min()), "zmax": float(z.max()), "n": int(z.size)}
+
+
 @app.get("/api/igrf")
 async def igrf_field(x: float, y: float, crs: str = "EPSG:4326", alt_m: float = 0.0,
                      date: str = ""):

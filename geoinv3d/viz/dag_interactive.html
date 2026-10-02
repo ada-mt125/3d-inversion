@@ -6944,11 +6944,23 @@ window.GeoPreview=GeoPreview;
 
   // ── Checks before running: what would make the job fail, or its result misleading ──
   // Each is {level: 'ok' | 'warn' | 'error', text, fix?: [label, action]}; errors block the submit.
+  // The DEM's extent, pixel and heights (of the whole file); id when the server made it
   async function topoExtent(){
     if(!topoFile)return null;
-    if(demInfo&&topoFile.name===demInfo.file_name){const b=demInfo.bounds;return {ext:[b[0],b[1],b[2],b[3]],zmin:demInfo.elev_min,zmax:demInfo.elev_max};}
+    if(demInfo&&topoFile.name===demInfo.file_name){const b=demInfo.bounds;
+      return {ext:[b[0],b[1],b[2],b[3]],zmin:demInfo.elev_min,zmax:demInfo.elev_max,px:demInfo.pixel_m,id:demInfo.id};}
     const i=await inspect(topoFile);
-    return i&&!i.error&&i.extent?{ext:i.extent,zmin:i.zmin,zmax:i.zmax}:null;
+    return i&&!i.error&&i.extent?{ext:i.extent,zmin:i.zmin,zmax:i.zmax,px:i.kind==='grid'?i.spacing:null}:null;
+  }
+  // The ground within the data (where a mesh follows it), for a DEM the server made
+  const RELIEF=new Map();
+  async function demRelief(id,e){
+    const key=id+'|'+e.map(Math.round).join(',');
+    if(!RELIEF.has(key)){
+      try{const r=await fetch(`${apiBase()}/api/dem/${encodeURIComponent(id)}/relief?bounds=${e.map(Math.round).join(',')}`);
+        RELIEF.set(key,r.ok?await r.json():null);}catch(err){RELIEF.set(key,null);}
+    }
+    const r=RELIEF.get(key); return r&&r.zmax!=null?r:null;
   }
   async function preflight(jobs){
     const out=[], add=(level,text,fix)=>out.push({level,text,fix});
@@ -6996,9 +7008,22 @@ window.GeoPreview=GeoPreview;
         if(!inside)add('error',`The DEM (${escH(topoFile.name)}) does not cover the data: is it in the same coordinates?`,
           ['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]);
         else if(!covers)add('warn','The DEM covers the data but not all of the padding: the ground there is extended from its edges');
-        else add('ok',`The DEM covers the data and the padding${t.zmax!=null?` · ${fmtInt(t.zmin)}–${fmtInt(t.zmax)} m`:''}`);
-        if(t.zmax!=null&&t.zmin!=null&&t.zmax-t.zmin>20*m.core_cell_z_m)
-          add('warn',`The relief (${fmtInt(t.zmax-t.zmin)} m) spans ${Math.round((t.zmax-t.zmin)/m.core_cell_z_m)} vertical cells: many cells go to the topography`);
+        // the ground within the data: the DEM's own range covers its margin too
+        const r=t.id?await demRelief(t.id,e):null, z=r||t, within=!!r;
+        if(inside&&covers)add('ok',`The DEM covers the data and the padding${z.zmax!=null?` · the ground ${within?'within the data ':''}${fmtInt(z.zmin)}–${fmtInt(z.zmax)} m`:''}`);
+        // a DEM made for another area (the whole survey, before the window was chosen), or too coarse for the cells
+        const meshArea=(e[1]-e[0]+2*pad)*(e[3]-e[2]+2*pad), demArea=(t.ext[1]-t.ext[0])*(t.ext[3]-t.ext[2]);
+        const big=demArea>16*meshArea, coarse=t.px&&t.px>2*m.core_cell_m;
+        if(inside&&(big||coarse))
+          add('warn',`The DEM ${escH(topoFile.name)} `+(big?`covers ${fmtLen(t.ext[1]-t.ext[0])} × ${fmtLen(t.ext[3]-t.ext[2])}, for a mesh of ${fmtLen(e[1]-e[0]+2*pad)} × ${fmtLen(e[3]-e[2]+2*pad)}`:'')+
+            (coarse?`${big?', with':'has'} ${fmtLen(t.px)} pixels for ${fmtLen(m.core_cell_m)} cells: the ground is smoothed over ${Math.round(t.px/m.core_cell_m)} cells`:'')+
+            `. Get one for this area${coarse?' (SRTM, 30 m, for areas up to a few hundred km)':''}`,
+            ['Get a DEM for the area',()=>{$u('up-dem-src').value='auto'; goTo(S.DATA).then(()=>getDem());}]);
+        // a tensor mesh adds layers from the lowest to the highest ground; an octree follows the ground
+        const relief=z.zmax!=null&&z.zmin!=null?z.zmax-z.zmin:null;
+        if(relief!=null&&$u('upload-mesh').value!=='octree'&&relief>20*m.core_cell_z_m)
+          add('warn',`The relief ${within?'within the data':'of the DEM'} (${fmtInt(relief)} m) adds ${Math.ceil(relief/m.core_cell_z_m)} layers of ${fmtLen(m.core_cell_z_m)} cells to the tensor mesh, `+
+            `the part above the ground inactive: an OcTree follows the ground with fewer cells`);
       }else if(!t)add('warn',`The DEM ${escH(topoFile.name)} could not be read in the browser to check its extent`);
     }else if(!$u('up-topo-stations').checked){
       const g=gravityCheckVerdict();
