@@ -7036,6 +7036,16 @@ window.GeoPreview=GeoPreview;
     const ds=(p.datasets||[]).find(d=>d.type==='magnetic')||{};
     const mvi=(ds.method_kwargs||{}).magnetization==='vector';
     const spread=st.p95-st.p5;
+    // errors in proportion to |d| give the zero crossings of the anomalies a few nT, which the
+    // inversion then chases with near-surface speckle: on the Block-8 window (5 % + 2 nT) a
+    // cross-validation fitted the nodes it saw to χ²/N 0.54 and those it did not to 2.38;
+    // with 2 % + 90 nT (1.5 % of the 5-95 % spread) both came to 0.89
+    const floor=+ds.noise_floor||0, want=Math.max(1,Math.round(0.015*spread/10)*10);
+    if(spread>0&&floor<0.004*spread)
+      add('warn',`Magnetics: a noise floor of ${floor} nT against anomalies spanning ${fmtInt(spread)} nT (5–95 %): the data near the anomalies' zero crossings get errors of a few nT, `+
+        `which no model fits without inventing near-surface detail (overfitting: the fit to unseen data is much worse). A floor of about 1.5 % of the spread, ${fmtInt(want)} nT, `+
+        `and a smaller percentage (2 %) carry the gridding and levelling errors of the grid`,
+        [`Floor ${fmtInt(want)} nT, 2 %`,()=>{setField('up-magnetic-floor',want); if($u('up-magnetic-pct'))setField('up-magnetic-pct',2);}]);
     if(F>0&&!mvi){
       // a body of susceptibility k under the sensor gives at most about k F; narrow bodies seen
       // from 80 m need several times more

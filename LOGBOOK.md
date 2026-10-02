@@ -1632,3 +1632,26 @@ New Review checks for magnetic data, from the browser's previews of the window:
   MVI suggested;
 - strong anomalies at the window's edges (more than half the data's 5-95 % spread from the
   median), with "Widen the window by 2 km".
+
+## 2026-10-02 — Overfitting on the Block-8 window: a cross-validation, and a check on the error floor
+
+The user's re-run (bounds 0-3 SI, 37.5 m cells, all 17,955 nodes, errors 5 % + 2 nT, L1–L2)
+converged at χ²/N 0.93, after dipping to 0.32 at iteration 31, and its model looked over-fitted.
+The error model gave the anomalies' zero crossings errors of 2-5 nT: χ²/N 3.9 for |d| < 100 nT,
+0.6 for 1,000-3,000 nT.
+
+Cross-validation: inverted every second node (4,556, at 75 m) and forward-modelled the model
+at all 17,955 (SimPEG forward-only, checked against the run's own prediction to 0.2 nT):
+
+| run | errors | regularization | RMS fitted / unseen | χ²/N fitted / unseen |
+|---|---|---|---|---|
+| A as re-run | 5 % + 2 nT | L1–L2 0.8 | 86 / 98 nT | 0.54 / 2.38 |
+| B | 2 % + 90 nT | L1–L2 0.8 | 154 / 175 nT | 1.30 / 1.80 (not converged) |
+| C | 2 % + 90 nT | sparse p = [0, 1, 1, 1] | 130 / 130 nT | 0.89 / 0.89 |
+
+A over-fits: speckle 50 m below the ground and rings at 200 m; C shows the two NW-SE
+iron-formation belts and fits unseen nodes as well as the others, but puts the strongest
+cells 200-500 m deep (depth weighting and the compact norm).
+
+New Review check: a magnetic noise floor under 0.4 % of the window's 5-95 % spread, with a
+fix to 1.5 % of it (80 nT on this window) and 2 %.
