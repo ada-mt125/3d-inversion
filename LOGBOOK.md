@@ -1567,3 +1567,12 @@ cached 450 m file, "SRTM" refused. So the new "DEM made for another area" check'
 nothing. It now takes the window chosen in the Area step (else the whole survey), with a
 margin of the wider of 0.6 × its width + 2 km and the mesh's padding + 1 km: a 5 km window gets
 SRTM 30 m over 15 km. The SRTM refusal says to choose a smaller area.
+
+## 2026-10-02 — A DEM in longitude/latitude passes the page's checks
+
+A DEM downloaded by hand (for example SRTM 30 m from ArcGIS) is usually in longitude/latitude.
+The worker samples such a DEM in its own coordinates (checked on the Block-8 window: within a
+metre of the UTM copy), but the page compared its degrees with the data's metres, said "does
+not cover the data" as an error and disabled the submit. `topoExtent` now takes the box into
+the data's UTM zone (the part inside on every side) and its pixel into metres; for data in
+another projected CRS it warns that the extent cannot be checked in the browser.

@@ -6953,7 +6953,21 @@ window.GeoPreview=GeoPreview;
     if(demInfo&&topoFile.name===demInfo.file_name){const b=demInfo.bounds;
       return {ext:[b[0],b[1],b[2],b[3]],zmin:demInfo.elev_min,zmax:demInfo.elev_max,px:demInfo.pixel_m,id:demInfo.id};}
     const i=await inspect(topoFile);
-    return i&&!i.error&&i.extent?{ext:i.extent,zmin:i.zmin,zmax:i.zmax,px:i.kind==='grid'?i.spacing:null}:null;
+    if(!(i&&!i.error&&i.extent))return null;
+    const px=i.kind==='grid'?i.spacing:null, x=i.extent;
+    if(!GeoCRS.looksGeographic([x[0],x[1]],[x[2],x[3]]))return {ext:x,zmin:i.zmin,zmax:i.zmax,px};
+    // a DEM in longitude/latitude (as most are downloaded): the worker samples it in its own
+    // coordinates; for the checks its box goes into the data's UTM zone, the part of it that
+    // is inside on every side (a lon/lat box is not a rectangle there)
+    const m=/^EPSG:(32[67]\d\d)$/.exec(dataCrs()||detectedCrs()||''), epsg=m&&+m[1];
+    if(!epsg||!(epsg%100>=1&&epsg%100<=60))return {ext:null,geographic:true,zmin:i.zmin,zmax:i.zmax};
+    const zone=epsg%100, south=epsg>32700, ym=(x[2]+x[3])/2, xm=(x[0]+x[1])/2;
+    const P=(lon,lat)=>GeoCRS.toUtm(lon,lat,zone,south);
+    const W=[P(x[0],x[2]),P(x[0],ym),P(x[0],x[3])], E=[P(x[1],x[2]),P(x[1],ym),P(x[1],x[3])];
+    const S=[P(x[0],x[2]),P(xm,x[2]),P(x[1],x[2])], N=[P(x[0],x[3]),P(xm,x[3]),P(x[1],x[3])];
+    const ext=[Math.max(...W.map(p=>p[0])),Math.min(...E.map(p=>p[0])),Math.max(...S.map(p=>p[1])),Math.min(...N.map(p=>p[1]))];
+    return {ext,zmin:i.zmin,zmax:i.zmax,geographic:true,
+      px:px?Math.max(i.dx*111320*Math.cos(ym*Math.PI/180),i.dy*110574):null};   // the coarser way, in metres
   }
   // The ground within the data (where a mesh follows it), for a DEM the server made
   const RELIEF=new Map();
@@ -7005,10 +7019,11 @@ window.GeoPreview=GeoPreview;
     // the ground
     if(topoFile){
       const t=await topoExtent();
-      if(t&&e){
+      if(t&&e&&!t.ext)add('warn',`The DEM ${escH(topoFile.name)} is in longitude/latitude: the worker samples it in its own coordinates, but its extent can be checked here only for data in UTM`);
+      else if(t&&e){
         const pad=m.pad_distance_m, inside=t.ext[0]<=e[0]&&t.ext[1]>=e[1]&&t.ext[2]<=e[2]&&t.ext[3]>=e[3];
         const covers=t.ext[0]<=e[0]-pad&&t.ext[1]>=e[1]+pad&&t.ext[2]<=e[2]-pad&&t.ext[3]>=e[3]+pad;
-        if(!inside)add('error',`The DEM (${escH(topoFile.name)}) does not cover the data: is it in the same coordinates?`,
+        if(!inside)add('error',`The DEM (${escH(topoFile.name)}) does not cover the data${t.geographic?' (its longitude/latitude box, in the data’s UTM zone)':': is it in the same coordinates?'}`,
           ['Get a DEM for the area',()=>{goTo(S.DATA).then(()=>getDem());}]);
         else if(!covers)add('warn','The DEM covers the data but not all of the padding: the ground there is extended from its edges');
         // the ground within the data: the DEM's own range covers its margin too
