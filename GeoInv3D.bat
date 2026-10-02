@@ -1,7 +1,8 @@
 @echo off
 rem GeoInv3D: start the local API server (unless it is already running) and open the upload page.
-rem The server window titled "GeoInv3D API" runs the jobs on this computer (AWS jobs use this
-rem machine's AWS access); close it to stop the server and the jobs running here.
+rem The server window titled "GeoInv3D API" holds the server (AWS jobs use this machine's AWS
+rem access); close it to stop the server.  A job running on this computer keeps running and is
+rem followed again when the server next starts.
 setlocal
 cd /d "%~dp0"
 set PORT=8000

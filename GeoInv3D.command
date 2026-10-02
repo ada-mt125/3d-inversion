@@ -1,8 +1,9 @@
 #!/bin/bash
 # GeoInv3D: start the local API server (unless it is already running) and open the upload page.
 # The macOS counterpart of GeoInv3D.bat: double-click it in Finder.  This Terminal window holds
-# the server (jobs on this computer run under it; AWS jobs use this machine's AWS access);
-# close it (or press Ctrl-C) to stop the server and the jobs running here.
+# the server (AWS jobs use this machine's AWS access); close it (or press Ctrl-C) to stop the
+# server.  A job running on this computer keeps running and is followed again when the
+# server next starts; without the server the Mac may sleep, which pauses it.
 # While the server runs the Mac is kept from sleeping (caffeinate; closing the lid on battery
 # still sleeps it), so running jobs keep being followed and their results fetched.
 cd "$(dirname "$0")" || exit 1
