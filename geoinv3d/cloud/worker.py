@@ -1597,6 +1597,8 @@ class PipelineDataset:
     regional: dict | None = None      # summary of the removed regional field
     trend: np.ndarray | None = None   # the removed regional field at the stations
     rtp: dict | None = None           # the data were reduced to the pole (see _reduce_to_pole)
+    continuation: dict | None = None  # the data were continued upwards first (see _full_grid_filters)
+    igrf: dict | None = None          # the inducing field was computed from IGRF-14 (see _igrf_field)
     bouguer_check: dict | None = None  # per station table: reduction density, terrain correction
     # observed (file convention) x sign = SimPEG convention; see _simpeg_sign
     sign: float = 1.0
@@ -1776,39 +1778,102 @@ def _file_spacing(locs, values, meta) -> tuple:
 RTP_MIN_INCLINATION = 30.0
 
 
-def _reduce_to_pole(files, data_dir, method, component, crs, locs, kwargs):
-    """Total-field data reduced to the pole at the job's stations, the method's kwargs for
-    a vertical field (magnetization along it), and a summary.
+# When a survey's date is not known, the field of this date is used (the latest definitive
+# IGRF epoch); the summary says so, and the page shows how much 2000-2025 would differ
+DEFAULT_IGRF_DATE = "2020-01-01"
 
-    Each file is read whole (no window, no thinning) and the reduction is computed on all
-    of them gridded at their spacing, so the window's edges do not cut into the filter; the
-    result is sampled at the stations the job keeps.  Induced magnetization is assumed:
-    remanence in another direction would be wrongly reduced, so the magnetization-vector
-    inversion takes the measured field instead.
+
+def _igrf_field(igrf: dict, locs, crs, spec: dict, params: dict):
+    """[F, I, D from grid north] from IGRF-14 at the median of the stations, ``igrf["date"]``
+    (default DEFAULT_IGRF_DATE), the stations' height above the ground (the ground itself is
+    not known yet: a few hundred metres change F by a few nT), and a summary."""
+    from ..methods.igrf import inducing_field
+    if not crs:
+        raise ValueError("The inducing field from IGRF needs the data's coordinate system: give "
+                         "the job's crs (e.g. EPSG:32643) or the field itself")
+    date = igrf.get("date") or None
+    height = float(spec.get("continue_to_m") or spec.get("station_height", params.get("station_height", 0.0)) or 0.0)
+    x, y = float(np.median(locs[:, 0])), float(np.median(locs[:, 1]))
+    f = inducing_field(x, y, crs, alt_m=height, date=date or DEFAULT_IGRF_DATE)
+    info = {"model": "IGRF-14", "date": date or DEFAULT_IGRF_DATE, "date_known": bool(date),
+            "x": x, "y": y, "lon": f["lon"], "lat": f["lat"], "F": float(f["F"]), "I": float(f["I"]),
+            "D_true": float(f["D"]), "convergence": float(f["convergence"]),
+            "D_grid": float(f["D_grid"])}
+    return tuple(float(v) for v in f["inducing_field"]), info
+
+
+def _continuation_distance(spec: dict, params: dict) -> float:
+    """How far (m) a dataset is continued upwards: from its height above the ground
+    (``station_height``, e.g. a flight height) to ``continue_to_m``; 0 for none."""
+    to = spec.get("continue_to_m", params.get("continue_to_m"))
+    if not to:
+        return 0.0
+    height = float(spec.get("station_height", params.get("station_height", 0.0)))
+    by = float(to) - height
+    if by <= 0:
+        raise ValueError(f"continue_to_m ({float(to):g} m) must be above the data's height above "
+                         f"the ground ({height:g} m)")
+    return by
+
+
+def _full_grid_filters(files, data_dir, method, component, crs, locs, kwargs, continue_by=0.0,
+                       rtp=False, aoi=None):
+    """The data continued ``continue_by`` metres upwards and/or reduced to the pole, at the
+    job's stations: (values, method kwargs, rtp summary, continuation summary).
+
+    Each file is read at full resolution (no thinning), within the window widened by a
+    margin (10 km, and ten times the continuation), so the window's edges and the thinning
+    do not cut into the filters; the result is sampled at the stations the job keeps.  A
+    survey flown at a constant height above the ground is treated as on a level plane, as
+    usual.  The reduction to the pole assumes induced magnetization (see _reduce_to_pole).
     """
-    from ..methods.enhance import rtp, sample, to_grid
-    if method != "magnetics" or component != "tmi":
-        raise ValueError("The reduction to the pole applies to total-field magnetic data (tmi)")
-    if kwargs.get("magnetization") == "vector":
-        raise ValueError("The magnetization-vector inversion models the field as measured: "
-                         "invert the total field, not its reduction to the pole")
-    field = kwargs.get("inducing_field")
-    if not field or len(field) != 3:
-        raise ValueError("The reduction to the pole needs the inducing field [F, I, D]")
-    strength, inc, dec = (float(v) for v in field)
+    from ..methods.enhance import rtp as reduce, sample, to_grid, upward
+    strength = inc = dec = None
+    if rtp:
+        if method != "magnetics" or component != "tmi":
+            raise ValueError("The reduction to the pole applies to total-field magnetic data (tmi)")
+        if kwargs.get("magnetization") == "vector":
+            raise ValueError("The magnetization-vector inversion models the field as measured: "
+                             "invert the total field, not its reduction to the pole")
+        field = kwargs.get("inducing_field")
+        if not field or len(field) != 3:
+            raise ValueError("The reduction to the pole needs the inducing field [F, I, D]")
+        strength, inc, dec = (float(v) for v in field)
+    wide = None
+    if aoi is not None:
+        m = max(10000.0, 10.0 * continue_by)
+        wide = [aoi[0] - m, aoi[1] + m, aoi[2] - m, aoi[3] + m]
     xs, ys, vs = [], [], []
     for fname in files:
-        l, v, _ = _read_observations(os.path.join(data_dir, fname), component, 1, None, None, crs)
+        l, v, _ = _read_observations(os.path.join(data_dir, fname), component, 1, wide, None, crs)
         ok = np.isfinite(v) & np.isfinite(l[:, :2]).all(axis=1)
         xs.append(l[ok, 0]); ys.append(l[ok, 1]); vs.append(v[ok])
     xg, yg, grid = to_grid(np.concatenate(xs), np.concatenate(ys), np.concatenate(vs))
-    damping = max(0.0, np.sin(np.radians(RTP_MIN_INCLINATION)) ** 2 - np.sin(np.radians(abs(inc))) ** 2)
-    reduced = rtp(grid, float(xg[1] - xg[0]), float(yg[1] - yg[0]), inc, dec, damping=damping)
-    values = sample(xg, yg, reduced, locs[:, 0], locs[:, 1])
-    return values, {**kwargs, "inducing_field": (strength, 90.0, 0.0)}, {
-        "field_inclination": inc, "field_declination": dec, "damping": float(damping),
-        "grid_spacing_m": float(xg[1] - xg[0]), "grid_shape": [int(grid.shape[0]), int(grid.shape[1])],
-    }
+    dx, dy = float(xg[1] - xg[0]), float(yg[1] - yg[0])
+    shape = [int(grid.shape[0]), int(grid.shape[1])]
+    cont_info = rtp_info = None
+    if continue_by:
+        grid = upward(grid, dx, dy, continue_by)
+        cont_info = {"by_m": float(continue_by), "grid_spacing_m": dx, "grid_shape": shape}
+    if rtp:
+        damping = max(0.0, np.sin(np.radians(RTP_MIN_INCLINATION)) ** 2 - np.sin(np.radians(abs(inc))) ** 2)
+        grid = reduce(grid, dx, dy, inc, dec, damping=damping)
+        kwargs = {**kwargs, "inducing_field": (strength, 90.0, 0.0)}
+        rtp_info = {"field_inclination": inc, "field_declination": dec, "damping": float(damping),
+                    "grid_spacing_m": dx, "grid_shape": shape}
+    return sample(xg, yg, grid, locs[:, 0], locs[:, 1]), kwargs, rtp_info, cont_info
+
+
+def _reduce_to_pole(files, data_dir, method, component, crs, locs, kwargs, aoi=None):
+    """Total-field data reduced to the pole at the job's stations, the method's kwargs for
+    a vertical field (magnetization along it), and a summary.
+
+    Induced magnetization is assumed: remanence in another direction would be wrongly
+    reduced, so the magnetization-vector inversion takes the measured field instead.
+    """
+    values, kwargs, info, _ = _full_grid_filters(files, data_dir, method, component, crs, locs,
+                                                 kwargs, rtp=True, aoi=aoi)
+    return values, kwargs, info
 
 
 def _dataset_specs(params: dict, data_dir: str, exclude: set) -> list:
@@ -1943,15 +2008,34 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     if dobs.size == 0:
         raise ValueError(f"No valid {method} observations in {files}")
 
-    # The data reduced to the pole (as e.g. Yang et al. 2026 invert them): then a vertical
-    # field and magnetization; the regional field is taken from the reduced data
-    rtp_info = None
-    if spec.get("rtp"):
-        dobs, kwargs, rtp_info = _reduce_to_pole(files, data_dir, method, component, crs, locs,
-                                                 kwargs)
-        print(f"[Pipeline] {method}: reduced to the pole (field I {rtp_info['field_inclination']:g}°, "
-              f"D {rtp_info['field_declination']:g}°{', damped' if rtp_info['damping'] else ''}); "
-              f"the inversion models a vertical field")
+    # The inducing field from IGRF-14 at the centre of the job's stations, when it is not
+    # given ("igrf": {"date": ...}; the date may be unknown: then DEFAULT_IGRF_DATE)
+    igrf_info = None
+    if method == "magnetics" and "inducing_field" not in kwargs and "igrf" in spec:
+        kwargs["inducing_field"], igrf_info = _igrf_field(spec.get("igrf") or {}, locs, crs, spec, params)
+        print(f"[Pipeline] {method}: inducing field from IGRF-14 for {igrf_info['date']}"
+              f"{'' if igrf_info['date_known'] else ' (survey date unknown)'} at "
+              f"{igrf_info['lon']:.3f}° E, {igrf_info['lat']:.3f}° N: F {igrf_info['F']:.1f} nT, "
+              f"I {igrf_info['I']:.2f}°, D {igrf_info['D_grid']:.2f}° from grid north")
+
+    # Continued upwards on the full-resolution data before thinning (thinning a low-flown grid
+    # aliases it), and/or reduced to the pole (as e.g. Yang et al. 2026 invert them: then a
+    # vertical field and magnetization); the regional field is taken from the result
+    rtp_info = cont_info = None
+    continue_by = _continuation_distance(spec, params)
+    if spec.get("rtp") or continue_by:
+        dobs, kwargs, rtp_info, cont_info = _full_grid_filters(
+            files, data_dir, method, component, crs, locs, kwargs, continue_by=continue_by,
+            rtp=bool(spec.get("rtp")), aoi=aoi)
+        if cont_info:
+            locs = locs.copy()
+            locs[:, 2] = locs[:, 2] + continue_by     # stations with an elevation go up with the data
+            print(f"[Pipeline] {method}: continued {continue_by:g} m upwards on the "
+                  f"{cont_info['grid_spacing_m']:g} m grid before thinning")
+        if rtp_info:
+            print(f"[Pipeline] {method}: reduced to the pole (field I {rtp_info['field_inclination']:g}°, "
+                  f"D {rtp_info['field_declination']:g}°{', damped' if rtp_info['damping'] else ''}); "
+                  f"the inversion models a vertical field")
 
     # Regional field (e.g. a polynomial trend surface) removed before inverting
     from ..methods.regional import remove_regional
@@ -1978,7 +2062,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
         method=method, component=component, locations=locs, observed=dobs, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
         spacing=spacing, spacing_kind=spacing_kind, regional=regional,
-        trend=(raw - dobs) if regional else None, rtp=rtp_info,
+        trend=(raw - dobs) if regional else None, rtp=rtp_info, continuation=cont_info, igrf=igrf_info,
         sign=_simpeg_sign(method, component, spec, params),
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
         model=spec.get("model") or None,
@@ -2543,8 +2627,10 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     for ds, spec in zip(datasets, specs):
         if ds.extent_points is not None:   # MT / DC: elevations are part of the data
             continue
-        # above the ground: per dataset (a flight height), else the job's value
-        station_height = float(spec.get("station_height", params.get("station_height", 0.0)))
+        # above the ground: per dataset (a flight height), else the job's value; data
+        # continued upwards are at the height they were continued to
+        station_height = float(spec.get("continue_to_m") or params.get("continue_to_m") or 0.0) \
+            if ds.continuation else float(spec.get("station_height", params.get("station_height", 0.0)))
         missing = np.isnan(ds.locations[:, 2])
         if missing.any():
             ds.locations[missing, 2] = (
@@ -2777,6 +2863,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
              if ds.method == "gravity" and ds.component == "gz" else None,
              "decimation": ds.decimation,
              **({"rtp": ds.rtp} if ds.rtp else {}),
+             **({"continuation": ds.continuation} if ds.continuation else {}),
+             **({"igrf": ds.igrf} if ds.igrf else {}),
              **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {})}
             for ds in datasets
         ],

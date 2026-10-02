@@ -1481,3 +1481,35 @@ button back to the total field) and warns below 45°; the enhancement panel show
 regional and residual of the reduced data when that is what is inverted. A job at a test
 field of I = 60° ran: reduced, Butterworth residual (std 294 → 205 nT), inverted under a
 vertical field; result.json records the reduction under `datasets[i].rtp`.
+
+---
+
+## 2026-10-02 — A new area (Block-8, the whole survey): flight height, continuation before thinning, automatic field
+
+The user started on Block-8, the whole aeromagnetic survey the Karnataka study's 70 km window
+came from (TAIL_TMI_GE, 37.5 m, 5055 × 5944 nodes, 80 m AGL, UTM 43N). What the page lacked:
+
+- **Height above the ground** per gravity/magnetic dataset (`station_height`): grid nodes have
+  no elevation and were put on the ground.
+- **Continuation before thinning** (`continue_to_m`): the study continued the grid to 1000 m
+  before sampling it at 1 km (its "as flown" run aliased). `worker._full_grid_filters` reads
+  each file at full resolution within the window plus max(10 km, 10 × the distance),
+  continues it (and/or reduces it to the pole, in the same pass), samples it at the stations
+  the job keeps; the stations then sit at `continue_to_m`. Against a forward model at the
+  higher level r > 0.995. The checks warn when a grid is thinned to more than three times its
+  height without it, with a button that sets the continuation to the spacing.
+- **The inducing field from IGRF-14, computed by the worker** (`"igrf": {"date": ...}` on a
+  magnetic dataset, the card's default): at the median of the job's stations, on the survey
+  date or, when "Date not known", on 2020-01-01; the page previews it for the window's centre
+  and shows the change over 2000-2025 (on the test window: 1,143 nT, 2.8° in I, 0.8° in D).
+  For the Block-8 centre in 2020: 42,006 nT, I 18.49°, D -1.46° from grid north (I from 16.2°
+  in the south-west to 20.7° in the north-east).
+- The magnetic core-depth check stops at 25 km (the Curie depth bounds the sources) instead of
+  a quarter of the survey width.
+- **Map layers on the Area step's window map**, with the same list and "Add map layer" as the
+  3D view (one workspace list), to help choose the window.
+
+A 20 km piece of the real grid ran end to end: IGRF-14 for 2020 (date unknown), continued 920 m
+on the 37.5 m grid, thinned to 1 km, inverted. Also: the user's workspace had been created on
+the test server (the launcher found it running); it was copied into ~/.geoinv3d, and the test
+server moved to another port.

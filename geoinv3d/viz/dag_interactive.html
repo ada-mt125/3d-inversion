@@ -194,6 +194,9 @@ svg#dag:active{cursor:grabbing;}
 .up-aoi-win i[data-h=se]{left:100%;top:100%;cursor:nwse-resize;} .up-aoi-win i[data-h=s]{left:50%;top:100%;cursor:ns-resize;}
 .up-aoi-win i[data-h=sw]{left:0;top:100%;cursor:nesw-resize;} .up-aoi-win i[data-h=w]{left:0;top:50%;cursor:ew-resize;}
 .up-aoi-btns{display:flex;gap:8px;align-items:flex-end;flex:0 0 auto;}
+.up-aoi-layers{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:0 0 10px;font-size:12px;}
+.up-aoi-layers .ml-list.ml-list-row{flex-direction:row;flex-wrap:wrap;gap:4px 14px;}
+.up-aoi-layers .ml-item .nm{max-width:220px;}
 .up-dec{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--border-soft);font-size:12px;}
 .up-dec:first-child{padding-top:0;}
 .up-dec:last-child{border-bottom:none;padding-bottom:0;}
@@ -321,6 +324,7 @@ svg#dag:active{cursor:grabbing;}
 .up-auto-dem .up-in{width:auto;}
 .up-igrf{align-items:flex-end;}
 .up-igrf .up-btn{white-space:nowrap;}
+.up-in.up-computed{color:#6fd0c3;border-style:dashed;}
 .up-ok{color:#6fd0c3;}
 /* the Area step: a look at the data */
 .enh-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-bottom:8px;}
@@ -682,6 +686,12 @@ svg#dag:active{cursor:grabbing;}
                   <button type="button" class="up-btn" id="up-aoi-square">Make square</button>
                   <button type="button" class="up-btn" id="up-aoi-all">Whole survey</button>
                 </div>
+              </div>
+              <div class="up-aoi-layers">
+                <span class="up-lbl" style="margin:0">Map layers</span>
+                <div id="ml-list-area" class="ml-list ml-list-row"></div>
+                <button type="button" class="up-btn up-btn-sm" id="ml-add-area" title="Mines, towns, boreholes (points) or geological outlines and survey boundaries (lines) from GeoJSON, or points from a CSV with x, y (or lon, lat) and name; kept in this workspace">＋ Add map layer</button>
+                <span class="up-hint" id="ml-note-area"></span>
               </div>
               <div class="up-aoi-wrap">
                 <div class="up-aoi-map" id="up-aoi-map"></div>
@@ -3287,7 +3297,7 @@ function mlFromTable(text,fname){
 // The x and y extent of the results on screen, to place layers given in other units
 function mlModelExtent(){
   const n=(W&&W.nodes||[]).find(nd=>nd.output&&nd.output.model_3d);
-  if(!n)return null;
+  if(!n)return window.GeoUpload&&window.GeoUpload.dataExtent?window.GeoUpload.dataExtent():null;   // the uploaded data
   const m=n.output.model_3d;
   return [Math.min(m.x_edges[0],m.x_edges[m.nx]),Math.max(m.x_edges[0],m.x_edges[m.nx]),
           Math.min(m.y_edges[0],m.y_edges[m.ny]),Math.max(m.y_edges[0],m.y_edges[m.ny])];
@@ -3339,16 +3349,20 @@ async function mlReadFiles(fileList){
 async function mlSave(){
   if(!WS.id||!window.GEOINV3D_API)return;
   try{await wsApi(`/api/workspaces/${WS.id}/layers`,wsSend('PUT',{layers:ML.own}));}
-  catch(err){$v('ml-note').textContent='⚠ Could not save the layers in the workspace: '+err.message;}
+  catch(err){mlNote('⚠ Could not save the layers in the workspace: '+err.message);}
 }
 function mlRender(){
-  const box=$v('ml-list'); if(!box)return;
+  for(const id of ML_LISTS){const box=$v(id); if(box)box.innerHTML=mlListHTML();}
+}
+const ML_LISTS=['ml-list','ml-list-area'];
+function mlNote(text){['ml-note','ml-note-area'].forEach(id=>{const el=$v(id); if(el)el.textContent=text;});}
+function mlListHTML(){
   const L=mlAll();
-  box.innerHTML=L.length?L.map((l,k)=>`<div class="ml-item"><label title="${escH(l.name)}: ${l.items.length} ${l.kind==='points'?'points':'lines'}">`+
+  return L.length?L.map((l,k)=>`<div class="ml-item"><label title="${escH(l.name)}: ${l.items.length} ${l.kind==='points'?'points':'lines'}">`+
       `<input type="checkbox" data-ml="${k}"${ML.hidden.has(mlKey(l))?'':' checked'} style="accent-color:${mlColor(l,k)}">`+
       `<span class="sw${l.kind==='points'?' pt':''}" style="background:${mlColor(l,k)}"></span><span class="nm">${escH(l.name)}</span></label>`+
       (l.builtin?'':`<button type="button" class="x" data-ml-del="${k}" title="Remove this layer">×</button>`)+'</div>').join('')
-    :'<div class="ml-note">None yet: add mines, towns or geological outlines to see them over the model, the depth slice and the data maps.</div>';
+    :'<div class="ml-note">None yet: add mines, towns or geological outlines to see them over the data, the model, the depth slice and the data maps.</div>';
 }
 function mlRedraw(){
   mlRender();
@@ -3357,28 +3371,31 @@ function mlRedraw(){
     dirtyTabs.add('datafit');
     if($v('panel-datafit').classList.contains('active'))renderActiveTab('datafit');
   }
+  if(window.GeoUpload&&window.GeoUpload.layersChanged)window.GeoUpload.layersChanged();   // the upload page's maps
 }
-$v('ml-list').addEventListener('change',e=>{
+ML_LISTS.forEach(id=>{const box=$v(id); if(!box)return;
+box.addEventListener('change',e=>{
   const c=e.target.closest('[data-ml]'); if(!c)return;
   const l=mlAll()[+c.dataset.ml]; if(!l)return;
   if(c.checked)ML.hidden.delete(mlKey(l)); else ML.hidden.add(mlKey(l));
   try{localStorage.setItem('geoinv3d.hiddenLayers',JSON.stringify([...ML.hidden]));}catch(err){}
   mlRedraw();
 });
-$v('ml-list').addEventListener('click',e=>{
+box.addEventListener('click',e=>{
   const b=e.target.closest('[data-ml-del]'); if(!b)return;
   const l=mlAll()[+b.dataset.mlDel]; if(!l||l.builtin)return;
   ML.own=ML.own.filter(o=>o.name!==l.name); mlSave(); mlRedraw();
 });
-$v('ml-add').addEventListener('click',()=>$v('ml-file').click());
+});
+['ml-add','ml-add-area'].forEach(id=>$v(id).addEventListener('click',()=>$v('ml-file').click()));
 $v('ml-file').addEventListener('change',async e=>{
   const files=[...e.target.files]; e.target.value=''; if(!files.length)return;
   try{
     const {added,notes}=await mlReadFiles(files);
     ML.own.push(...added);
-    $v('ml-note').textContent=notes.join(' · ')+(WS.id?'':(notes.length?' · ':'')+'kept until the page is closed');
+    mlNote(notes.join(' · ')+(WS.id?'':(notes.length?' · ':'')+'kept until the page is closed'));
     mlSave(); mlRedraw();
-  }catch(err){$v('ml-note').textContent='⚠ '+err.message;}
+  }catch(err){mlNote('⚠ '+err.message);}
 });
 
 // The visible layers in plan view on a canvas (toX, toY: metres to pixels; box clips them)
@@ -4128,6 +4145,7 @@ window.GeoPreview=GeoPreview;
           ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)'],['none','None']]}]},
     {key:'magnetic',label:'Magnetics',en:'susceptibility',color:'#E91E63',unit:'nT',pct:5,floor:2,
       opts:[{id:'comp',label:'Data type',type:'select',options:[['tmi','TMI — total-field anomaly'],['bz','Bz — vertical component']]},
+        {id:'field',label:'Inducing field',type:'select',options:[['igrf','IGRF-14 for the area (automatic)'],['manual','Entered by hand']]},
         {id:'amp',label:'Field strength (nT)',type:'number',value:50000},
         {id:'inc',label:'Inclination I (°)',type:'number',value:90},
         {id:'dec',label:'Declination D (°)',type:'number',value:0},
@@ -4316,13 +4334,19 @@ window.GeoPreview=GeoPreview;
       <div class="up-files" id="up-files-${t.key}"></div>
       ${t.key==='gravity'?'<div id="up-check-gravity"></div>':''}
       <div class="up-row">${optsHtml}</div>
-      ${t.key==='gravity'||t.key==='magnetic'?`<div class="up-row" id="up-${t.key}-regp" hidden>
+      ${t.key==='gravity'||t.key==='magnetic'?`<div class="up-row">
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-height" title="For data without elevations (grids): the stations are put this far above the ground, e.g. the flight height">Height above ground (m)</label>
+          <input id="up-${t.key}-height" type="number" step="any" min="0" class="up-in" placeholder="0 (on the ground)"></div>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-cont" title="The full-resolution data are continued upwards to this height above the ground before they are thinned, so that thinning does not alias them">Continue up to (m above ground)</label>
+          <input id="up-${t.key}-cont" type="number" step="any" min="0" class="up-in" placeholder="no"></div>
+      </div>
+      <div class="up-row" id="up-${t.key}-regp" hidden>
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-rega" id="up-${t.key}-rega-l"></label><input id="up-${t.key}-rega" type="number" step="any" min="0" class="up-in"></div>
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-regb" id="up-${t.key}-regb-l"></label><input id="up-${t.key}-regb" type="number" step="any" min="0" class="up-in"></div>
       </div>`:''}
       ${t.key==='magnetic'?`<div class="up-row up-igrf">
         <div class="up-col"><label class="up-lbl" for="up-magnetic-date">Survey date</label><input id="up-magnetic-date" type="date" class="up-in"></div>
-        <div class="up-col"><button type="button" class="up-btn up-btn-sm" id="up-igrf" title="The International Geomagnetic Reference Field at the centre of the data on the survey date; the declination from the grid north of the data's coordinates">🧭 Field from IGRF-14</button></div>
+        <div class="up-col"><label class="up-chk" style="padding-bottom:9px"><input type="checkbox" id="up-magnetic-nodate">&nbsp;Date not known</label></div>
       </div><div class="up-method-desc" id="up-igrf-msg"></div>`:''}
       <div class="up-row">
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"></div>
@@ -4420,34 +4444,57 @@ window.GeoPreview=GeoPreview;
   }
   $u('up-dem-get').addEventListener('click',getDem);
 
-  // ── The inducing field from IGRF-14 at the centre of the magnetic data on the survey date ──
-  let igrfInfo=null;
-  async function getIgrf(){
-    const btn=$u('up-igrf'), msg=$u('up-igrf-msg');
-    btn.disabled=true;
+  // ── The inducing field: by default IGRF-14, computed by the worker at the centre of the
+  // job's stations on the survey date (2020-01-01 when the date is not known); the card shows
+  // the values for the window's centre.  Or entered by hand. ──
+  let igrfInfo=null, igrfRun=0;
+  const DEFAULT_IGRF_DATE='2020-01-01';
+  const fieldAuto=()=>$u('up-magnetic-field').value==='igrf';
+  const surveyDate=()=>$u('up-magnetic-nodate').checked?'':$u('up-magnetic-date').value;
+  function renderFieldMode(){
+    const auto=fieldAuto();
+    ['amp','inc','dec'].forEach(k=>{const el=$u('up-magnetic-'+k); el.readOnly=auto; el.classList.toggle('up-computed',auto);});
+    $u('up-magnetic-date').disabled=!auto||$u('up-magnetic-nodate').checked;
+    $u('up-magnetic-nodate').disabled=!auto;
+    if(!auto){$u('up-igrf-msg').textContent='Entered by hand.';}
+  }
+  async function igrfAt(x,y,crs,date){
+    const r=await fetch(`${apiBase()}/api/igrf?${new URLSearchParams({x,y,crs,date})}`), f=await r.json();
+    if(!r.ok)throw new Error(f.detail||('HTTP '+r.status));
+    return f;
+  }
+  // the values for the window's centre (the worker computes them for the job's own stations)
+  async function previewIgrf(){
+    if(!fieldAuto()||!files.magnetic.length){renderFieldMode();return;}
+    const run=++igrfRun, msg=$u('up-igrf-msg');
+    renderFieldMode();
+    const crs=dataCrs()||detectedCrs();
+    if(!analysis){msg.textContent='Computed from IGRF-14 for the area once the data are read (next step).';return;}
+    if(!crs){igrfInfo=null; msg.innerHTML='<span class="up-warn">⚠ The field is computed in the data’s coordinates: give the coordinate system below.</span>';return;}
+    const e=aoi||(analysis.ds.find(x=>x.t.key==='magnetic')||{}).extent||analysis.native.extent;
+    const x=(e[0]+e[1])/2, y=(e[2]+e[3])/2, known=surveyDate(), date=known||DEFAULT_IGRF_DATE;
     try{
-      const {crs}=await areaAndCrs();
-      const d=(analysis.ds.find(x=>x.t.key==='magnetic')||{}).extent||analysis.native.extent;
-      const date=$u('up-magnetic-date').value||new Date().toISOString().slice(0,10);
-      const q=new URLSearchParams({x:(d[0]+d[1])/2,y:(d[2]+d[3])/2,crs,date});
-      const r=await fetch(`${apiBase()}/api/igrf?${q}`), f=await r.json();
-      if(!r.ok)throw new Error(f.detail||('HTTP '+r.status));
+      const f=await igrfAt(x,y,crs,date);
+      let spread=null;
+      if(!known){   // how much the unknown date matters here
+        const ends=await Promise.all(['2000-01-01','2025-01-01'].map(d=>igrfAt(x,y,crs,d)));
+        const all=[f,...ends], rng=k=>Math.max(...all.map(a=>a[k]))-Math.min(...all.map(a=>a[k]));
+        spread={F:rng('F'),I:rng('I'),D:rng('D_grid')};
+      }
+      if(run!==igrfRun)return;
       const [F,I,D]=f.inducing_field;
       $u('up-magnetic-amp').value=F; $u('up-magnetic-inc').value=I; $u('up-magnetic-dec').value=D;
-      if(!$u('up-magnetic-date').value)$u('up-magnetic-date').value=date;
-      igrfInfo={date,F,I,D,crs,lon:f.lon,lat:f.lat,D_true:f.D,convergence:f.convergence};
-      msg.innerHTML=`<span class="up-ok">✓</span> IGRF-14 on ${escH(date)} at ${f.lon.toFixed(2)}° E, ${f.lat.toFixed(2)}° N: `+
+      igrfInfo={date,known:!!known,F,I,D,crs,lon:f.lon,lat:f.lat,D_true:f.D,convergence:f.convergence,spread};
+      msg.innerHTML=`IGRF-14 ${known?'on '+escH(date):`for ${DEFAULT_IGRF_DATE} <span class="up-warn">(survey date unknown)</span>`} at ${f.lon.toFixed(2)}° E, ${f.lat.toFixed(2)}° N: `+
         `<b>F ${fmtInt(F)} nT, I ${I.toFixed(2)}°, D ${D.toFixed(2)}°</b> from the grid north of ${escH(crs)} `+
-        `<span class="up-en">(${f.D.toFixed(2)}° from true north; meridian convergence ${f.convergence.toFixed(2)}°)</span>`;
+        `<span class="up-en">(${f.D.toFixed(2)}° from true north)</span>`+
+        (spread?`<br><span class="up-en">Over 2000–2025 the field here changes by ${fmtInt(spread.F)} nT, ${spread.I.toFixed(1)}° in I and ${spread.D.toFixed(1)}° in D.</span>`:'')+
+        '<br><span class="up-en">The worker computes it again for the stations the job keeps.</span>';
       if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
-    }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
-    btn.disabled=false;
+    }catch(err){if(run===igrfRun)msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}
   }
-  $u('up-igrf').addEventListener('click',getIgrf);
-  // a field typed by hand is no longer the computed one
-  ['amp','inc','dec'].forEach(k=>$u('up-magnetic-'+k).addEventListener('input',()=>{
-    if(igrfInfo){igrfInfo=null;$u('up-igrf-msg').textContent='Set by hand.';}
-  }));
+  ['up-magnetic-field','up-magnetic-nodate','up-magnetic-date'].forEach(id=>$u(id).addEventListener('change',previewIgrf));
+  $u('up-crs').addEventListener('change',()=>setTimeout(previewIgrf,300));
 
   // ── Setups: every setting of a job in one JSON (its params are what the worker runs:
   // python -m geoinv3d.cloud.worker --local params.json data out), saved from the Review step
@@ -4515,7 +4562,8 @@ window.GeoPreview=GeoPreview;
       if(type==='gravity')setv('up-gravity-sign',d.gz_convention,notes);
       if(type==='magnetic'){
         const k=d.method_kwargs||{}, f=k.inducing_field;
-        if(f){setv('up-magnetic-amp',f[0]);setv('up-magnetic-inc',f[1]);setv('up-magnetic-dec',f[2]);}
+        if(f){setv('up-magnetic-field','manual');setv('up-magnetic-amp',f[0]);setv('up-magnetic-inc',f[1]);setv('up-magnetic-dec',f[2]);}
+        else if(d.igrf){setv('up-magnetic-field','igrf'); $u('up-magnetic-nodate').checked=!d.igrf.date; setv('up-magnetic-date',d.igrf.date||'');}
         setv('up-magnetic-mag',k.magnetization==='vector'?'vector':'induced');
         setv('up-magnetic-data',d.rtp?'rtp':'tmi');
       }
@@ -4528,17 +4576,15 @@ window.GeoPreview=GeoPreview;
         if(b!=null){$u(`up-${type}-regb`).value=b;$u(`up-${type}-regb`).dataset.for=reg.method;}
       }
       if(d.decimate_spacing_m){decChoice[type]='custom';decCustom[type]=d.decimate_spacing_m;}else decChoice[type]='1';
+      if($u(`up-${type}-height`)){$u(`up-${type}-height`).value=d.station_height??''; $u(`up-${type}-cont`).value=d.continue_to_m??'';}
     }
     // ground, coordinates, survey date
     const topo=p.topography||{};
     $u('up-topo-stations').checked=!!topo.from_data;
     if(topo.flat_elevation!=null)setv('up-flat-elev',topo.flat_elevation);
     if(page.crs||p.crs){$u('up-crs').value=page.crs||p.crs; crsTyped=true; checkCrs();}
-    if(page.survey_date||(p.igrf&&p.igrf.date))setv('up-magnetic-date',page.survey_date||p.igrf.date);
-    igrfInfo=null;
-    const mag=dss.magnetic&&(dss.magnetic.method_kwargs||{}).inducing_field;
-    if(p.igrf&&mag)igrfInfo={date:p.igrf.date,F:mag[0],I:mag[1],D:mag[2],crs:p.crs};   // still the computed field
-    $u('up-igrf-msg').textContent=igrfInfo?`IGRF-14 for ${igrfInfo.date}, as in the setup.`:'';
+    if(page.survey_date)setv('up-magnetic-date',page.survey_date);
+    igrfInfo=null; renderFieldMode();
     // mesh and area (the window is placed once the files have been read)
     MESH_INPUTS.forEach(([k,id])=>{if(p[k]!=null)$u(id).value=p[k];});
     if(MESH_INPUTS.some(([k])=>p[k]!=null))meshEdited=true;
@@ -4771,14 +4817,7 @@ window.GeoPreview=GeoPreview;
     const v=d.maps.vdr;
     if($u('enh-zero').checked&&v)traces.push({type:'contour',x,y,z:v.values,showscale:false,hoverinfo:'skip',
       contours:{coloring:'none',start:0,end:0,size:1},line:{color:'rgba(255,255,255,0.75)',width:1}});
-    // the map layers (mines, outlines) as on the results
-    for(const l of mlShown()){
-      if(l.kind==='points')traces.push({type:'scatter',mode:'markers+text',x:l.items.map(p=>p.x/1000),y:l.items.map(p=>p.y/1000),
-        text:l.items.map(p=>p.label||''),textposition:'middle right',textfont:{size:10,color:'#e7ecf2'},
-        marker:{size:8,symbol:'diamond',color:l.color,line:{color:'#0e131a',width:1}},hoverinfo:'text',showlegend:false});
-      else{const lx=[],ly=[];for(const it of l.items){const P=it.closed?[...it.xy,it.xy[0]]:it.xy;P.forEach(([a,b])=>{lx.push(a/1000);ly.push(b/1000);});lx.push(null);ly.push(null);}
-        traces.push({type:'scatter',mode:'lines',x:lx,y:ly,line:{color:l.color,width:1.3},hoverinfo:'skip',showlegend:false});}
-    }
+    traces.push(...layerTraces());   // the map layers (mines, outlines) as on the results
     const w=aoi;
     Plotly.react($u('enh-plot'),traces,{margin:{l:58,r:12,t:28,b:44},paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'#1c2530',
       font:{color:'#8b97a6',size:11},dragmode:'pan',showlegend:false,uirevision:'enh-'+t.key,
@@ -5942,6 +5981,7 @@ window.GeoPreview=GeoPreview;
       try{
         if(step<=S.DATA&&n>=S.AREA){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();
           fillCrs(); if(pendingAoi){aoi=pendingAoi.slice(); pendingAoi=null;}}
+        if(step<=S.AREA&&n>S.AREA)await previewIgrf();     // the field for the window chosen
         if(step<=S.AREA&&n>=S.MESH){applyArea();renderResolution();recommend();}
         if(step<=S.MESH&&n>=S.MODEL)meshParams();
         if(n===S.REVIEW)renderReview(buildJobs());
@@ -5949,7 +5989,7 @@ window.GeoPreview=GeoPreview;
     }
     $u('upload-status').hidden=true;
     showStep(n);
-    if(n===S.AREA){renderArea(); renderEnhControls(); enhSoon(0);}
+    if(n===S.AREA){renderArea(); renderEnhControls(); enhSoon(0); previewIgrf();}
     if(n===S.MESH)renderMesh();
     if(n===S.MODEL)mbRender(true);
     if(n===S.JOBS)loadJobs();
@@ -6298,9 +6338,21 @@ window.GeoPreview=GeoPreview;
     return hi>lo?{lo,hi}:{};
   }
 
+  // The visible map layers as Plotly traces in km (the window map, the enhancement map)
+  function layerTraces(){
+    const out=[];
+    for(const l of mlShown()){
+      if(l.kind==='points')out.push({type:'scatter',mode:'markers+text',x:l.items.map(p=>p.x/1000),y:l.items.map(p=>p.y/1000),
+        text:l.items.map(p=>p.label||''),textposition:'middle right',textfont:{size:10,color:'#e7ecf2'},
+        marker:{size:8,symbol:'diamond',color:l.color,line:{color:'#0e131a',width:1}},hovertemplate:`%{text}<extra>${escH(l.name)}</extra>`,showlegend:false});
+      else{const lx=[],ly=[];for(const it of l.items){const P=it.closed?[...it.xy,it.xy[0]]:it.xy;P.forEach(([a,b])=>{lx.push(a/1000);ly.push(b/1000);});lx.push(null);ly.push(null);}
+        out.push({type:'scatter',mode:'lines',x:lx,y:ly,line:{color:l.color,width:1.4},hovertemplate:`${escH(l.name)}<extra></extra>`,showlegend:false});}
+    }
+    return out;
+  }
   function drawMap(){
     const el=$u('up-aoi-map'), key=$u('up-aoi-layer').value;
-    const traces=previewTraces(key);
+    const traces=[...previewTraces(key),...layerTraces()];
     const rect=(e,extra)=>({type:'rect',xref:'x',yref:'y',x0:e[0]/1000,x1:e[1]/1000,y0:e[2]/1000,y1:e[3]/1000,layer:'above',...extra});
     const shapes=analysis.ds.filter(d=>d.extent).map(d=>rect(d.extent,{line:{color:d.t.color,width:1,dash:'dot'},fillcolor:'rgba(0,0,0,0)'}));
     const e=surveyExtent(), padX=0.03*(e[1]-e[0])/1000, padY=0.03*(e[3]-e[2])/1000;
@@ -6813,7 +6865,9 @@ window.GeoPreview=GeoPreview;
       const c=analysis&&analysis.counts&&analysis.counts.find(x=>x.d.t===t);
       const reg=$u(`up-${t.key}-reg`)?.selectedOptions[0];
       const rtp=t.key==='magnetic'&&$u('up-magnetic-data').value==='rtp';
-      return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}`+
+      const ht=$u(`up-${t.key}-height`)?.value, ct=$u(`up-${t.key}-cont`)?.value;
+      const where=(+ht?` · ${ht} m above ground`:'')+(+ct?` · continued to ${ct} m before thinning`:'');
+      return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}${where}`+
         (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} data, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
         (reg?` · regional: ${escH(reg.textContent)}`:'');
     }).join('<br>');
@@ -6886,9 +6940,23 @@ window.GeoPreview=GeoPreview;
       if(m.core_cell_m<0.5*sp)add('warn',`Cells of ${fmtLen(m.core_cell_m)} are much finer than the ${fmtLen(sp)} data spacing: more cost, little more resolution`);
       else if(m.core_cell_m>4*sp)add('warn',`Cells of ${fmtLen(m.core_cell_m)} are coarse for ${fmtLen(sp)} data: detail the data hold is lost`);
       else add('ok',`Cells of ${fmtLen(m.core_cell_m)} for data ${fmtLen(sp)} apart`);
-      if(m.depth_core_m<0.25*w)add('warn',`The core is ${fmtLen(m.depth_core_m)} deep for a ${fmtLen(w)} wide survey: deep sources end up in the padding cells, where they are poorly constrained (about half the width is safer)`,
+      // magnetic sources end at the Curie depth (some 20-40 km): a deeper core adds nothing
+      const magOnly=s&&s.types.every(t=>t.key==='magnetic'), need=magOnly?Math.min(0.25*w,25000):0.25*w;
+      if(m.depth_core_m<need)add('warn',`The core is ${fmtLen(m.depth_core_m)} deep for a ${fmtLen(w)} wide survey: deep sources end up in the padding cells, where they are poorly constrained (${magOnly?'down to about the Curie depth, 20–30 km, is safer':'about half the width is safer'})`,
         recommended&&recommended.depth_core_m>m.depth_core_m?['Use the recommended mesh',()=>{meshEdited=false;setMeshInputs(recommended);renderMesh();}]:null);
       if(m.pad_distance_m<0.25*w)add('warn',`Padding of ${fmtLen(m.pad_distance_m)} is narrow for a ${fmtLen(w)} survey: the edges of the model take up the anomalies of their surroundings`);
+    }
+    // the stations' height, and thinning a low-flown grid
+    for(const t of s?s.types.filter(t=>t.key==='gravity'||t.key==='magnetic'):[]){
+      const d=analysis&&analysis.ds.find(x=>x.t===t); if(!d)continue;
+      const h=+$u(`up-${t.key}-height`).value||0, c=+$u(`up-${t.key}-cont`).value||0, at=c||h;
+      const thin=(d.kind==='grid'?decTarget(d):null)||d.spacing;
+      if(d.kind==='grid'&&!h&&!c&&t.key==='magnetic')
+        add('warn',`${t.label}: the grid has no elevations, so its nodes are put on the ground; airborne data need the flight height (Height above ground)`);
+      if(d.kind==='grid'&&thin&&thin>3*Math.max(at,1)&&d.spacing<0.5*thin)
+        add('warn',`${t.label}: thinned to ${fmtLen(thin)} at ${fmtInt(at)} m above the ground, the field holds wavelengths much shorter than the spacing and aliases; continue it to about the spacing first`,
+          ['Continue up to '+fmtLen(Math.round(thin/100)*100),()=>{$u(`up-${t.key}-cont`).value=Math.round(thin/100)*100;}]);
+      else if(c)add('ok',`${t.label}: continued from ${fmtInt(h)} to ${fmtInt(c)} m above the ground before thinning to ${fmtLen(thin)}`);
     }
     // the ground
     if(topoFile){
@@ -6911,10 +6979,16 @@ window.GeoPreview=GeoPreview;
     // the magnetic field
     if(s&&s.types.some(t=>t.key==='magnetic')){
       const F=+$u('up-magnetic-amp').value, I=+$u('up-magnetic-inc').value, D=+$u('up-magnetic-dec').value;
-      if(!(F>0))add('error','The inducing field strength must be above 0 nT');
-      else if(igrfInfo&&Math.abs(igrfInfo.F-F)<1&&Math.abs(igrfInfo.I-I)<0.01)add('ok',`Inducing field from IGRF-14 for ${escH(igrfInfo.date)}: F ${fmtInt(F)} nT, I ${I}°, D ${D}° (grid north)`);
+      if(fieldAuto()){
+        if(!(dataCrs()||detectedCrs()))add('error','The inducing field is computed from IGRF-14 in the data’s coordinates: give their coordinate system (Data step)');
+        else if(igrfInfo&&igrfInfo.known)add('ok',`Inducing field from IGRF-14 for ${escH(igrfInfo.date)}: F ${fmtInt(F)} nT, I ${I}°, D ${D}° (grid north), for the window’s centre`);
+        else if(igrfInfo)add('warn',`Survey date not known: IGRF-14 for ${DEFAULT_IGRF_DATE} (F ${fmtInt(F)} nT, I ${I}°, D ${D}°)`+
+          (igrfInfo.spread?`; over 2000–2025 it changes here by ${igrfInfo.spread.I.toFixed(1)}° in I and ${igrfInfo.spread.D.toFixed(1)}° in D`:'')+'. Give the date if you can find it');
+        else add('warn','The inducing field will be computed from IGRF-14 by the worker (not previewed: check the coordinate system)');
+      }
+      else if(!(F>0))add('error','The inducing field strength must be above 0 nT');
       else if(F===50000&&I===90&&D===0)add('warn','The inducing field is the default (50,000 nT, straight down), right only near a magnetic pole: compute it for the survey',
-        ['Field from IGRF-14',()=>getIgrf()]);
+        ['IGRF-14 for the area',()=>{$u('up-magnetic-field').value='igrf'; return previewIgrf();}]);
       else add('ok',`Inducing field F ${fmtInt(F)} nT, I ${I}°, D ${D}° (set by hand)`);
       if($u('up-magnetic-data').value==='rtp'){
         const toTmi=['Invert the total field',()=>{$u('up-magnetic-data').value='tmi';}];
@@ -7077,7 +7151,9 @@ window.GeoPreview=GeoPreview;
     if(reg&&reg!=='none')spec.regional=$u(`up-${t.key}-regp`)?regionalSpec(t.key):reg==='mean'?{method:'mean'}:{method:'polynomial',order:+reg.slice(4)};
     if(t.key==='magnetic'){
       spec.component=$u('up-magnetic-comp').value;
-      spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};
+      // the worker computes the field from IGRF-14 for the job's stations, or takes the typed one
+      if(fieldAuto()){spec.method_kwargs={}; spec.igrf={date:surveyDate()||null};}
+      else spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};
       // a magnetization vector per cell (MVI): remanence in any direction; single inversions
       if($u('up-magnetic-mag').value==='vector')spec.method_kwargs.magnetization='vector';
       // the data reduced to the pole (and their residual), inverted under a vertical field
@@ -7085,6 +7161,16 @@ window.GeoPreview=GeoPreview;
         if(spec.method_kwargs.magnetization==='vector')throw new Error('The reduction to the pole assumes induced magnetization: choose Induced, or invert the total field as measured (MVI)');
         if(spec.component!=='tmi')throw new Error('Only total-field (TMI) data can be reduced to the pole');
         spec.rtp=true;
+      }
+    }
+    // Height above the ground (a flight height) and continuation before thinning
+    if(t.key==='gravity'||t.key==='magnetic'){
+      const h=num(`up-${t.key}-height`,`${t.label} height above ground`,{optional:true,min:0});
+      const c=num(`up-${t.key}-cont`,`${t.label} continuation height`,{optional:true,min:0});
+      if(h)spec.station_height=h;
+      if(c){
+        if(!(c>(h||0)))throw new Error(`${t.label}: continue up to a height above the data's own (${h||0} m)`);
+        spec.continue_to_m=c;
       }
     }
     // Thinning chosen in the area step (per data type)
@@ -7228,10 +7314,8 @@ window.GeoPreview=GeoPreview;
     const topography=topoFile?{file:topoFile.name}:$u('up-topo-stations').checked?{from_data:true}
       :{flat_elevation:num('up-flat-elev','flat topography elevation')};
     const extra=topoFile?[topoFile]:[];
-    // the field's source travels with the job (the worker ignores it): a new setup from the job keeps the date
-    const igrf=igrfInfo&&s.types.some(t=>t.key==='magnetic')&&+$u('up-magnetic-amp').value===igrfInfo.F
-      ?{igrf:{model:'IGRF-14',date:igrfInfo.date}}:{};
-    const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams(),...(dataCrs()?{crs:dataCrs()}:{}),...igrf};
+    const crsKnown=dataCrs()||(s.types.some(t=>t.key==='magnetic')&&fieldAuto()?detectedCrs():'');
+    const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams(),...(crsKnown?{crs:crsKnown}:{})};
     if(s.mode==='joint'&&$u('up-magnetic-mag').value==='vector'&&s.types.some(t=>t.key==='magnetic'))
       throw new Error('The magnetization-vector inversion (MVI) is for single magnetic inversions; set Magnetization to Induced for a joint inversion');
     if(s.mode!=='joint'&&s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag').value==='vector'){
@@ -7303,11 +7387,15 @@ window.GeoPreview=GeoPreview;
 
   refresh();
   showStep(S.DATA);
+  renderFieldMode();
   loadEnv();
   // for the rest of the page: the Jobs page, and a job started elsewhere (a re-run)
   window.GeoUpload={
     showJobs:()=>{switchTab('upload'); goTo(S.JOBS);},
     jobStarted:()=>{wsRefresh(); if(step===S.JOBS)loadJobs();},
+    // the map layers changed: the window map and the enhancement map show them
+    layersChanged:()=>{if(step===S.AREA&&analysis){drawMap(); enhSoon(0);}},
+    dataExtent:()=>analysis&&analysis.native?analysis.native.extent:null,
   };
 })();
 </script>

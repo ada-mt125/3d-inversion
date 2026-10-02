@@ -74,3 +74,68 @@ def test_a_job_inverts_the_reduced_residual(tmp_path):
     top = xy[np.argmax(obs)]
     assert 150 <= top[0] <= 450 and 150 <= top[1] <= 450
     json.dumps(worker._jsonable(info))      # the summary goes into result.json
+
+
+def _grid_tif(path, locs, values, step):
+    """The values as a GeoTIFF grid (no elevations, like an aeromagnetic grid)."""
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+    xs, ys = np.unique(locs[:, 0]), np.unique(locs[:, 1])
+    z = values.reshape(len(ys), len(xs))[::-1]       # north row first
+    with rasterio.open(path, "w", driver="GTiff", width=len(xs), height=len(ys), count=1,
+                       dtype="float32", crs="EPSG:32643",
+                       transform=from_origin(xs[0] - step / 2, ys[-1] + step / 2, step, step)) as dst:
+        dst.write(z.astype("float32"), 1)
+
+
+def test_continued_upwards_before_thinning(tmp_path):
+    locs = _stations(50.0)
+    low = locs.copy(); low[:, 2] = 80.0          # flown 80 m above flat ground
+    high = locs.copy(); high[:, 2] = 600.0
+    _write_csv(tmp_path / "m.csv", low, _tmi(low, FIELD))
+    kept = locs[::5]
+    values, kwargs, rtp_info, cont = worker._full_grid_filters(
+        ["m.csv"], str(tmp_path), "magnetics", "tmi", None, kept, {"inducing_field": FIELD},
+        continue_by=520.0)
+    expected = _tmi(high, FIELD)[::5]
+    assert np.corrcoef(values, expected)[0, 1] > 0.995 and rtp_info is None
+    assert values.max() == pytest.approx(expected.max(), rel=0.05) and cont["by_m"] == 520.0
+    with pytest.raises(ValueError, match="above"):
+        worker._continuation_distance({"station_height": 80, "continue_to_m": 50}, {})
+
+
+def test_a_job_on_a_continued_grid(tmp_path):
+    locs = _stations(50.0)
+    low = locs.copy(); low[:, 2] = 80.0
+    _grid_tif(tmp_path / "m.tif", locs, _tmi(low, FIELD), 50.0)
+    ds = {"type": "magnetic", "method": "magnetics", "files": ["m.tif"], "noise_pct": 0.05,
+          "noise_floor": 0.5, "component": "tmi", "method_kwargs": {"inducing_field": list(FIELD)},
+          "station_height": 80.0, "continue_to_m": 300.0, "decimate_spacing_m": 200.0}
+    params = {"method_type": "magnetics", "inversion_mode": "single", "datasets": [ds],
+              "topography": {"flat_elevation": 0}, "param_mode": "manual", "regularization_type": "l2",
+              "max_iter": 3, "mesh_type": "tensor", "crs": "EPSG:32643", **SMALL_MESH}
+    result = worker.run_data_pipeline(params, str(tmp_path))
+    info = result["datasets"][0]
+    assert info["continuation"]["by_m"] == 220.0 and info["continuation"]["grid_spacing_m"] == 50.0
+    z = result["data"]["locations"][:, 2]
+    assert np.allclose(z, 300.0)                     # at the height they were continued to
+    assert result["data"]["observed"].size < locs.shape[0] / 10   # thinned after continuing
+
+
+def test_the_field_from_igrf_for_the_job(tmp_path):
+    """No inducing field given: the worker computes IGRF-14 at the stations' median, on the
+    survey date, or on DEFAULT_IGRF_DATE when the date is not known."""
+    pytest.importorskip("rasterio")
+    locs = _stations(100.0) + np.array([676000.0, 1669000.0, 0.0])      # in the Karnataka study area
+    _write_csv(tmp_path / "m.csv", locs, _tmi(locs - np.array([676000.0, 1669000.0, 0.0]), FIELD))
+    for date, expected in ((None, worker.DEFAULT_IGRF_DATE), ("2022-06-30", "2022-06-30")):
+        ds = {"type": "magnetic", "method": "magnetics", "files": ["m.csv"], "noise_pct": 0.05,
+              "noise_floor": 0.5, "component": "tmi", "igrf": {"date": date}}
+        params = {"method_type": "magnetics", "inversion_mode": "single", "datasets": [ds],
+                  "topography": {"flat_elevation": 0}, "param_mode": "manual", "regularization_type": "l2",
+                  "max_iter": 2, "mesh_type": "tensor", "crs": "EPSG:32643", **SMALL_MESH}
+        info = worker.run_data_pipeline(params, str(tmp_path))["datasets"][0]["igrf"]
+        assert info["date"] == expected and info["date_known"] == (date is not None)
+        assert info["I"] == pytest.approx(19.3, abs=0.4) and info["D_grid"] == pytest.approx(-1.35, abs=0.3)
+    with pytest.raises(ValueError, match="coordinate system"):
+        worker._igrf_field({}, locs, None, {}, {})

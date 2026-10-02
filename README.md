@@ -208,6 +208,15 @@ job's stations, takes the regional field from the reduced data and inverts under
 field. It assumes induced magnetization (not with MVI), and the page refuses it below
 |I| = 30° and warns below 45°, where the total field is the safer choice.
 
+For airborne grids the data cards take the **height above the ground** (e.g. the flight
+height) and a height to **continue the data up to before thinning**: the worker continues the
+full-resolution grid (within the window plus a margin) and only then thins it, so that a grid
+flown at 80 m and sampled at 1 km does not alias; the checks warn when it would. The
+**inducing field** is by default IGRF-14 computed by the worker for the stations the job
+keeps, on the survey date; when the date is not known, for 2020-01-01, and the page shows how
+much 2000–2025 would differ. The map layers can also be shown and added on the Area step's
+window map, to help choose the window.
+
 The page also fetches what a survey needs but its files often lack: **a DEM** for the data
 area and the mesh's padding (SRTM 1 arc-second from the public AWS terrain tiles, else
 ETOPO 2022 from NOAA; cached, resampled into the data's coordinates; `geoinv3d/io/dem.py`)
