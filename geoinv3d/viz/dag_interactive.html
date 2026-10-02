@@ -655,7 +655,7 @@ svg#dag:active{cursor:grabbing;}
               </div>
               <div class="up-auto-dem">
                 <span class="up-en">or</span>
-                <button type="button" class="up-btn up-btn-sm" id="up-dem-get" title="Downloads the tiles over the data and the mesh's padding (cached), in the data's coordinates">⬇ Get a DEM for the data area</button>
+                <button type="button" class="up-btn up-btn-sm" id="up-dem-get" title="Downloads the tiles over the window chosen in the Area step (else the whole survey) and the mesh's padding (cached), in the data's coordinates">⬇ Get a DEM for the data area</button>
                 <select id="up-dem-src" class="up-in up-in-md" aria-label="DEM source">
                   <option value="auto">SRTM 30 m, else ETOPO 2022</option>
                   <option value="srtm">SRTM 30 m (56° S – 60° N)</option>
@@ -4432,7 +4432,7 @@ window.GeoPreview=GeoPreview;
     const d=crsCheck&&crsCheck.crs===crs?crsCheck:await checkCrs();
     if(!d)throw new Error(`The coordinate system ${crs} is not known`);
     if(d.geographic)throw new Error('The data coordinates must be projected (metres), not degrees');
-    return {ext:analysis.native.extent,crs};
+    return {ext:aoi||analysis.native.extent,crs,inWindow:!!aoi};
   }
 
   // ── A DEM for the data area, downloaded by the server (SRTM 30 m, else ETOPO 2022) ──
@@ -4444,8 +4444,11 @@ window.GeoPreview=GeoPreview;
     btn.disabled=true; btn.textContent='⏳ Downloading…';
     msg.textContent='The first time, the server downloads the tiles (about 8 MB each for SRTM); later they come from its cache.';
     try{
-      const {ext,crs}=await areaAndCrs();
-      const w=ext[1]-ext[0], h=ext[3]-ext[2], margin=Math.round(0.6*Math.max(w,h)+2000);
+      // the window when one is chosen (the mesh is built there), else the whole survey,
+      // and around it the mesh's padding or about the recommended one, whichever is wider
+      const {ext,crs,inWindow}=await areaAndCrs();
+      let pad=0; try{pad=readMesh().pad_distance_m;}catch(err){}
+      const w=ext[1]-ext[0], h=ext[3]-ext[2], margin=Math.round(Math.max(0.6*Math.max(w,h)+2000,pad+1000));
       const r=await fetch(`${apiBase()}/api/dem`,{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({bounds:ext,crs,source:$u('up-dem-src').value,margin_m:margin})});
       const d=await r.json(); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
@@ -4457,7 +4460,7 @@ window.GeoPreview=GeoPreview;
       msg.innerHTML=`<span class="up-ok">✓</span> ${d.source==='srtm'?'SRTM 1 arc-second':'ETOPO 2022 15 arc-second'} `+
         `(${d.tiles.length} tile${d.tiles.length>1?'s':''}${d.sea_tiles.length?`, ${d.sea_tiles.length} at sea`:''}${d.cached?', from the cache':''}) `+
         `on a ${fmtLen(d.pixel_m)} grid in ${escH(crs)}: ${fmtInt(d.elev_min)}–${fmtInt(d.elev_max)} m, `+
-        `the data area and ${fmtLen(margin)} around it.<br><span class="up-en">${d.source==='srtm'
+        `${inWindow?'the window':'the whole survey'} and ${fmtLen(margin)} around it.<br><span class="up-en">${d.source==='srtm'
           ?'SRTM: NASA / USGS, from the AWS terrain tiles (public domain); heights above the EGM96 geoid.'
           :'ETOPO 2022: NOAA NCEI (public domain); heights above the EGM2008 geoid, with the sea floor.'}</span>`;
     }catch(err){msg.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;}

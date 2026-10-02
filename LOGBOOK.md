@@ -1558,3 +1558,12 @@ the window that DEM gives 577-972 m, from 11 × 11 pixels.
 - A new warning when the DEM covers more than 16 times the mesh area or its pixels are more
   than twice the cells, with "Get a DEM for the area" (source back to automatic: SRTM for a
   window).
+
+## 2026-10-02 — "Get a DEM" downloads for the window
+
+The DEM button always took the whole survey's extent (Block-8: 190 × 223 km, plus 0.6 of its
+width around it, 461 × 494 km): "auto" chose ETOPO (more than 16 SRTM tiles) and returned the
+cached 450 m file, "SRTM" refused. So the new "DEM made for another area" check's fix did
+nothing. It now takes the window chosen in the Area step (else the whole survey), with a
+margin of the wider of 0.6 × its width + 2 km and the mesh's padding + 1 km: a 5 km window gets
+SRTM 30 m over 15 km. The SRTM refusal says to choose a smaller area.

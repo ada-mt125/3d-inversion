@@ -159,7 +159,8 @@ def build_dem(bounds, crs: str, source: str = "auto", margin_m: float = 0.0,
     if source == "auto":
         use = "srtm" if SRTM_LAT[0] <= lat0 and lat1 <= SRTM_LAT[1] and len(srtm) <= MAX_SRTM_TILES else "etopo"
     if use == "srtm" and len(srtm) > MAX_SRTM_TILES:
-        raise ValueError(f"The box needs {len(srtm)} SRTM tiles (at most {MAX_SRTM_TILES}): use ETOPO")
+        raise ValueError(f"The box needs {len(srtm)} SRTM tiles (at most {MAX_SRTM_TILES}): choose a "
+                         "smaller area (a window in the Area step) or use ETOPO")
     base = SRTM_PIXEL_M if use == "srtm" else ETOPO_PIXEL_M
     transform, nx, ny, px = _grid(box, pixel_m, max_pixels, base)
 
