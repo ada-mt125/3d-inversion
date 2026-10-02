@@ -3593,6 +3593,7 @@ function rrSet(p,key,v){
 }
 function rrShow(key,type,v){
   if(v==null)return '';
+  if(v==='auto')return 'auto';            // automatic data errors (worker.auto_noise)
   if(type==='norms')return Array.isArray(v)?v.join(', '):'';
   if(type==='pct')return +(v*100).toPrecision(6);
   return v;
@@ -3601,6 +3602,7 @@ function rrRead(type,raw){
   raw=String(raw).trim();
   if(raw==='')return undefined;
   if(type==='sel')return raw;
+  if((type==='pct'||type==='num')&&raw.toLowerCase()==='auto')return 'auto';
   if(type==='norms'){const a=raw.split(/[\s,;]+/).filter(Boolean).map(Number);
     if(a.length!==4||a.some(x=>!(x>=0&&x<=2)))throw new Error('Norms need four numbers between 0 and 2');return a;}
   const v=Number(raw); if(!Number.isFinite(v))throw new Error(`“${raw}” is not a number`);
@@ -4169,6 +4171,7 @@ window.GeoPreview=GeoPreview;
 (function(){
   const $u=id=>document.getElementById(id);
   const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz';
+  const AUTO_FLOOR_SHARE=0.015, AUTO_NOISE_PCT=2;   // automatic errors, as worker.auto_noise
   const UP_TYPES=[
     {key:'gravity',label:'Gravity',en:'density',color:'#FF9800',unit:'mGal',pct:5,floor:0.05,
       opts:[{id:'comp',label:'Component',type:'select',options:[['gz','gz — gravity anomaly'],['gzz','gzz — gravity gradient']]},
@@ -4356,6 +4359,7 @@ window.GeoPreview=GeoPreview;
       ?`<select id="up-${t.key}-${o.id}" class="up-in">${o.options.map(([v,l])=>`<option value="${v}">${l}</option>`).join('')}</select>`
       :`<input id="up-${t.key}-${o.id}" type="number" step="any" class="up-in" value="${o.value}">`;
     const optsHtml=t.opts.map(o=>`<div class="up-col"><label class="up-lbl" for="up-${t.key}-${o.id}">${o.label}</label>${opt(o)}</div>`).join('');
+    const pf=t.key==='gravity'||t.key==='magnetic';   // potential fields: automatic errors
     return `<div class="up-card up-ds" id="up-ds-${t.key}" style="--c:${t.color}">
       <div class="up-ds-h"><span class="up-dot"></span>${t.label}<span class="up-en">${t.en}</span><span class="up-chip" id="up-chip-${t.key}">empty</span></div>
       <div class="up-drop" id="up-drop-${t.key}">
@@ -4381,9 +4385,12 @@ window.GeoPreview=GeoPreview;
         <div class="up-col"><label class="up-chk" style="padding-bottom:9px"><input type="checkbox" id="up-magnetic-nodate">&nbsp;Date not known</label></div>
       </div><div class="up-method-desc" id="up-igrf-msg"></div>`:''}
       <div class="up-row">
-        <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"></div>
-        <div class="up-col"><label class="up-lbl" for="up-${t.key}-floor">Noise floor${t.unit?' ('+t.unit+')':''}</label><input id="up-${t.key}-floor" type="number" step="any" min="0" class="up-in" value="${t.floor}"></div>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"${pf?' disabled':''}></div>
+        <div class="up-col"><label class="up-lbl" for="up-${t.key}-floor">Noise floor${t.unit?' ('+t.unit+')':''}</label><input id="up-${t.key}-floor" type="number" step="any" min="0" class="up-in" value="${t.floor}"${pf?' disabled':''}></div>
+        ${pf?`<div class="up-col"><label class="up-chk" style="padding-bottom:9px" title="2 % of each datum and a floor of ${100*AUTO_FLOOR_SHARE} % of the 5–95 % spread of the data inverted (after the window, thinning and the regional), worked out when the job starts">
+          <input type="checkbox" id="up-${t.key}-noiseauto" checked>&nbsp;Automatic</label></div>`:''}
       </div>
+      ${pf?`<div class="up-method-desc" id="up-${t.key}-noise-msg">Automatic: ${AUTO_NOISE_PCT} % + a floor of ${100*AUTO_FLOOR_SHARE} % of the spread of the data in the window, set when the job starts</div>`:''}
     </div>`;
   }).join('');
 
@@ -4610,8 +4617,12 @@ window.GeoPreview=GeoPreview;
     const dss={}; jobs.forEach(j=>(j.params.datasets||[]).forEach(d=>{dss[typeOf(d)]=d;}));
     for(const [type,d] of Object.entries(dss)){
       if(!$u(`up-${type}-pct`))continue;
-      setv(`up-${type}-pct`,d.noise_pct!=null?+(d.noise_pct*100).toPrecision(6):null);
-      setv(`up-${type}-floor`,d.noise_floor);
+      const auto=d.noise_floor==='auto'||d.noise_pct==='auto';
+      if($u(`up-${type}-noiseauto`)){$u(`up-${type}-noiseauto`).checked=auto; noiseUi(type);}
+      if(!auto){
+        setv(`up-${type}-pct`,d.noise_pct!=null?+(d.noise_pct*100).toPrecision(6):null);
+        setv(`up-${type}-floor`,d.noise_floor);
+      }
       setv(`up-${type}-comp`,d.component,notes);
       if(type==='gravity')setv('up-gravity-sign',d.gz_convention,notes);
       if(type==='magnetic'){
@@ -4773,6 +4784,20 @@ window.GeoPreview=GeoPreview;
       if(inp.dataset.for!==sel.value||!inp.value){inp.value=f[1](surveyWidth(),d&&d.spacing); inp.dataset.for=sel.value;}
     });
   }
+  // Automatic errors (worker.auto_noise): 2 % and a floor of 1.5 % of the 5-95 % spread of the
+  // data inverted, worked out by the worker; previewed here from the window's preview samples
+  function noiseAuto(key){const b=$u(`up-${key}-noiseauto`);return !!(b&&b.checked);}
+  function noiseUi(key){
+    const auto=noiseAuto(key), msg=$u(`up-${key}-noise-msg`); if(!msg)return;
+    [`up-${key}-pct`,`up-${key}-floor`].forEach(id=>{$u(id).disabled=auto;});
+    const t=UP_TYPES.find(x=>x.key===key), st=auto&&analysis?windowStats(key):null;
+    msg.innerHTML=!auto?'':st
+      ?`Automatic: ${AUTO_NOISE_PCT} % + a floor of ≈ ${(+(AUTO_FLOOR_SHARE*(st.p95-st.p5)).toPrecision(2)).toLocaleString('en-US')} ${t.unit} `+
+        `(${100*AUTO_FLOOR_SHARE} % of the window’s 5–95 % spread, ${fmtInt(st.p95-st.p5)} ${t.unit}); the worker sets it from the data it inverts`
+      :`Automatic: ${AUTO_NOISE_PCT} % + a floor of ${100*AUTO_FLOOR_SHARE} % of the spread of the data in the window, set when the job starts`;
+  }
+  ['gravity','magnetic'].forEach(key=>{const b=$u(`up-${key}-noiseauto`);
+    if(b)b.addEventListener('change',()=>{noiseUi(key); if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}});});
   function regionalSpec(key){
     const v=$u(`up-${key}-reg`)?.value;
     if(!v||v==='none')return null;
@@ -6505,7 +6530,7 @@ window.GeoPreview=GeoPreview;
   }
 
   function renderAreaInfo(){
-    demNote();
+    demNote(); noiseUi('gravity'); noiseUi('magnetic');
     const w=windowRect(), e=surveyExtent();
     const kmv=m=>+(m/1000).toFixed(3);
     [['up-aoi-w',w[1]-w[0]],['up-aoi-h',w[3]-w[2]],['up-aoi-cx',(w[0]+w[1])/2],['up-aoi-cy',(w[2]+w[3])/2]].forEach(([id,v])=>{
@@ -6926,7 +6951,10 @@ window.GeoPreview=GeoPreview;
       const rtp=t.key==='magnetic'&&$u('up-magnetic-data').value==='rtp';
       const ht=$u(`up-${t.key}-height`)?.value, ct=$u(`up-${t.key}-cont`)?.value;
       const where=(+ht?` · ${ht} m above ground`:'')+(+ct?` · continued to ${ct} m before thinning`:'');
-      return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}${where}`+
+      const st=noiseAuto(t.key)?windowStats(t.key):null;
+      const err=noiseAuto(t.key)?` · errors automatic: ${AUTO_NOISE_PCT} % + ${st?'≈ '+(+(AUTO_FLOOR_SHARE*(st.p95-st.p5)).toPrecision(2)).toLocaleString('en-US'):`${100*AUTO_FLOOR_SHARE} % of the spread`} ${t.unit}`
+        :$u(`up-${t.key}-pct`)?` · errors ${escH($u(`up-${t.key}-pct`).value)} % + ${escH($u(`up-${t.key}-floor`).value)} ${t.unit}`:'';
+      return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}${where}${err}`+
         (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} data, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
         (reg?` · regional: ${escH(reg.textContent)}`:'');
     }).join('<br>');
@@ -7046,7 +7074,7 @@ window.GeoPreview=GeoPreview;
     // cross-validation fitted the nodes it saw to χ²/N 0.54 and those it did not to 2.38;
     // with 2 % + 90 nT (1.5 % of the 5-95 % spread) both came to 0.89
     const floor=+ds.noise_floor||0, want=Math.max(1,Math.round(0.015*spread/10)*10);
-    if(spread>0&&floor<0.004*spread)
+    if(spread>0&&ds.noise_floor!=='auto'&&floor<0.004*spread)
       add('warn',`Magnetics: a noise floor of ${floor} nT against anomalies spanning ${fmtInt(spread)} nT (5–95 %): the data near the anomalies' zero crossings get errors of a few nT, `+
         `which no model fits without inventing near-surface detail (overfitting: the fit to unseen data is much worse). A floor of about 1.5 % of the spread, ${fmtInt(want)} nT, `+
         `and a smaller percentage (2 %) carry the gridding and levelling errors of the grid`,
@@ -7168,7 +7196,7 @@ window.GeoPreview=GeoPreview;
     // the data errors
     for(const t of s?s.types:[]){
       const fl=$u(`up-${t.key}-floor`);
-      if(fl&&!(+fl.value>0)&&t.key!=='electrical')add('warn',`${t.label}: a noise floor of 0 gives the smallest data almost no error, and χ² = N may be out of reach`);
+      if(fl&&!noiseAuto(t.key)&&!(+fl.value>0)&&t.key!=='electrical')add('warn',`${t.label}: a noise floor of 0 gives the smallest data almost no error, and χ² = N may be out of reach`);
     }
     // the iterations
     const mi=currentMaxIter();
@@ -7340,9 +7368,10 @@ window.GeoPreview=GeoPreview;
   }
 
   function datasetSpec(t){
+    const auto=noiseAuto(t.key);
     const spec={type:t.key,method:methodOf(t),files:files[t.key].map(f=>f.name),
-      noise_pct:num(`up-${t.key}-pct`,`${t.label} uncertainty`,{min:0})/100,
-      noise_floor:num(`up-${t.key}-floor`,`${t.label} noise floor`,{min:0})};
+      noise_pct:auto?'auto':num(`up-${t.key}-pct`,`${t.label} uncertainty`,{min:0})/100,
+      noise_floor:auto?'auto':num(`up-${t.key}-floor`,`${t.label} noise floor`,{min:0})};
     if(t.key==='gravity'){
       spec.component=$u('up-gravity-comp').value;
       // Field gz is positive down (positive over dense rock); SimPEG's gz is positive up

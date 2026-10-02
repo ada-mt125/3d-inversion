@@ -1663,3 +1663,18 @@ The user saw the old 3D grid again: their server had started at 11:47, the fix w
 4,394 m). /api/health now reports `code_changed` (a package .py file newer than at start),
 and the page shows a banner asking to restart GeoInv3D.command. The page itself is read on
 every request, so it is always the new one.
+
+## 2026-10-02 — Automatic data errors
+
+`noise_pct` / `noise_floor` can be "auto" (worker.auto_noise): 2 % of each datum and a floor of
+1.5 % of the 5-95 % spread of the data inverted, after the window, thinning and the regional
+(a number given for one of the two is kept). The result records `noise_auto` with the spread.
+The rule is the one the Block-8 cross-validation supported (2 % + 90 nT: χ²/N 0.89 on the
+nodes fitted and on those left out, against 0.54 / 2.38 with 5 % + 2 nT); it is a starting
+point, not a calibration: the misfit a model can reach depends on the model too
+(remanence, bounds, cell size).
+
+On the page the gravity and magnetic cards have "Automatic", ticked by default: the fields
+are disabled, the card previews the floor from the window (Block-8 window: ≈ 85 nT; the job
+from the page got 84.2 nT), the Review lists the errors, the floor checks skip automatic
+errors, and setups, "start from a job" and the re-run dialog keep "auto".

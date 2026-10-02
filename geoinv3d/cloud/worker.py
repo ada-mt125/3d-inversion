@@ -1580,6 +1580,32 @@ _REG_PARAM_KEYS = (
 )
 
 
+# Automatic errors (noise_floor "auto", noise_pct "auto"): a floor of 1.5 % of the 5-95 %
+# spread of the data inverted, and 2 % of each datum.  Errors in proportion to |d| alone give
+# the zero crossings of the anomalies a few nT, which no model fits without near-surface
+# speckle: on the Block-8 window (5 % + 2 nT) a cross-validation fitted the nodes it saw to
+# χ²/N 0.54 and those it did not to 2.38; with 2 % + 90 nT (1.5 % of the spread) both 0.89.
+AUTO_FLOOR_SHARE = 0.015
+AUTO_NOISE_PCT = 0.02
+
+
+def auto_noise(values, noise_pct, noise_floor) -> dict | None:
+    """The errors of a dataset whose noise_floor or noise_pct is "auto" (else None):
+    {"noise_pct", "noise_floor", "spread", "floor_share"}; a given number is kept."""
+    is_auto = lambda v: isinstance(v, str) and v.strip().lower() == "auto"
+    if not (is_auto(noise_floor) or is_auto(noise_pct)):
+        return None
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    p5, p95 = np.percentile(v, [5, 95]) if v.size else (0.0, 0.0)
+    spread = float(p95 - p5)
+    floor = AUTO_FLOOR_SHARE * spread if is_auto(noise_floor) else float(noise_floor)
+    if is_auto(noise_floor) and not floor > 0:   # constant data: a floor from their size
+        floor = max(AUTO_FLOOR_SHARE * float(np.max(np.abs(v))) if v.size else 0.0, 1e-12)
+    return {"noise_pct": AUTO_NOISE_PCT if is_auto(noise_pct) else float(noise_pct),
+            "noise_floor": float(floor), "spread": spread, "floor_share": AUTO_FLOOR_SHARE}
+
+
 @dataclass
 class PipelineDataset:
     """One observed dataset after loading, ready for inversion."""
@@ -1592,6 +1618,7 @@ class PipelineDataset:
     files: list
     noise_pct: float
     noise_floor: float
+    noise_auto: dict | None = None    # the errors were chosen from the data (see auto_noise)
     spacing: float | None = None      # data spacing (m) of the finest file
     spacing_kind: str = ""            # "grid" or "points"
     regional: dict | None = None      # summary of the removed regional field
@@ -2086,8 +2113,15 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
         print(f"[Pipeline] {method}: removed regional field ({regional['label']}): data std "
               f"{regional['data_std_before']:.4g} -> {regional['data_std_after']:.4g}")
 
-    noise_pct = float(spec.get("noise_pct", params.get("noise_pct", 0.05)))
-    noise_floor = float(spec.get("noise_floor", params.get("noise_floor", 0.5)))
+    noise_pct = spec.get("noise_pct", params.get("noise_pct", 0.05))
+    noise_floor = spec.get("noise_floor", params.get("noise_floor", 0.5))
+    noise_auto = auto_noise(dobs, noise_pct, noise_floor)
+    if noise_auto:
+        noise_pct, noise_floor = noise_auto["noise_pct"], noise_auto["noise_floor"]
+        print(f"[Pipeline] {method}: automatic errors: {100 * noise_pct:g} % + {noise_floor:.4g} "
+              f"(floor {100 * AUTO_FLOOR_SHARE:g} % of the 5-95 % spread of the data, "
+              f"{noise_auto['spread']:.4g})")
+    noise_pct, noise_floor = float(noise_pct), float(noise_floor)
     std = noise_pct * np.abs(dobs) + noise_floor
     if np.any(std <= 0):
         raise ValueError(
@@ -2101,7 +2135,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     return PipelineDataset(
         method=method, component=component, locations=locs, observed=dobs, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
-        spacing=spacing, spacing_kind=spacing_kind, regional=regional,
+        noise_auto=noise_auto, spacing=spacing, spacing_kind=spacing_kind, regional=regional,
         trend=(raw - dobs) if regional else None, rtp=rtp_info, continuation=cont_info, igrf=igrf_info,
         sign=_simpeg_sign(method, component, spec, params),
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
@@ -2898,7 +2932,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         "datasets": [
             {"method": ds.method, "component": ds.component, "files": ds.files,
              "n_data": int(ds.observed.size), "noise_pct": ds.noise_pct,
-             "noise_floor": ds.noise_floor, "regional": ds.regional,
+             "noise_floor": ds.noise_floor, "noise_auto": ds.noise_auto, "regional": ds.regional,
              "gz_convention": ("positive_down" if ds.sign < 0 else "simpeg")
              if ds.method == "gravity" and ds.component == "gz" else None,
              "decimation": ds.decimation,
