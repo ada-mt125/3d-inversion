@@ -1101,12 +1101,15 @@ def enhancement_maps(x, y, v, method: str, p: dict) -> dict:
     reg = p.get("regional")
     if reg and reg.get("method") not in (None, "none") and want & {"regional", "residual"}:
         from ..methods.regional import remove_regional
+        # on the data the inversion fits: as measured, or reduced to the pole
+        base = maps["rtp"] if p.get("invert_rtp") and "rtp" in maps else g
         X, Y = np.meshgrid(xg, yg)
-        ok = np.isfinite(g)
-        res, info = remove_regional(np.c_[X[ok], Y[ok]], g[ok], reg)
+        ok = np.isfinite(base)
+        res, info = remove_regional(np.c_[X[ok], Y[ok]], base[ok], reg)
         maps["residual"] = np.full_like(g, np.nan); maps["residual"][ok] = res
-        maps["regional"] = g - maps["residual"]
-        notes.append(f"Regional field: {info['label']} (on the data as inverted, not the RTP); "
+        maps["regional"] = base - maps["residual"]
+        notes.append(f"Regional field: {info['label']} (on the data "
+                     f"{'reduced to the pole' if base is not g else 'as measured'}, as inverted); "
                      f"std {info['data_std_before']:.4g} → {info['data_std_after']:.4g}")
         if reg.get("method") == "upward":
             notes.append("Upward continuation also weakens the broad field itself, so the residual "
@@ -1135,7 +1138,8 @@ async def enhance_data(files: list[UploadFile] = File(default=[]), data_id: str 
     later calls send only the id with other settings.  ``params_json``: products (keys of
     ENHANCE_MAPS), inc and dec (the field, declination from grid north, for the reduction to
     the pole), uc_m (continue upwards first), window (NSTD), regional (a methods/regional
-    spec), max_px (the returned maps' size)."""
+    spec), invert_rtp (the regional and residual of the data reduced to the pole, when the
+    job inverts those), max_px (the returned maps' size)."""
     from starlette.concurrency import run_in_threadpool
     try:
         p = json.loads(params_json)

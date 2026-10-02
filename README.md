@@ -201,7 +201,12 @@ detectors tilt, theta, THDR of the tilt, NSTD and their normalized vertical deri
 with the zero line of the vertical derivative and the map layers over them; and the
 regional–residual split the inversion will use. Besides trend surfaces the regional field
 can now be an upward continuation, a Butterworth low-pass or a band-pass
-(`geoinv3d/methods/regional.py`), computed by the worker on the gridded data.
+(`geoinv3d/methods/regional.py`), computed by the worker on the gridded data. Magnetic
+total-field data can also be **inverted reduced to the pole** (the card's *Data inverted*;
+`rtp: true` in a dataset): the worker reduces each file's full data, samples it at the
+job's stations, takes the regional field from the reduced data and inverts under a vertical
+field. It assumes induced magnetization (not with MVI), and the page refuses it below
+|I| = 30° and warns below 45°, where the total field is the safer choice.
 
 The page also fetches what a survey needs but its files often lack: **a DEM** for the data
 area and the mesh's padding (SRTM 1 arc-second from the public AWS terrain tiles, else

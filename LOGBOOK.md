@@ -1462,3 +1462,22 @@ then a sparse inversion), which the user asked to build into the page:
   map layers, and the regional controls mirrored from the data card (what the inversion
   uses). A Butterworth residual chosen there (23 km, std 276 → 193 nT) was inverted by the
   worker with the same numbers.
+
+---
+
+## 2026-10-02 — Inverting magnetic data reduced to the pole
+
+Yang et al. (2026) invert the Butterworth residual of the reduced-to-pole anomaly, not the
+total field. The workflow is meant for other areas too, so it is now an option:
+`rtp: true` on a magnetic TMI dataset (the card's *Data inverted*). `worker._reduce_to_pole`
+reads each file whole, reduces it on the data gridded at their spacing (methods/enhance.rtp,
+damped below |I| = 30°), samples the result at the stations the job keeps (after window and
+thinning), and sets the inducing field to [F, 90°, 0°] so that data and kernel agree; the
+regional field is then removed from the reduced data. Refused with MVI (induced
+magnetization is assumed) and for anything but TMI. Against a SimPEG forward model of a
+block under a vertical field the reduction is exact to 0.01 % (r = 1.0000, peak 134.7 vs
+134.8 nT). The page blocks it below |I| = 30° (Karnataka, I = 19.3°, is refused with a
+button back to the total field) and warns below 45°; the enhancement panel shows the
+regional and residual of the reduced data when that is what is inverted. A job at a test
+field of I = 60° ran: reduced, Butterworth residual (std 294 → 205 nT), inverted under a
+vertical field; result.json records the reduction under `datasets[i].rtp`.

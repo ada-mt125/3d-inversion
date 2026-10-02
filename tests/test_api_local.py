@@ -486,3 +486,12 @@ class TestEnhance:
                                                "params_json": json.dumps({"products": ["nstd"]})})
         assert r2.status_code == 200 and list(r2.json()["maps"]) == ["nstd"]
         assert client.post("/api/enhance", data={"data_id": "nope", "params_json": "{}"}).status_code == 404
+        # the residual of the data reduced to the pole, when the job inverts those
+        both = {}
+        for flag in (False, True):
+            q = {**params, "products": ["residual"], "invert_rtp": flag}
+            r3 = client.post("/api/enhance", data={"data_id": d["data_id"], "method": "magnetic",
+                                                   "params_json": json.dumps(q)}).json()
+            both[flag] = np.array(r3["maps"]["residual"]["values"], dtype=float)
+            assert ("reduced to the pole" in " ".join(r3["notes"])) == flag
+        assert not np.allclose(both[False], both[True], equal_nan=True)

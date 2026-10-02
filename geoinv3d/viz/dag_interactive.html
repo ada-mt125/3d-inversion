@@ -4132,6 +4132,7 @@ window.GeoPreview=GeoPreview;
         {id:'inc',label:'Inclination I (°)',type:'number',value:90},
         {id:'dec',label:'Declination D (°)',type:'number',value:0},
         {id:'mag',label:'Magnetization',type:'select',options:[['induced','Induced — susceptibility'],['vector','Vector — with remanence (MVI)']]},
+        {id:'data',label:'Data inverted',type:'select',options:[['tmi','Total field as measured'],['rtp','Reduced to the pole (vertical field)']]},
         {id:'reg',label:'Regional field',type:'select',options:[['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3'],
           ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)']]}]},
     {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
@@ -4516,6 +4517,7 @@ window.GeoPreview=GeoPreview;
         const k=d.method_kwargs||{}, f=k.inducing_field;
         if(f){setv('up-magnetic-amp',f[0]);setv('up-magnetic-inc',f[1]);setv('up-magnetic-dec',f[2]);}
         setv('up-magnetic-mag',k.magnetization==='vector'?'vector':'induced');
+        setv('up-magnetic-data',d.rtp?'rtp':'tmi');
       }
       const reg=d.regional;
       setv(`up-${type}-reg`,!reg?'none':reg.method==='mean'?'mean':reg.method==='polynomial'?'poly'+(reg.order||1):reg.method,notes);
@@ -4682,6 +4684,7 @@ window.GeoPreview=GeoPreview;
     if(!(a<b))throw new Error('The band-pass needs the shortest wavelength below the longest');
     return {method:'bandpass',short_m:a,long_m:b};
   }
+  $u('up-magnetic-data').addEventListener('change',()=>enhSoon());
   ['gravity','magnetic'].forEach(key=>{
     $u(`up-${key}-reg`).addEventListener('change',()=>{renderRegParams(key);enhSoon();});
     ['a','b'].forEach(ab=>$u(`up-${key}-reg${ab}`).addEventListener('input',enhSoon));
@@ -4733,7 +4736,8 @@ window.GeoPreview=GeoPreview;
     try{reg=regionalSpec(key);}catch(err){note.innerHTML=`<span class="up-err">⚠ ${escH(err.message)}</span>`;return;}
     const params={products:[map,...($u('enh-zero').checked&&map!=='vdr'?['vdr']:[])],uc_m:+$u('enh-uc').value||0,
       window:+$u('enh-win').value||5,regional:reg,max_px:300};
-    if(key==='magnetic'){params.inc=+$u('up-magnetic-inc').value; params.dec=+$u('up-magnetic-dec').value;}
+    if(key==='magnetic'){params.inc=+$u('up-magnetic-inc').value; params.dec=+$u('up-magnetic-dec').value;
+      params.invert_rtp=$u('up-magnetic-data').value==='rtp';}
     const send=async withFiles=>{
       const fd=new FormData();
       if(withFiles)files[key].forEach(f=>fd.append('files',f)); else fd.append('data_id',ENH.id[key]);
@@ -6808,7 +6812,8 @@ window.GeoPreview=GeoPreview;
     const dataTxt=s.types.map(t=>{
       const c=analysis&&analysis.counts&&analysis.counts.find(x=>x.d.t===t);
       const reg=$u(`up-${t.key}-reg`)?.selectedOptions[0];
-      return `${t.label}: ${files[t.key].length} file${files[t.key].length>1?'s':''}`+
+      const rtp=t.key==='magnetic'&&$u('up-magnetic-data').value==='rtp';
+      return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}`+
         (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} data, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
         (reg?` · regional: ${escH(reg.textContent)}`:'');
     }).join('<br>');
@@ -6911,6 +6916,12 @@ window.GeoPreview=GeoPreview;
       else if(F===50000&&I===90&&D===0)add('warn','The inducing field is the default (50,000 nT, straight down), right only near a magnetic pole: compute it for the survey',
         ['Field from IGRF-14',()=>getIgrf()]);
       else add('ok',`Inducing field F ${fmtInt(F)} nT, I ${I}°, D ${D}° (set by hand)`);
+      if($u('up-magnetic-data').value==='rtp'){
+        const toTmi=['Invert the total field',()=>{$u('up-magnetic-data').value='tmi';}];
+        if(Math.abs(I)<30)add('error',`Reduced to the pole at I = ${I}°: this close to the magnetic equator the reduction is damped and distorts the anomalies — invert the total field as measured`,toTmi);
+        else if(Math.abs(I)<45)add('warn',`Reduced to the pole at I = ${I}°: the reduction is stable but sensitive to the declination and to any remanence; compare with an inversion of the total field`,toTmi);
+        else add('ok',`The data are reduced to the pole (I ${I}° → vertical) and inverted under a vertical field; induced magnetization is assumed`);
+      }
     }
     // the data errors
     for(const t of s?s.types:[]){
@@ -7069,6 +7080,12 @@ window.GeoPreview=GeoPreview;
       spec.method_kwargs={inducing_field:[num('up-magnetic-amp','field strength',{min:0}),num('up-magnetic-inc','inclination'),num('up-magnetic-dec','declination')]};
       // a magnetization vector per cell (MVI): remanence in any direction; single inversions
       if($u('up-magnetic-mag').value==='vector')spec.method_kwargs.magnetization='vector';
+      // the data reduced to the pole (and their residual), inverted under a vertical field
+      if($u('up-magnetic-data').value==='rtp'){
+        if(spec.method_kwargs.magnetization==='vector')throw new Error('The reduction to the pole assumes induced magnetization: choose Induced, or invert the total field as measured (MVI)');
+        if(spec.component!=='tmi')throw new Error('Only total-field (TMI) data can be reduced to the pole');
+        spec.rtp=true;
+      }
     }
     // Thinning chosen in the area step (per data type)
     const d=analysis&&analysis.ds.find(x=>x.t===t), target=d&&decTarget(d);

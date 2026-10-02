@@ -1596,6 +1596,7 @@ class PipelineDataset:
     spacing_kind: str = ""            # "grid" or "points"
     regional: dict | None = None      # summary of the removed regional field
     trend: np.ndarray | None = None   # the removed regional field at the stations
+    rtp: dict | None = None           # the data were reduced to the pole (see _reduce_to_pole)
     bouguer_check: dict | None = None  # per station table: reduction density, terrain correction
     # observed (file convention) x sign = SimPEG convention; see _simpeg_sign
     sign: float = 1.0
@@ -1770,6 +1771,46 @@ def _file_spacing(locs, values, meta) -> tuple:
         return None, ""
 
 
+# Below this |inclination| the reduction to the pole is damped (methods/enhance.rtp) and
+# distorts the anomalies; the upload page refuses it there
+RTP_MIN_INCLINATION = 30.0
+
+
+def _reduce_to_pole(files, data_dir, method, component, crs, locs, kwargs):
+    """Total-field data reduced to the pole at the job's stations, the method's kwargs for
+    a vertical field (magnetization along it), and a summary.
+
+    Each file is read whole (no window, no thinning) and the reduction is computed on all
+    of them gridded at their spacing, so the window's edges do not cut into the filter; the
+    result is sampled at the stations the job keeps.  Induced magnetization is assumed:
+    remanence in another direction would be wrongly reduced, so the magnetization-vector
+    inversion takes the measured field instead.
+    """
+    from ..methods.enhance import rtp, sample, to_grid
+    if method != "magnetics" or component != "tmi":
+        raise ValueError("The reduction to the pole applies to total-field magnetic data (tmi)")
+    if kwargs.get("magnetization") == "vector":
+        raise ValueError("The magnetization-vector inversion models the field as measured: "
+                         "invert the total field, not its reduction to the pole")
+    field = kwargs.get("inducing_field")
+    if not field or len(field) != 3:
+        raise ValueError("The reduction to the pole needs the inducing field [F, I, D]")
+    strength, inc, dec = (float(v) for v in field)
+    xs, ys, vs = [], [], []
+    for fname in files:
+        l, v, _ = _read_observations(os.path.join(data_dir, fname), component, 1, None, None, crs)
+        ok = np.isfinite(v) & np.isfinite(l[:, :2]).all(axis=1)
+        xs.append(l[ok, 0]); ys.append(l[ok, 1]); vs.append(v[ok])
+    xg, yg, grid = to_grid(np.concatenate(xs), np.concatenate(ys), np.concatenate(vs))
+    damping = max(0.0, np.sin(np.radians(RTP_MIN_INCLINATION)) ** 2 - np.sin(np.radians(abs(inc))) ** 2)
+    reduced = rtp(grid, float(xg[1] - xg[0]), float(yg[1] - yg[0]), inc, dec, damping=damping)
+    values = sample(xg, yg, reduced, locs[:, 0], locs[:, 1])
+    return values, {**kwargs, "inducing_field": (strength, 90.0, 0.0)}, {
+        "field_inclination": inc, "field_declination": dec, "damping": float(damping),
+        "grid_spacing_m": float(xg[1] - xg[0]), "grid_shape": [int(grid.shape[0]), int(grid.shape[1])],
+    }
+
+
 def _dataset_specs(params: dict, data_dir: str, exclude: set) -> list:
     """The `datasets` list from params, or one synthesised from legacy keys."""
     specs = params.get("datasets")
@@ -1902,6 +1943,16 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     if dobs.size == 0:
         raise ValueError(f"No valid {method} observations in {files}")
 
+    # The data reduced to the pole (as e.g. Yang et al. 2026 invert them): then a vertical
+    # field and magnetization; the regional field is taken from the reduced data
+    rtp_info = None
+    if spec.get("rtp"):
+        dobs, kwargs, rtp_info = _reduce_to_pole(files, data_dir, method, component, crs, locs,
+                                                 kwargs)
+        print(f"[Pipeline] {method}: reduced to the pole (field I {rtp_info['field_inclination']:g}°, "
+              f"D {rtp_info['field_declination']:g}°{', damped' if rtp_info['damping'] else ''}); "
+              f"the inversion models a vertical field")
+
     # Regional field (e.g. a polynomial trend surface) removed before inverting
     from ..methods.regional import remove_regional
     raw = dobs
@@ -1927,7 +1978,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
         method=method, component=component, locations=locs, observed=dobs, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
         spacing=spacing, spacing_kind=spacing_kind, regional=regional,
-        trend=(raw - dobs) if regional else None,
+        trend=(raw - dobs) if regional else None, rtp=rtp_info,
         sign=_simpeg_sign(method, component, spec, params),
         decimation={"target_spacing_m": target, "files": thinning} if thinning else None,
         model=spec.get("model") or None,
@@ -2725,6 +2776,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
              "gz_convention": ("positive_down" if ds.sign < 0 else "simpeg")
              if ds.method == "gravity" and ds.component == "gz" else None,
              "decimation": ds.decimation,
+             **({"rtp": ds.rtp} if ds.rtp else {}),
              **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {})}
             for ds in datasets
         ],
