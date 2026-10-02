@@ -368,6 +368,9 @@ svg#dag:active{cursor:grabbing;}
 .det-conv ul{margin:3px 0 0 16px;}
 .btn-rerun{display:block;width:100%;margin-top:8px;padding:7px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:5px;cursor:pointer;font-size:12px;text-align:center;}
 .btn-rerun:hover{border-color:var(--accent);color:var(--accent);}
+.btn-delete{color:var(--text3);}
+.btn-delete:hover{border-color:#e8837a;color:#e8837a;}
+.up-job-del{margin-left:auto;}
 /* map layers (3D view side panel) */
 .ml-list{display:flex;flex-direction:column;gap:3px;}
 .ml-item{display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;}
@@ -1818,11 +1821,15 @@ function selectNode(id) {
     h+=`<button class="btn-rerun" data-rerun="${escH(n.job.id)}" title="Same data, changed settings: the new run joins the workflow next to this one">↻ Run again with changes…</button>`;
     if(more)h+=`<button class="btn-rerun" data-rerun="${escH(n.job.id)}" data-more="${2*c.max_iter}">↻ Run again with ${2*c.max_iter} iterations…</button>`;
   }
+  if(n.job&&n.job.id&&window.GEOINV3D_API)
+    h+=`<button class="btn-rerun btn-delete" data-del-run="${escH(n.job.id)}" title="Delete this run, its result and its files on this computer">🗑 Delete this run</button>`;
 
   sbBody.innerHTML=h;
 }
 
 sbBody.addEventListener('click',e=>{
+  const del=e.target.closest('[data-del-run]');
+  if(del){const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===del.dataset.delRun); deleteJob(del.dataset.delRun,n?n.name:''); return;}
   const b=e.target.closest('[data-rerun]'); if(!b)return;
   const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===b.dataset.rerun);
   openRerun(b.dataset.rerun,n?n.name:'',b.dataset.more?{max_iter:b.dataset.more}:null);
@@ -3519,6 +3526,23 @@ function mlTraces3D(){
 // ══════════════════════════════════════════
 const apiRoot=()=>window.GEOINV3D_API||'http://localhost:8000';
 let toastTimer=null;
+// Delete a job that has ended (DELETE /api/jobs/{id}): its record, result and files, and its
+// place in the workspaces; the workflow and the jobs list are then read again
+async function deleteJob(id,label){
+  if(!window.GEOINV3D_API)return false;
+  if(!confirm(`Delete ${label?'“'+label+'” ('+id+')':id}?\n\nIts result, the inputs kept for re-running it and its files on this computer are removed, and it leaves the workflow. This cannot be undone.\n(Saved comparisons keep their own copy.)`))return false;
+  try{
+    const r=await fetch(`${window.GEOINV3D_API}/api/jobs/${encodeURIComponent(id)}`,{method:'DELETE'});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
+    toast(`🗑 Deleted ${escH(id)}`+(d.removed&&d.removed.length?` and ${d.removed.length} folder${d.removed.length>1?'s':''} of its files`:''),5000);
+  }catch(err){toast(`<span class="up-err">⚠ Could not delete ${escH(id)}: ${escH(err.message)}</span>`);return false;}
+  if(typeof WS!=='undefined'&&WS.id){WS.key=''; wsRefresh();}
+  if(window.GeoUpload&&GeoUpload.jobsChanged)GeoUpload.jobsChanged();
+  if(selNode&&selNode.job&&selNode.job.id===id){selNode=null; sbBody.innerHTML='<div class="empty-msg">Deleted</div>';}
+  return true;
+}
+
 function toast(html,ms=9000){
   const t=$v('toast'); t.innerHTML=html; t.hidden=false;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.hidden=true;},ms);
@@ -6798,6 +6822,7 @@ window.GeoPreview=GeoPreview;
         ${j.rerun?`<a class="up-btn up-btn-sm" href="${escH(apiBase())}/api/inversion/${encodeURIComponent(j.job_id)}/bundle" download title="params.json and the data files: run it anywhere with python -m geoinv3d.cloud.worker --local params.json data out">⬇ Inputs (.zip)</a>`:''}
         ${j.display_status==='SUCCEEDED'&&s&&s.convergence&&s.convergence.at_iteration_limit&&s.convergence.status!=='converged'&&j.rerun
           ?`<button type="button" class="up-btn up-btn-sm" data-rerun-job="${escH(j.job_id)}" data-more="${2*s.convergence.max_iter}">↻ With ${2*s.convergence.max_iter} iterations…</button>`:''}
+        ${!ACTIVE(j.display_status)?`<button type="button" class="up-btn up-btn-sm up-btn-danger up-job-del" data-del-job="${escH(j.job_id)}" title="Delete this job, its result and its files on this computer">🗑 Delete</button>`:''}
       </div>
       ${j.parent_job?`<div class="up-job-meta">from <code>${escH(j.parent_job)}</code>`+
         (j.changes?': '+Object.entries(j.changes).slice(0,6).map(([k,v])=>`${escH(k)} = ${escH(JSON.stringify(v)).slice(0,40)}`).join(' · '):'')+'</div>':''}
@@ -6897,6 +6922,8 @@ window.GeoPreview=GeoPreview;
   }
 
   $u('up-jobs').addEventListener('click',e=>{
+    const del=e.target.closest('[data-del-job]');
+    if(del){const j=jobsCache.find(x=>x.job_id===del.dataset.delJob); deleteJob(del.dataset.delJob,j&&(j.note||j.variant)||''); return;}
     const full=e.target.closest('[data-full]'), rr=e.target.closest('[data-rerun-job]'), st=e.target.closest('[data-start-job]');
     if(full)runFull(full.dataset.full,full);
     if(st){
@@ -7624,6 +7651,7 @@ window.GeoPreview=GeoPreview;
   window.GeoUpload={
     showJobs:()=>{switchTab('upload'); goTo(S.JOBS);},
     jobStarted:()=>{wsRefresh(); if(step===S.JOBS)loadJobs();},
+    jobsChanged:()=>{if(step===S.JOBS)loadJobs();},
     // the map layers changed: the window map and the enhancement map show them
     layersChanged:()=>{if(step===S.AREA&&analysis){drawMap(); enhSoon(0);}},
     dataExtent:()=>analysis&&analysis.native?analysis.native.extent:null,

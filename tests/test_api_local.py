@@ -323,6 +323,34 @@ class TestLocalJobsAndReruns:
         assert p["files"] == ["g.csv"] and p["params"]["max_iter"] == 30
         assert client.get("/api/jobs").json()["jobs"][0]["rerun"] is True
 
+    def test_delete_an_ended_job_and_its_files(self, both, tmp_path):
+        client, aws, local, store = both
+        local.job_dir = lambda rec: tmp_path / "local" / rec["task_id"]
+        ws = client.post("/api/workspaces", json={}).json()
+        job = _submit(client, backend="local", workspace_id=ws["id"]).json()["job_id"]
+        rec = store.get(job)
+        run = tmp_path / "local" / rec["task_id"]
+        (run / "out").mkdir(parents=True)
+        (run / "out" / "result.zip").write_bytes(b"zip")
+        inputs = server._inputs_dir(rec["task_id"])
+        assert inputs.exists()
+        assert client.delete(f"/api/jobs/{job}").status_code == 409     # still queued
+        store.update(job, status="SUCCEEDED", summary={})
+        r = client.delete(f"/api/jobs/{job}")
+        assert r.status_code == 200 and r.json()["workspaces"] == [ws["id"]]
+        assert not inputs.exists() and not run.exists() and store.get(job) is None
+        assert job not in client.get(f"/api/workspaces/{ws['id']}").json()["job_ids"]
+        assert all(j["job_id"] != job for j in client.get("/api/jobs").json()["jobs"])
+        assert client.delete(f"/api/jobs/{job}").status_code == 404
+
+    def test_a_task_id_outside_the_folders_is_not_followed(self, both, tmp_path):
+        client, aws, local, store = both
+        victim = tmp_path / "keep.txt"
+        victim.write_text("x")
+        store.put({"job_id": "odd", "task_id": "../../keep.txt", "status": "FAILED", "summary": {}})
+        assert client.delete("/api/jobs/odd").json()["removed"] == []
+        assert victim.exists()
+
     def test_unknown_backend(self, both):
         client, *_ = both
         assert _submit(client, backend="mars").status_code == 400

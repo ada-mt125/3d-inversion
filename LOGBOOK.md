@@ -1686,3 +1686,14 @@ is cached (~/.geoinv3d/workspaces/cache/<id>.json, 98 MB here) under a key of th
 job ids only, and a job that finished at 13:54 had made the old server rebuild it with the
 old ViewerGrid just before the restart. The key now includes CODE_MTIME_AT_START, so a server
 with newer code rebuilds it (and the page, polling the key, reloads it).
+
+## 2026-10-02 — Deleting a run
+
+`DELETE /api/jobs/{id}` deletes a job that has ended: its record, and the files this server
+keeps for it (inputs kept for re-runs, the local run's folder or the result fetched from
+AWS, the temporary copies), and takes it out of every workspace. A queued or running job is
+refused (409: stop it first; `DELETE /api/inversion/{id}` stays the stop). Saved comparisons
+hold their own copy of the workflow and are not touched; a task id that is not a plain name
+is not followed into the file system. The page has "🗑 Delete" on the cards of ended jobs and
+"🗑 Delete this run" on a run's node, after a confirmation; the workflow and the list are
+read again.

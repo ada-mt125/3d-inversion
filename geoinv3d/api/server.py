@@ -233,6 +233,12 @@ class JobStore:
         self._save()
         return record
 
+    def delete(self, job_id: str) -> Optional[dict]:
+        record = self._jobs.pop(job_id, None)
+        if record is not None:
+            self._save()
+        return record
+
     def _save(self) -> None:
         _write_json(self.path, self._jobs, indent=1)
 
@@ -1333,6 +1339,59 @@ async def cancel_job(job_id: str):
         raise HTTPException(status_code=500, detail=str(e))
     get_store().update(job_id, cancel_requested=True)
     return JSONResponse({"ok": True, "message": f"Job {job_id} stopped", **_refresh(job_id)})
+
+
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _job_files(record: dict) -> list[Path]:
+    """The folders and files this server keeps for a job: its inputs (for re-runs), the
+    local run's folder, the result fetched from AWS and the temporary copies."""
+    task = str(record.get("task_id") or "")
+    if not _SAFE_NAME.match(task) or ".." in task:     # never a path outside the folders
+        return []
+    paths = [_inputs_dir(task)]
+    backend = backend_for(record)
+    if record.get("backend") == "local" and hasattr(backend, "job_dir"):
+        paths.append(backend.job_dir(record))
+    elif hasattr(backend, "result_dir"):
+        paths.append(backend.result_dir(record))
+    paths += sorted((_upload_dir / "results").glob(f"{task}*"))
+    return [p for p in paths if p.exists()]
+
+
+@app.delete("/api/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Delete a job that has ended, and everything this server keeps for it: its record,
+    its result, its inputs, the local run's folder, its place in the workspaces.  A job
+    still queued or running has to be stopped first (DELETE /api/inversion/{id}).  Saved
+    comparisons hold their own copy of the results and keep it; nothing on AWS is touched
+    (an EC2 job's instance ends with the job)."""
+    store = get_store()
+    if not store.get(job_id):
+        raise HTTPException(status_code=404, detail="Unknown job")
+    record = _refresh(job_id)
+    if _running(record):
+        raise HTTPException(status_code=409, detail="The job is still queued or running: stop it first")
+    removed = []
+    for path in _job_files(record):
+        try:
+            shutil.rmtree(path) if path.is_dir() else path.unlink()
+            removed.append(str(path))
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Could not delete {path}: {e}")
+    store.delete(job_id)
+    workspaces = []
+    for path in _workspaces_dir().glob("*.json"):
+        try:
+            ws = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if job_id in ws.get("job_ids", []):
+            ws["job_ids"] = [j for j in ws["job_ids"] if j != job_id]
+            _write_json(path, ws)
+            workspaces.append(ws.get("id"))
+    return JSONResponse({"ok": True, "job_id": job_id, "removed": removed, "workspaces": workspaces})
 
 
 @app.post("/api/inversion/{job_id}/finish")

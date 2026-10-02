@@ -188,7 +188,9 @@ at every iteration; at the end it says whether the run converged or why not (ite
 limit, IRLS limit) and offers the fix. Any finished job can be run again on its own files
 with changed settings (iterations, norms, weighting, bounds, mesh, data errors, or all
 parameters as JSON), from its card or from its node in the workflow; the new run joins the
-workspace's workflow next to the old one. Map layers (GeoJSON or CSV: mines, towns,
+workspace's workflow next to the old one. A job that has ended can be **deleted** from its
+card or its node (`DELETE /api/jobs/{id}`: its record, result, kept inputs and local files,
+and its place in the workspaces; saved comparisons keep their copy). Map layers (GeoJSON or CSV: mines, towns,
 geological outlines) are drawn over the 3D view, the depth slice, the sections and the
 data-fit maps; a workspace keeps them for all its runs, and a workflow file can carry its
 own (`map_layers`).
