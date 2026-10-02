@@ -963,7 +963,10 @@ async def workspace_workflow(workspace_id: str, known: str = ""):
     ws = _read_workspace(workspace_id)
     jobs = _workspace_jobs(ws)
     done = [j["job_id"] for j in jobs if j.get("display_status") == "SUCCEEDED"]
-    key = hashlib.sha1(",".join(done).encode()).hexdigest()[:12] if done else ""
+    # the code that builds it is part of the key: a cache from before an update (e.g. the
+    # 3D grids of octree jobs, once sampled from the top of the octree's box) is rebuilt
+    stamp = f"{','.join(done)}|code {CODE_MTIME_AT_START:.0f}"
+    key = hashlib.sha1(stamp.encode()).hexdigest()[:12] if done else ""
     counts = {"key": key, "finished": len(done), "running": sum(map(_running, jobs)),
               "running_local": sum(_running(j) and j.get("backend") == "local" for j in jobs),
               "jobs": len(jobs)}

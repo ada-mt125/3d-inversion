@@ -1678,3 +1678,11 @@ On the page the gravity and magnetic cards have "Automatic", ticked by default: 
 are disabled, the card previews the floor from the window (Block-8 window: ≈ 85 nT; the job
 from the page got 84.2 nT), the Review lists the errors, the floor checks skip automatic
 errors, and setups, "start from a job" and the re-run dialog keep "auto".
+
+## 2026-10-02 — The workspace's workflow cache is rebuilt after an update
+
+After the restart the user's old jobs still showed the old 3D grids: the workspace workflow
+is cached (~/.geoinv3d/workspaces/cache/<id>.json, 98 MB here) under a key of the finished
+job ids only, and a job that finished at 13:54 had made the old server rebuild it with the
+old ViewerGrid just before the restart. The key now includes CODE_MTIME_AT_START, so a server
+with newer code rebuilds it (and the page, polling the key, reloads it).

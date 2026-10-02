@@ -265,6 +265,26 @@ class TestWorkspaces:
         assert sum(n["type"] == "SurveyCreateNode" for n in nodes) == 1   # the same data: one data node
         assert client.get(url).json()["workflow"] == d2["workflow"]      # served from the cache
 
+    def test_a_cache_from_older_code_is_rebuilt(self, ws_api, tmp_path, monkeypatch):
+        from geoinv3d.api import server
+        client, backend, store = ws_api
+        _, zpath, _ = _run(tmp_path)
+        backend.result_zip = zpath
+        ws = client.post("/api/workspaces", json={}).json()
+        url = f"/api/workspaces/{ws['id']}/workflow"
+        job = _submit(client, workspace_id=ws["id"]).json()["job_id"]
+        store.update(job, status="SUCCEEDED", summary={})
+        d = client.get(url).json()
+        cache = server._workspaces_dir() / "cache" / f"{ws['id']}.json"
+        stale = json.loads(cache.read_text())
+        stale["workflow"]["nodes"] = []                       # what an older builder made
+        cache.write_text(json.dumps(stale))
+        assert client.get(url).json()["workflow"]["nodes"] == []     # the same code: the cache
+        # a restart with newer code: the same runs, another key, the workflow built again
+        monkeypatch.setattr(server, "CODE_MTIME_AT_START", server.CODE_MTIME_AT_START + 3600)
+        d2 = client.get(url, params={"known": d["key"]}).json()
+        assert d2["key"] != d["key"] and d2["workflow"]["nodes"]
+
 
 class FakeLocal(FakeBackend):
     """The local backend: jobs named local-<task>, queued first."""
