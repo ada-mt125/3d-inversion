@@ -7005,6 +7005,60 @@ window.GeoPreview=GeoPreview;
     }
     const r=RELIEF.get(key); return r&&r.zmax!=null?r:null;
   }
+  // The data in the window, from the browser's previews (a few hundred samples a side
+  // over the whole file, so peaks of narrow bodies come out low): their level and spread,
+  // the strongest anomaly, and how strong they are along the window's edges
+  function windowStats(key){
+    if(!analysis)return null;
+    const w=windowRect(), inner=[], edge=[];
+    const band=0.08*Math.min(w[1]-w[0],w[3]-w[2]);
+    const put=(x,y,v)=>{
+      if(!Number.isFinite(v)||x<w[0]||x>w[1]||y<w[2]||y>w[3])return;
+      (Math.min(x-w[0],w[1]-x,y-w[2],w[3]-y)<band?edge:inner).push(v);
+    };
+    for(const r of analysis.rows.filter(r=>r.t.key===key&&r.prev&&!r.prev.error)){
+      const p=r.prev;
+      if(p.kind==='grid'){for(let i=0;i<p.py.length;i++)for(let j=0;j<p.px.length;j++)put(p.px[j],p.py[i],p.z[i][j]);}
+      else for(let i=0;i<p.vs.length;i++)put(p.xs[i],p.ys[i],p.vs[i]);
+    }
+    const all=inner.concat(edge); if(all.length<20)return null;
+    const q=a=>{const t=Float64Array.from(a).sort();return f=>t[Math.min(t.length-1,Math.floor(f*t.length))];}, Q=q(all);
+    const med=Q(0.5), dev=a=>a.reduce((m,v)=>Math.max(m,Math.abs(v-med)),0);
+    return {n:all.length,median:med,p5:Q(0.05),p95:Q(0.95),peak:all.reduce((m,v)=>Math.max(m,Math.abs(v)),0),
+      edgeDev:dev(edge),innerDev:dev(inner)};
+  }
+  // What made the Block-8 window's job fail to converge (χ²/N 2.35, 91 % of the model in the
+  // padding): bounds of [-0.2, 0.4] SI under a 8,900 nT anomaly (with [0, 2] SI it converged,
+  // 1.07; removing a trend surface did not help), and anomalies running across the edges
+  function magneticDataChecks(add,jobs,F){
+    const st=windowStats('magnetic'); if(!st)return;
+    const job=jobs.find(j=>(j.params.datasets||[]).some(d=>d.type==='magnetic'))||jobs[0], p=job.params;
+    const ds=(p.datasets||[]).find(d=>d.type==='magnetic')||{};
+    const mvi=(ds.method_kwargs||{}).magnetization==='vector';
+    const spread=st.p95-st.p5;
+    if(F>0&&!mvi){
+      // a body of susceptibility k under the sensor gives at most about k F; narrow bodies seen
+      // from 80 m need several times more
+      const kNeed=st.peak/F, hi=p.param_mode==='auto'?null:p.bounds_upper, lo=p.param_mode==='auto'?null:p.bounds_lower;
+      if(hi!=null&&hi<4*kNeed)
+        add('warn',`Magnetics: the strongest anomaly here (≈ ${fmtInt(st.peak)} nT, ${Math.round(100*kNeed)} % of the inducing field) needs susceptibilities of ${kNeed.toFixed(2)} SI or more under the sensor; `+
+          `the upper bound of ${hi} SI caps them, and the inversion spreads the rest into the padding`,
+          ['Upper bound 2 SI',()=>{setField('up-upper',2);}]);
+      if(lo!=null&&lo<0)
+        add('warn',`Magnetics: the lower bound ${lo} SI allows negative susceptibility, which rocks do not have (diamagnetic ones reach −0.00001 SI); it stands in for remanence or a level left in the data. Use 0, and the vector inversion (MVI) for remanence`,
+          ['Lower bound 0',()=>{setField('up-lower',0);}]);
+      if(kNeed>0.05)
+        add('warn',`Magnetics: anomalies of ${fmtInt(st.peak)} nT mean susceptibilities above about 0.1 SI (iron formations, magnetite bodies), where self-demagnetization and often remanence bend the magnetization away from the inducing field. `+
+          `The vector inversion (Magnetization: Vector — MVI, with the Lp-norm regularization) models them; an induced-only model leaves misfit and edge artefacts`);
+    }
+    if(aoi&&st.edgeDev>0.5*spread)
+      add('warn',`Magnetics: strong anomalies reach the window's edges (up to ${fmtInt(st.edgeDev)} nT from the median, ${fmtInt(st.innerDev)} nT inside): `+
+        `their sources continue outside, so the inversion puts them in the padding cells (counted as "outside the core" in the result) and the model near the edges is less certain. `+
+        `A window a few kilometres wider than the area you want to interpret moves those edges away from it`,
+        ['Widen the window by 2 km',()=>{const e=surveyExtent(), r=windowRect(), g=2000;
+          aoi=[Math.max(e[0],r[0]-g),Math.min(e[1],r[1]+g),Math.max(e[2],r[2]-g),Math.min(e[3],r[3]+g)];
+          applyArea(); renderResolution(); recommend(); if(typeof placeWindow==='function')placeWindow(); renderAreaInfo();}]);
+  }
   async function preflight(jobs){
     const out=[], add=(level,text,fix)=>out.push({level,text,fix});
     const s=selection(), m=meshParams(), sp=analysis&&analysis.spacing, e=analysis&&analysis.extent;
@@ -7094,6 +7148,7 @@ window.GeoPreview=GeoPreview;
         else if(Math.abs(I)<45)add('warn',`Reduced to the pole at I = ${I}°: the reduction is stable but sensitive to the declination and to any remanence; compare with an inversion of the total field`,toTmi);
         else add('ok',`The data are reduced to the pole (I ${I}° → vertical) and inverted under a vertical field; induced magnetization is assumed`);
       }
+      magneticDataChecks(add,jobs,F);
     }
     // the data errors
     for(const t of s?s.types:[]){

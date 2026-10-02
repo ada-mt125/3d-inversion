@@ -1601,3 +1601,34 @@ Also: "View Full Results" only on nodes with results to show (an inversion's ite
 model or data fit), not on mesh and survey nodes; and results record `l1l2_solver` and
 `l1l2_weighting` (the node said "CDA" for the IRLS run; older results take it from their
 regularization label).
+
+## 2026-10-02 — Why the Block-8 5 km job did not converge, and checks for it
+
+The user's job (5 km window, 17,955 data at 37.5 m, OcTree 37.5 m × 25 m, L1–L2 IRLS, bounds
+[-0.2, 0.4] SI, no regional) ended at χ²/N 2.33 after 56 iterations, β cooled to 4e-23, 91 %
+of the model "outside the core". The window lies on iron-formation ridges: -4,132 to +8,864 nT.
+25,344 cells sat at 0.4 SI and 40,190 at -0.2 SI; the 8,864 nT peak was fitted at 4,758 nT.
+
+Tests on the same window thinned to 75 m (75 m × 37.5 m cells, 4,556 data, 40-100 s each):
+
+| run | χ²/N | outside core |
+|---|---|---|
+| as run, bounds [-0.2, 0.4] | 2.35 | 0.91 |
+| trend surface removed, same bounds | 2.43 | 0.88 |
+| bounds [0, 2] SI | **1.07, converged** | 0.72 |
+| trend surface + bounds [0, 2] | 1.12 | 0.84 |
+| trend surface + MVI (sparse) | 1.12 | 0.70 |
+| 10 km window, trend + sparse (auto, unbounded) | 1.12 | 0.79 |
+
+The bounds were the cause; a trend surface did not help. With [0, 2] SI, 1,643 cells still
+sit at 2 SI. Most of the rest "outside the core" is in the lateral padding: the anomalies
+run across the window's edges (the east edge is -4,132 to -647 nT), their sources continue
+outside, and the metric weights by cell volume.
+
+New Review checks for magnetic data, from the browser's previews of the window:
+- an upper bound under 4 × (strongest anomaly / F) (fix: 2 SI);
+- a negative lower bound (fix: 0);
+- anomalies over 5 % of F (susceptibility above ~0.1 SI): self-demagnetization and remanence,
+  MVI suggested;
+- strong anomalies at the window's edges (more than half the data's 5-95 % spread from the
+  median), with "Widen the window by 2 km".
