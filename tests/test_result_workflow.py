@@ -206,3 +206,51 @@ def test_a_stand_alone_viewer_keeps_the_map_layers(tmp_path):
     html = open(generate_viewer(str(src)), encoding="utf-8").read()
     data = json.loads(html.split('<script id="embedded-data" type="application/json">')[1].split("</script>")[0])
     assert data["map_layers"] == layers
+
+
+class TestViewerGrid:
+    """The 3D tab's grid: from the ground down, and small enough for the browser."""
+
+    @staticmethod
+    def _meta(mesh, ext, h, dz, depth, active=None, topography=None):
+        return {"mesh_design": {"used": {"core_cell_m": h, "core_cell_z_m": dz,
+                                         "depth_core_m": depth, "pad_distance_m": 1000.0}},
+                "cell_centers_x": [ext[0], ext[1]], "cell_centers_y": [ext[2], ext[3]],
+                "_active": active, "topography": topography}
+
+    def test_an_octree_starts_at_the_ground_not_the_top_of_its_box(self):
+        pytest.importorskip("discretize")
+        from geoinv3d.cloud.worker import _build_octree_mesh
+        from geoinv3d.viz.result_workflow import ViewerGrid
+        ext, flat = (0.0, 2000.0, 0.0, 2000.0), lambda x, y: np.zeros_like(np.asarray(x, float))
+        mesh = _build_octree_mesh(ext, flat, 100.0, 50.0, 1000.0, 1000.0, [4, 4, 4]).to_discretize()
+        assert mesh.cell_centers[:, 2].max() > 500           # the box reaches far into the air
+        active = mesh.cell_centers[:, 2] < 0
+        g = ViewerGrid(self._meta(mesh, ext, 100.0, 50.0, 1000.0, active), mesh)
+        assert g.z_edges.max() == pytest.approx(0.0) and g.z_edges.min() == pytest.approx(-1000.0)
+        assert g.factors == (1, 1) and g.shape[2] == 20
+
+    def test_a_large_grid_is_coarsened(self, monkeypatch):
+        pytest.importorskip("discretize")
+        from discretize import TensorMesh
+        import geoinv3d.viz.result_workflow as rw
+        monkeypatch.setattr(rw, "MAX_VIEWER_CELLS", 1000)
+        # a tensor core of 20 x 20 x 10 cells of 50 m x 25 m, 3 padding cells each side
+        n_pad = 3
+        from geoinv3d.cloud.meshing import padding_cells
+        monkeypatch.setattr("geoinv3d.cloud.meshing.padding_cells", lambda h, p: n_pad)
+        hx = [(50.0, n_pad, -1.3), (50.0, 20), (50.0, n_pad, 1.3)]
+        hz = [(25.0, n_pad, -1.3), (25.0, 10)]
+        mesh = TensorMesh([hx, hx, hz], origin="CC0")
+        meta = self._meta(mesh, (-500, 500, -500, 500), 50.0, 25.0, 250.0)
+        g = rw.ViewerGrid(meta, mesh)
+        assert np.prod(g.shape) <= 1000 and g.factors != (1, 1)
+        k, kz = g.factors
+        assert g.shape == (int(np.ceil(20 / k)), int(np.ceil(20 / k)), int(np.ceil(10 / kz)))
+        model = np.arange(mesh.n_cells, dtype=float)
+        v = g.values(model)
+        assert v.size == np.prod(g.shape) and np.isfinite(v).all()
+        # each value is the mean of its block of core cells
+        core = model.reshape(mesh.shape_cells, order="F")[n_pad:-n_pad, n_pad:-n_pad, n_pad:]
+        top = core[:k, :k, ::-1][:, :, :kz].mean()
+        assert v[0] == pytest.approx(top)

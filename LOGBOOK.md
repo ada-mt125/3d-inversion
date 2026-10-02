@@ -1585,3 +1585,19 @@ Area step under the data density, its button names the area ("for this window" /
 whole survey"), and a downloaded DEM that no longer fits the window (moved out of it, or
 made for more than 4 times the area) says to get it again. The checks' "Get a DEM" fixes go
 to the Area step.
+
+## 2026-10-02 — The 3D tab for octree jobs: from the ground, and a size the browser can draw
+
+The user's 5 km job (OcTree, 37.5 m × 25 m cells, SRTM ground 571-1,020 m) showed nothing in
+the 3D tab, and its slices reached 4,000 m into the air. `ViewerGrid` sampled octrees from
+the top of the octree's box (5,194 m) down to the core depth below the lowest ground: 134 ×
+132 × 313 = 5.5 million voxels, Plotly's isosurfaces over all of them. It now starts at the
+top of the highest ground cell over the stations (1,019 m; flat ground: 0 m) and keeps at
+most MAX_VIEWER_CELLS = 600,000 voxels, coarsening by whole cells, the finer of the
+horizontal and vertical sizes first (tensor: block means; octree: sampled on the coarser
+grid). The job: 67 × 66 × 89 voxels of 75 m × 50 m, workflow 4.4 MB.
+
+Also: "View Full Results" only on nodes with results to show (an inversion's iterations,
+model or data fit), not on mesh and survey nodes; and results record `l1l2_solver` and
+`l1l2_weighting` (the node said "CDA" for the IRLS run; older results take it from their
+regularization label).

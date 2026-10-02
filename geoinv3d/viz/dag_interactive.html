@@ -1801,7 +1801,11 @@ function selectNode(id) {
       h+=dRow('chi²',fmtN(df.chi2));
     }
     h+=`</div>`;
-    h+=`<button class="btn-results" onclick="viewResults(${n.id})">View Full Results →</button>`;
+    // only results with something to show: an inversion's iterations, model or data fit
+    // (mesh and survey nodes have just their type)
+    const o=n.output;
+    if((o.iterations&&o.iterations.length)||o.final_model||o.data_fit)
+      h+=`<button class="btn-results" onclick="viewResults(${n.id})">View Full Results →</button>`;
   }
   // a job of the API server: run it again on its own inputs with changed settings
   if(n.job&&n.job.rerun&&window.GEOINV3D_API){

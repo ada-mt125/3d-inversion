@@ -21,6 +21,8 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
+import math
+
 import numpy as np
 
 UNITS = {"gravity": ("density", "g/cc", "mGal"), "magnetics": ("susceptibility", "SI", "nT"),
@@ -294,14 +296,56 @@ def full_model(meta, mesh) -> np.ndarray:
     return m
 
 
+MAX_VIEWER_CELLS = 600_000   # voxels of the 3D tab: Plotly's isosurfaces crawl beyond
+
+
+def _coarsening(n_xy, n_z, h, dz, max_cells=None):
+    """Integer factors (k, kz) for the viewer's horizontal and vertical cells that keep
+    (nx/k)(ny/k)(nz/kz) within ``max_cells``: the finer of the two sizes is doubled up
+    first, so the voxels stay about as wide as they are tall."""
+    nx, ny = n_xy
+    max_cells = max_cells or MAX_VIEWER_CELLS
+    k = kz = 1
+    while math.ceil(nx / k) * math.ceil(ny / k) * math.ceil(n_z / kz) > max_cells:
+        if h * k <= dz * kz and (nx > k or ny > k):
+            k += 1
+        elif n_z > kz:
+            kz += 1
+        else:
+            k += 1
+    return k, kz
+
+
+def _block_mean(v, k, kz):
+    """Means of k x k x kz blocks of a 3-D array (partial blocks at the far ends)."""
+    if k == 1 and kz == 1:
+        return v
+    nx, ny, nz = v.shape
+    px, py, pz = -nx % k, -ny % k, -nz % kz
+    w = np.pad(v.astype(float), ((0, px), (0, py), (0, pz)), constant_values=np.nan)
+    w = w.reshape((nx + px) // k, k, (ny + py) // k, k, (nz + pz) // kz, kz)
+    with np.errstate(invalid="ignore"):
+        return np.nanmean(w, axis=(1, 3, 5))
+
+
+def _coarse_edges(edges, k):
+    """Every k-th edge, with the last one kept."""
+    e = np.asarray(edges)
+    out = e[::k]
+    return out if out[-1] == e[-1] else np.append(out, e[-1])
+
+
 class ViewerGrid:
     """The regular grid the viewer's 3D tab shows: the core of the mesh.
 
     Tensor meshes keep their core cells (padding dropped): below a DEM these
     include the layers the relief adds on top of the core depth, all of the core
     thickness.  Octree meshes are sampled at the centres of a grid of core-sized
-    cells from the top of the mesh down to the core depth below the lowest ground.
-    Cells above the ground are air (0 in the model).
+    cells from the highest ground over the stations (not the top of the octree's box,
+    which reaches far into the air) down to the core depth below the lowest ground.
+    Cells above the ground are air (0 in the model).  Grids of more than
+    MAX_VIEWER_CELLS are coarsened by whole cells (tensor: block means; octree: sampled
+    on the coarser grid).
     """
 
     def __init__(self, meta, mesh):
@@ -310,6 +354,7 @@ class ViewerGrid:
         self.mesh = mesh
         h, dz = used["core_cell_m"], used["core_cell_z_m"]
         n_core_z = int(round(used["depth_core_m"] / dz))
+        self.factors = (1, 1)
         from discretize import TensorMesh
         if isinstance(mesh, TensorMesh):
             n_pad = padding_cells(h, used["pad_distance_m"])
@@ -320,19 +365,34 @@ class ViewerGrid:
             n_z = max(n_core_z, n_top)   # the core plus the relief layers
             self.sl = (slice(n_pad, nx - n_pad), slice(n_pad, ny - n_pad),
                        slice(max(nz - n_z, 0), nz))
-            self.x_edges = mesh.nodes_x[self.sl[0].start:self.sl[0].stop + 1]
-            self.y_edges = mesh.nodes_y[self.sl[1].start:self.sl[1].stop + 1]
-            self.z_edges = mesh.nodes_z[self.sl[2].start:self.sl[2].stop + 1]
+            x_edges = mesh.nodes_x[self.sl[0].start:self.sl[0].stop + 1]
+            y_edges = mesh.nodes_y[self.sl[1].start:self.sl[1].stop + 1]
+            z_edges = mesh.nodes_z[self.sl[2].start:self.sl[2].stop + 1]
+            k, kz = self.factors = _coarsening((len(x_edges) - 1, len(y_edges) - 1),
+                                               len(z_edges) - 1, h, dz)
+            self.x_edges, self.y_edges = _coarse_edges(x_edges, k), _coarse_edges(y_edges, k)
+            # z blocks are counted from the top, where the ground is
+            self.z_edges = _coarse_edges(z_edges[::-1], kz)[::-1]
             self.index = None
         else:   # octree: sample on a regular grid over the stations
             ext = meta.get("cell_centers_x", [0, 0]) + meta.get("cell_centers_y", [0, 0])
-            self.x_edges = np.arange(ext[0], ext[1] + h, h)
-            self.y_edges = np.arange(ext[2], ext[3] + h, h)
-            top = float(mesh.cell_centers[:, 2].max())
+            cc, hz = mesh.cell_centers, mesh.h_gridded[:, 2]
+            active = meta.get("_active")
+            ground = np.ones(mesh.n_cells, bool) if active is None else np.asarray(active, bool)
+            over = ground & (cc[:, 0] >= ext[0]) & (cc[:, 0] <= ext[1]) & \
+                (cc[:, 1] >= ext[2]) & (cc[:, 1] <= ext[3])
+            sel = over if over.any() else ground
+            # the top of the highest ground cell over the stations: above it is only air
+            top = float((cc[sel, 2] + 0.5 * hz[sel]).max()) if sel.any() else float(cc[:, 2].max())
             low = (meta.get("topography") or {}).get("elevation_min")
-            n_z = n_core_z if low is None else max(
-                n_core_z, int(np.ceil((top - (float(low) - used["depth_core_m"])) / dz - 1e-9)))
-            self.z_edges = top - dz * np.arange(n_z + 1)[::-1]
+            bottom = (top if low is None else min(float(low), top)) - used["depth_core_m"]
+            n_z = max(n_core_z, int(np.ceil((top - bottom) / dz - 1e-9)))
+            nx = len(np.arange(ext[0], ext[1] + h, h)) - 1
+            ny = len(np.arange(ext[2], ext[3] + h, h)) - 1
+            k, kz = self.factors = _coarsening((nx, ny), n_z, h, dz)
+            self.x_edges = np.arange(ext[0], ext[1] + h * k, h * k)
+            self.y_edges = np.arange(ext[2], ext[3] + h * k, h * k)
+            self.z_edges = top - dz * kz * np.arange(int(np.ceil(n_z / kz)) + 1)[::-1]
             xc = 0.5 * (self.x_edges[1:] + self.x_edges[:-1])
             yc = 0.5 * (self.y_edges[1:] + self.y_edges[:-1])
             zc = 0.5 * (self.z_edges[1:] + self.z_edges[:-1])
@@ -346,6 +406,9 @@ class ViewerGrid:
         v = np.asarray(full_values)
         if self.sl is not None:
             v = v.reshape(tuple(self.mesh.shape_cells), order="F")[self.sl]
+            k, kz = self.factors
+            if (k, kz) != (1, 1):   # blocks from the top: flip, average, flip back
+                v = _block_mean(v[:, :, ::-1], k, kz)[:, :, ::-1]
         else:
             v = v[self.index].reshape(self.shape, order="F")
         return v[:, :, ::-1].ravel(order="F")
@@ -472,6 +535,11 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
     def settings_of(run):
         s = dict(run.get("settings", {}))
         s["regularization_type"] = s.get("regularization_type") or run.get("regularization")
+        # results from before the solver was recorded: their label names it
+        if s["regularization_type"] == "l1l2" and "l1l2_solver" not in s:
+            label = str(run.get("regularization") or "")
+            if label.endswith("_IRLS") or label.endswith("_CDA"):
+                s["l1l2_solver"] = label.rsplit("_", 1)[1].lower()
         return s
 
     def split(group, fn):
@@ -508,7 +576,7 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
         d = run["_data"]
         locs, observed, pred = d["locations"], d["observed"], d.get("predicted")
         m_full = full_model(run, mesh)
-        settings = run.get("settings", {})
+        settings = settings_of(run)
         run_method = run["datasets"][0]["method"]
         prop, model_unit, data_unit = units(run)
         out = {

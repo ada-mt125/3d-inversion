@@ -2952,6 +2952,10 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             "l1_ratio", "alpha_s", "alpha_x", "alpha_y", "alpha_z", "bounds_lower", "bounds_upper",
             "depth_weighting", "depth_weighting_exponent",
         ) if hasattr(task, k)}
+        if task.regularization_type == "l1l2":   # the viewer names the solver
+            for k in ("l1l2_solver", "l1l2_weighting"):
+                if hasattr(task, k):
+                    result["settings"][k] = getattr(task, k)
         result["settings"]["alpha_s"] = effective_alpha_s(
             task, length_scales=task.regularization_type in ("l2", "sparse", "l1l2", "mgs", "tv")
             or mode == "joint")
