@@ -1697,3 +1697,17 @@ hold their own copy of the workflow and are not touched; a task id that is not a
 is not followed into the file system. The page has "🗑 Delete" on the cards of ended jobs and
 "🗑 Delete this run" on a run's node, after a confirmation; the workflow and the list are
 read again.
+
+## 2026-10-02 — MVI in the memory estimate; the L1–L2 weighting is the CDA's; the padding note
+
+- The user's MVI job (17,822 data, 143,237 cells, 40 m × 25 m) swapped for 8 minutes without
+  an iteration (19.4 of 20.5 GB swap used, 19 % CPU): MVI has three components per cell, so
+  G was 30.6 GB, and the page had counted one. The size check, the time estimate and the
+  Mesh step now count 3 for MVI (that setup: ≈ 50 GB, "not enough memory"), and follow the
+  Magnetization choice.
+- l1l2_weighting (wS1 / wS2) and the λ range are used by the coordinate descent only; SimPEG
+  IRLS weights cells by √diag(JᵀJ), i.e. wS1. Both are grayed out under IRLS; the note no
+  longer calls α → 0 "smooth" (the L2 part is on the values).
+- The padding note says where the model is: beside the data area (anomalies across the
+  edges: widen the window) or below the core (deeper core, bounds), and suggests a compact
+  regularization only to runs without one.

@@ -752,6 +752,21 @@ class TestOutsideCoreShare:
         share = _outside_core_share(dmesh, None, m, extent, margin, z_bottom)
         assert np.isclose(share, 12 / 13)
 
+    def test_the_note_says_where_the_model_is(self):
+        from geoinv3d.cloud.worker import _outside_core_parts, _padding_note
+        dmesh = Mesh3D(hx=[200, 100, 100, 200], hy=[200, 100, 100, 200], hz=[300, 100, 100],
+                       origin=(-200.0, -200.0, -500.0)).to_discretize()
+        cc = dmesh.cell_centers
+        extent, z_bottom = (0.0, 200.0, 0.0, 200.0), -200.0
+        beside = ((cc[:, 0] < 0) | (cc[:, 0] > 200)) & (cc[:, 2] > z_bottom)
+        below = (abs(cc[:, 0] - 100) < 100) & (abs(cc[:, 1] - 100) < 100) & (cc[:, 2] < z_bottom)
+        assert _outside_core_parts(dmesh, None, beside * 1.0, extent, 0.0, z_bottom) == (1.0, 0.0)
+        assert _outside_core_parts(dmesh, None, below * 1.0, extent, 0.0, z_bottom) == (0.0, 1.0)
+        lateral = _padding_note("magnetics", 0.6, 0.5, 0.1, "l1l2")
+        assert "beside the data area" in lateral and "L1–L2" not in lateral   # it is L1–L2 already
+        deep = _padding_note("gravity", 0.7, 0.1, 0.6, "l2")
+        assert "below the core" in deep and "compact regularization" in deep
+
 
 class TestMethodFixes:
     def test_active_cell_simulation(self):

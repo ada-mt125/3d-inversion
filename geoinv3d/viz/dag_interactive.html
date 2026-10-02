@@ -995,7 +995,7 @@ svg#dag:active{cursor:grabbing;}
                     </select></div>
                   <div class="up-col"><label class="up-lbl" for="up-lambda-decades">λ range (decades)</label><input id="up-lambda-decades" type="number" class="up-in" min="1" step="0.5" value="4"></div>
                 </div>
-                <div class="up-note">φ<sub>m</sub> = (1−α)/2·‖β‖² + α·‖β‖₁ on the depth-weighted model. α → 1 gives compact bodies, α → 0 smooth ones. The coordinate-descent solver computes the whole λ path from λ<sub>max</sub> and picks λ on it (L-curve by default); it needs gravity or magnetic data. On our magnetic synthetic, α ≈ 0.8 with wS1 recovered the body best (wS2 pushed it too deep). There is no smoothness term, so norms and α<sub>x,y,z</sub> do not apply. Joint jobs run it by IRLS.</div>
+                <div class="up-note">φ<sub>m</sub> = (1−α)/2·‖β‖² + α·‖β‖₁ on the depth-weighted model. α → 1 gives compact bodies, α → 0 spread-out ones (the L2 part is on the values: it is not a smoothness). The coordinate-descent solver computes the whole λ path from λ<sub>max</sub> and picks λ on it (L-curve by default); it needs gravity or magnetic data. The depth weighting wS1 / wS2 and the λ range are the coordinate descent’s: SimPEG IRLS weights the cells by its sensitivity weighting (√diag JᵀJ), the same as wS1. On our magnetic synthetic, α ≈ 0.8 with wS1 recovered the body best (wS2 pushed it too deep). There is no smoothness term, so norms and α<sub>x,y,z</sub> do not apply. Joint jobs run it by IRLS.</div>
               </div>
 
               <div id="up-focus-params" class="not-gl" hidden>
@@ -6323,7 +6323,7 @@ window.GeoPreview=GeoPreview;
     if(!analysis.extent){est.innerHTML='';return;}
     const shape=GeoMesh.tensorShape(analysis.extent,v.core_cell_m,v.core_cell_z_m,v.depth_core_m,v.pad_distance_m);
     const octree=$u('upload-mesh').value==='octree', counted=octree?meshCount(v):null;
-    const n=meshCells(v), g=analysis.nData*n*4, ram=ramBytes();
+    const n=meshCells(v), comp=mviSelected()?3:1, g=analysis.nData*n*comp*4, ram=ramBytes();
     const warn=[];
     if(g>0.5*ram)warn.push(`the sensitivity matrix (${fmtBytes(g)}) exceeds half of the memory of ${where==='local'?'this computer':$u('upload-instance').value} — use larger cells, `+
       (where==='local'?'a preview, or AWS':'or a bigger instance'));
@@ -6332,7 +6332,7 @@ window.GeoPreview=GeoPreview;
     est.innerHTML=(octree?`OcTree: <b>${counted?'':'≈ '}${fmtInt(n)}</b> cells below the ground`+
         `<span class="up-en"> (${counted?'counted on the mesh the job builds':counted===undefined?'estimated; counting the mesh…':'estimated'})</span> · `
       :`Mesh size: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `)+
-      `sensitivity matrix ≈ <b>${fmtBytes(g)}</b> for ${fmtInt(analysis.nData)} data`+
+      `sensitivity matrix ≈ <b>${fmtBytes(g)}</b> for ${fmtInt(analysis.nData)} data${comp>1?' (MVI: 3 components per cell)':''}`+
       (octree?`<br><span class="up-en">OcTree keeps the finest cells only in the top layers; a tensor mesh of these cells would have ${fmtInt(shape[0]*shape[1]*shape[2])}.</span>`:'')+
       (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
       warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
@@ -7320,7 +7320,10 @@ window.GeoPreview=GeoPreview;
     if(!pf.length)return null;
     const n=pf.map(t=>(analysis.counts.find(c=>c.d.t===t)||{}).after||0);
     const N=s.mode==='joint'?n.reduce((a,b)=>a+b,0):Math.max(...n);
-    const M=meshCells(m), entries=N*M, cda=p.regularization_type==='l1l2'&&p.l1l2_solver==='cda';
+    // MVI: three magnetization components per cell, so three columns of G (the job of the
+    // Block-8 window, 17,822 data × 143,237 cells × 3 = 30.6 GB, swapped for minutes)
+    const comp=mviSelected()?3:1;
+    const M=meshCells(m), entries=N*M*comp, cda=p.regularization_type==='l1l2'&&p.l1l2_solver==='cda';
     if(p.regularization_type==='group_lasso'){
       // Two float32 sensitivities (×1.5 while SimPEG builds them), a float64 Cholesky
       // factor of X Xᵀ + μI per method when it fits in 4 GB (else CG, no extra memory),
@@ -7333,7 +7336,7 @@ window.GeoPreview=GeoPreview;
     // CDA: float32 G + float64 copy + ~1.5 GB (active-set solves, Python); peak 14.3 GB
     // measured for 1.04e9 entries, estimated here 13.9 GB.  SimPEG: G ×1.5 + 0.5 GB.
     const gb=cda?entries*12/1e9+1.5:entries*6/1e9+0.5;
-    return {N,M,entries,cda,gb,inst:$u('upload-instance').value};
+    return {N,M,comp,entries,cda,gb,inst:$u('upload-instance').value};
   }
   function renderSizeCheck(jobs){
     const box=$u('up-sizecheck'), e=sizeEstimate(jobs);
@@ -7341,7 +7344,7 @@ window.GeoPreview=GeoPreview;
     // this computer when the job runs here (a preview always does), else the instance
     const here=where==='local'||$u('up-preview').checked, machine=here?'this computer':escH(e.inst);
     const ram=here?(localMem()||16):INSTANCE_MEM_GB[e.inst], fit=Object.keys(INSTANCE_MEM_GB).find(k=>INSTANCE_MEM_GB[k]>=e.gb*1.15);
-    const size=`Sensitivity matrix ≈ <b>${fmtInt(e.N)} data × ${fmtInt(e.M)} cells</b> = ${bigCount(e.entries)} entries; `+
+    const size=`Sensitivity matrix ≈ <b>${fmtInt(e.N)} data × ${fmtInt(e.M)} cells${e.comp>1?` × ${e.comp} components (MVI)`:''}</b> = ${bigCount(e.entries)} entries; `+
       `the ${e.cda?'L1–L2 coordinate descent':e.gl?'group-lasso ADMM':'inversion'} needs ≈ <b>${e.gb.toFixed(1)} GB</b> of the ${ram} GB of ${machine}.`;
     const msgs=[];
     let level='';
@@ -7386,6 +7389,23 @@ window.GeoPreview=GeoPreview;
   function areaParams(){return aoi?{aoi:aoi.map(v=>Math.round(v*100)/100)}:{};}
 
   // ── Build the job specs sent to the API ──
+  // wS1 / wS2 and the λ path belong to the coordinate descent (l1l2_cda.py); under IRLS they
+  // do nothing, so they are grayed out
+  function l1l2Ui(){
+    const irls=$u('up-l1l2-solver').value==='irls';
+    ['up-l1l2-weighting','up-lambda-decades'].forEach(id=>{$u(id).disabled=irls;
+      $u(id).title=irls?'Used by the coordinate descent only: SimPEG IRLS weights the cells by its sensitivity weighting (√diag JᵀJ), the same as wS1':'';});
+  }
+  $u('up-l1l2-solver').addEventListener('change',l1l2Ui); l1l2Ui();
+  // MVI triples the sensitivities: the estimates follow the choice
+  $u('up-magnetic-mag').addEventListener('change',()=>{
+    if(analysis&&analysis.extent)renderMesh();
+    if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+  });
+  function mviSelected(){
+    const s=selection();
+    return !!(s&&s.mode!=='joint'&&s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag')&&$u('up-magnetic-mag').value==='vector');
+  }
   function num(id,label,{optional=false,min=null,integer=false}={}){
     const raw=$u(id).value.trim();
     if(raw===''){if(optional)return undefined;throw new Error(`Please enter ${label}`);}

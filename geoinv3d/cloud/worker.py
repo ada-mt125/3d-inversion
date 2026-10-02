@@ -2569,6 +2569,40 @@ def _outside_core_share(dmesh, active, model, extent, margin, z_bottom) -> float
     return float(moment[~core].sum() / total) if total > 0 else 0.0
 
 
+def _outside_core_parts(dmesh, active, model, extent, margin, z_bottom) -> tuple[float, float]:
+    """(beside, below): the shares of the recovered anomaly (|m| x cell volume) beside the
+    core (outside the survey extent plus ``margin``, above ``z_bottom``) and below it."""
+    cc, vol = dmesh.cell_centers, dmesh.cell_volumes
+    if active is not None:
+        cc, vol = cc[active], vol[active]
+    xmin, xmax, ymin, ymax = extent
+    inside = ((cc[:, 0] >= xmin - margin) & (cc[:, 0] <= xmax + margin)
+              & (cc[:, 1] >= ymin - margin) & (cc[:, 1] <= ymax + margin))
+    deep = cc[:, 2] < z_bottom
+    moment = np.abs(np.asarray(model, dtype=float)) * vol
+    total = moment.sum()
+    if not total > 0:
+        return 0.0, 0.0
+    return float(moment[~inside & ~deep].sum() / total), float(moment[deep].sum() / total)
+
+
+def _padding_note(name: str, share: float, beside: float, below: float, kind: str) -> str:
+    """What to make of a model largely in the padding, by where it sits."""
+    text = (f"{share:.0%} of the recovered {name} anomaly lies outside the core mesh "
+            f"(padding cells), where it is poorly constrained")
+    if beside >= below:
+        text += (f": {beside:.0%} beside the data area. Anomalies running across the edges of "
+                 f"the data come from sources outside them, which the padding holds (counted "
+                 f"by volume, its large cells weigh much); a window wider than the area you "
+                 f"interpret moves those edges away from it")
+    else:
+        text += (f": {below:.0%} below the core. A deeper core (depth_core_m), or bounds on the "
+                 f"property, keep it where the data constrain it")
+    if kind not in ("l1l2", "sparse", "mgs", "tv"):
+        text += "; a compact regularization (L1–L2, or Lp norms) also helps"
+    return text + "."
+
+
 MESH_KEYS = ("core_cell_m", "core_cell_z_m", "depth_core_m", "pad_distance_m")
 # Used only when neither the params nor the data give the mesh settings
 _FALLBACK_MESH = {"core_cell_m": 500.0, "core_cell_z_m": 250.0,
@@ -3035,12 +3069,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         result["outside_core_share"] = shares
         for name, share in shares.items():
             if share > PADDING_WARNING_SHARE:
-                notes.append(
-                    f"{share:.0%} of the recovered {name} anomaly lies outside the core "
-                    f"mesh (padding cells), where it is poorly constrained. Consider a "
-                    f"compact regularization (L1–L2), property bounds, or a larger "
-                    f"core (depth_core_m)."
-                )
+                beside, below = _outside_core_parts(
+                    dmesh, active, np.asarray(models[name]) - background.get(name, 0.0),
+                    extent, core_cell_m, z_bottom)
+                notes.append(_padding_note(name, share, beside, below,
+                                           str(getattr(task, "regularization_type", ""))))
     if notes:
         result["notes"] = notes
     return result
