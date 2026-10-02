@@ -330,6 +330,10 @@ svg#dag:active{cursor:grabbing;}
 .enh-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text2);margin-bottom:8px;}
 .enh-bar .up-in{width:auto;}
 .enh-bar label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
+.enh-details>summary{cursor:pointer;list-style:none;}
+.enh-details>summary::before{content:'▸';color:var(--text3);margin-right:2px;}
+.enh-details[open]>summary::before{content:'▾';}
+.enh-details>summary::-webkit-details-marker{display:none;}
 .enh-plot{width:100%;height:520px;border:1px solid var(--border);border-radius:8px;background:var(--bg3);}
 @media (max-width:860px){.enh-plot{height:380px;}}
 /* the pre-submit checks */
@@ -719,7 +723,8 @@ svg#dag:active{cursor:grabbing;}
           </section>
 
           <section class="up-sec" id="enh-sec" hidden>
-            <div class="up-sec-h">Look at the data<span class="up-hint">the gridded data reduced to the pole, their derivatives and edges, and the regional–residual split the inversion will use</span></div>
+            <details class="enh-details" id="enh-details">
+            <summary class="up-sec-h">Look at the data<span class="up-hint">optional, a rough look: the data reduced to the pole, their derivatives and edges, and the regional–residual split the inversion will use</span></summary>
             <div class="up-card">
               <div class="enh-bar">
                 <select id="enh-ds" class="up-in" aria-label="Dataset"></select>
@@ -743,6 +748,7 @@ svg#dag:active{cursor:grabbing;}
               <div id="enh-plot" class="enh-plot"></div>
               <div class="up-method-desc" id="enh-note"></div>
             </div>
+            </details>
           </section>
         </div>
 
@@ -4771,7 +4777,8 @@ window.GeoPreview=GeoPreview;
   }));
   ['enh-ds','enh-map','enh-zero'].forEach(id=>$u(id).addEventListener('change',()=>{renderEnhControls();enhSoon(0);}));
   ['enh-uc','enh-win'].forEach(id=>$u(id).addEventListener('input',()=>enhSoon()));
-  function enhSoon(ms=350){clearTimeout(ENH.timer); if(step===S.AREA)ENH.timer=setTimeout(enhRun,ms);}
+  function enhSoon(ms=350){clearTimeout(ENH.timer); if(step===S.AREA&&$u('enh-details').open)ENH.timer=setTimeout(enhRun,ms);}
+  $u('enh-details').addEventListener('toggle',()=>{if($u('enh-details').open){renderEnhControls(); enhSoon(0);}});
   // the map follows its box (a narrower window, the panel shown again)
   new ResizeObserver(()=>{const el=$u('enh-plot'); if(el._fullLayout&&el.offsetWidth>40)Plotly.Plots.resize(el);}).observe($u('enh-plot'));
   async function enhRun(){

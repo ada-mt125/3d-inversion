@@ -1059,7 +1059,8 @@ from collections import OrderedDict   # noqa: E402
 
 _ENHANCE_DATA: "OrderedDict[str, tuple]" = OrderedDict()   # data id -> ((x, y, grid, note), method)
 ENHANCE_KEEP = 4
-ENHANCE_MAX_NODES_SIDE = 1500   # larger grids are averaged down before the filters
+ENHANCE_MAX_NODES_SIDE = 500    # larger grids are averaged down before the filters: the maps
+                                # are a rough look (a few hundred pixels), not the processing
 ENHANCE_MAPS = {   # key: (label, unit or None for the data's own, symmetric about 0)
     "data": ("Data", None, False), "rtp": ("Reduced to the pole", None, False),
     "continued": ("Continued upwards", None, False),

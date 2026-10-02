@@ -81,7 +81,9 @@ def coarsen(xg, yg, g, factor: int):
         return np.asarray(xg), np.asarray(yg), g
     ny, nx = (g.shape[0] // k) * k, (g.shape[1] // k) * k
     blocks = np.asarray(g, dtype=float)[:ny, :nx].reshape(ny // k, k, nx // k, k)
-    with np.errstate(invalid="ignore"):
+    import warnings
+    with warnings.catch_warnings():          # blocks with no data stay gaps
+        warnings.simplefilter("ignore", RuntimeWarning)
         out = np.nanmean(blocks, axis=(1, 3))
     xs = np.asarray(xg)[:nx].reshape(-1, k).mean(axis=1)
     ys = np.asarray(yg)[:ny].reshape(-1, k).mean(axis=1)
