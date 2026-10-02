@@ -1532,3 +1532,13 @@ keeps the finest cells in the top layers only (`refine_surface`, levels [4, 4, 4
   recommendation budgets octree cells when OcTree is chosen.
 - That window now: ≈ 11.9 GB (7.6 GB of float32 sensitivities); thinned to 75 m (4,489 data),
   ≈ 3 GB.
+
+## 2026-10-02 — The flight-height check says what a DEM does not give
+
+With an SRTM DEM downloaded, the Review checks still said the magnetic grid "has no
+elevations, so its nodes are put on the ground", which read as if the DEM should have fixed
+it. A DEM gives the ground; grid nodes go to the ground plus "Height above ground", so
+airborne data still need the terrain clearance (Block-8: 80 m). The check now says so, also
+fires when only a continuation height is set (the continuation then starts from the ground),
+and carries a number box and "Set" that fill the Magnetics card's field. Checks can carry
+such a box (`fix = [label, action(value), {input}]`).

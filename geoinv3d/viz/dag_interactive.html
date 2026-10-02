@@ -343,6 +343,10 @@ svg#dag:active{cursor:grabbing;}
 .pf.ok i{color:#6fd0c3;} .pf.warn i{color:var(--accent2);} .pf.error i{color:#e8837a;}
 .pf.error{color:var(--text);}
 .pf .up-btn{margin-left:auto;flex:none;}
+.pf .pf-fix{margin-left:auto;flex:none;display:flex;align-items:center;}
+.pf .pf-fix .up-btn{margin-left:0;}
+.pf .pf-fix .up-in-sm{width:120px;}
+.up-in.up-in-bad{border-color:#e8837a;}
 /* Compute: where the job runs, the preview, the estimate */
 .up-chkline{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2);line-height:1.5;margin-top:12px;cursor:pointer;}
 .up-chkline input{margin-top:3px;flex:none;}
@@ -6972,8 +6976,12 @@ window.GeoPreview=GeoPreview;
       const d=analysis&&analysis.ds.find(x=>x.t===t); if(!d)continue;
       const h=+$u(`up-${t.key}-height`).value||0, c=+$u(`up-${t.key}-cont`).value||0, at=c||h;
       const thin=(d.kind==='grid'?decTarget(d):null)||d.spacing;
-      if(d.kind==='grid'&&!h&&!c&&t.key==='magnetic')
-        add('warn',`${t.label}: the grid has no elevations, so its nodes are put on the ground; airborne data need the flight height (Height above ground)`);
+      // a DEM gives the ground, not the sensor: grid nodes go to the ground plus this height
+      if(d.kind==='grid'&&!h&&t.key==='magnetic')
+        add('warn',`${t.label}: the grid has no heights, so its nodes are put on the ${topoFile?'ground of the DEM':'flat ground'}`+
+          (c?` and continued ${fmtInt(c)} m up from there`:'')+`. A DEM gives the ground, not the flight height: `+
+          `for airborne data enter the height above the ground (the terrain clearance it was flown at)`,
+          ['Set',v=>setField(`up-${t.key}-height`,v),{input:'height, m'}]);
       if(d.kind==='grid'&&thin&&thin>3*Math.max(at,1)&&d.spacing<0.5*thin)
         add('warn',`${t.label}: thinned to ${fmtLen(thin)} at ${fmtInt(at)} m above the ground, the field holds wavelengths much shorter than the spacing and aliases; continue it to about the spacing first`,
           ['Continue up to '+fmtLen(Math.round(thin/100)*100),()=>{$u(`up-${t.key}-cont`).value=Math.round(thin/100)*100;}]);
@@ -7041,6 +7049,7 @@ window.GeoPreview=GeoPreview;
     return out;
   }
   let pfErrors=0, pfRun=0;
+  function setField(id,v){const f=$u(id); f.value=v; f.dispatchEvent(new Event('input',{bubbles:true})); f.dispatchEvent(new Event('change',{bubbles:true}));}
   async function renderPreflight(jobs){
     const run=++pfRun, box=$u('up-preflight');
     let items;
@@ -7049,11 +7058,22 @@ window.GeoPreview=GeoPreview;
     const order={error:0,warn:1,ok:2};
     items.sort((a,b)=>order[a.level]-order[b.level]);
     pfErrors=items.filter(i=>i.level==='error').length;
+    // a fix is [label, action] or [label, action(value), {input: placeholder}] for a number
     box.innerHTML=items.map((it,k)=>`<div class="pf ${it.level}"><i>${it.level==='ok'?'✓':it.level==='warn'?'⚠':'✗'}</i><span>${it.text}</span>`+
-      (it.fix?`<button type="button" class="up-btn up-btn-sm" data-pf="${k}">${escH(it.fix[0])}</button>`:'')+'</div>').join('');
+      (it.fix&&it.fix[2]?`<span class="pf-fix"><input type="number" min="0" step="any" class="up-in up-in-sm" data-pfv="${k}" placeholder="${escH(it.fix[2].input)}">`:'')+
+      (it.fix?`<button type="button" class="up-btn up-btn-sm" data-pf="${k}">${escH(it.fix[0])}</button>`:'')+
+      (it.fix&&it.fix[2]?'</span>':'')+'</div>').join('');
     box.querySelectorAll('[data-pf]').forEach(b=>b.addEventListener('click',async()=>{
-      await items[+b.dataset.pf].fix[1]();
+      const fix=items[+b.dataset.pf].fix, field=box.querySelector(`[data-pfv="${b.dataset.pf}"]`);
+      if(field){
+        const v=parseFloat(field.value);
+        if(!(v>0)){field.focus();field.classList.add('up-in-bad');return;}
+        await fix[1](v);
+      }else await fix[1]();
       if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    }));
+    box.querySelectorAll('[data-pfv]').forEach(f=>f.addEventListener('keydown',ev=>{
+      if(ev.key==='Enter')box.querySelector(`[data-pf="${f.dataset.pfv}"]`).click();
     }));
     const btn=$u('upload-submit');
     btn.disabled=pfErrors>0;
