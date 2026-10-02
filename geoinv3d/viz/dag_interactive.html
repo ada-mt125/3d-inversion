@@ -3711,13 +3711,24 @@ const GeoMesh=(function(){
             Math.max(MIN_CORE_CELLS,Math.ceil((ext[3]-ext[2])/h))+2*np,
             Math.max(MIN_CORE_CELLS,Math.ceil(depth/dz))+np];
   }
-  function recommend(ext,spacing,nData,maxCells=MAX_CELLS,maxBytes=8e9){
+  // Cells below the ground of an octree over flat ground, roughly: a job refines 4 layers of
+  // the finest cells under the surface, then 4 of twice and 4 of four times their size
+  // (octree_levels [4, 4, 4]), and coarsens the padding and the deep core.  Counted on 5 km
+  // windows that is 9–15 cells per finest column: 167,552 at 37.5 m, 109,424 at 50 m,
+  // 51,264 at 75 m, 38,036 at 100 m.  The server counts the real mesh (/api/mesh/cells).
+  const OCTREE_CELLS_PER_COLUMN=12;
+  function octreeCells(ext,h){
+    const n=a=>Math.max(MIN_CORE_CELLS,Math.ceil(a/h));
+    return OCTREE_CELLS_PER_COLUMN*n(ext[1]-ext[0])*n(ext[3]-ext[2]);
+  }
+  // octree: budget the cells of an octree instead of the tensor mesh (page only)
+  function recommend(ext,spacing,nData,maxCells=MAX_CELLS,maxBytes=8e9,octree=false){
     const width=Math.max(ext[1]-ext[0],ext[3]-ext[2],MIN_CORE_CELLS*spacing);
     let h=niceNumber(spacing); const h0=h, pad=niceNumber(0.5*width);
     let dz,depth,shape,cells,bytes;
     for(;;){
       dz=h/2; depth=Math.ceil(0.5*width/dz)*dz;
-      shape=tensorShape(ext,h,dz,depth,pad); cells=shape[0]*shape[1]*shape[2];
+      shape=tensorShape(ext,h,dz,depth,pad); cells=octree?octreeCells(ext,h):shape[0]*shape[1]*shape[2];
       bytes=nData*cells*BYTES_PER_ENTRY;
       if((cells<=maxCells&&bytes<=maxBytes)||h>=width)break;
       h=nextNiceNumber(h);
@@ -3920,7 +3931,7 @@ const GeoMesh=(function(){
     for(let i=0;i<pts.xs.length;i++){const x=+pts.xs[i],y=+pts.ys[i];if(Number.isFinite(x)&&Number.isFinite(y)){xs.push(x);ys.push(y);}}
     return {kind:'points',format,...stationSpacing(xs,ys)};
   }
-  return {niceNumber,nextNiceNumber,paddingCells,tensorShape,recommend,stationSpacing,inspectFile,
+  return {niceNumber,nextNiceNumber,paddingCells,tensorShape,octreeCells,recommend,stationSpacing,inspectFile,
     readNpzValues:readNpz,MAX_CELLS};
 })();
 window.GeoMesh=GeoMesh;
@@ -6200,7 +6211,8 @@ window.GeoPreview=GeoPreview;
 
   function recommend(){
     recommended=analysis&&analysis.extent&&analysis.spacing
-      ?GeoMesh.recommend(analysis.extent,analysis.spacing,analysis.nData,GeoMesh.MAX_CELLS,0.5*ramBytes()):null;
+      ?GeoMesh.recommend(analysis.extent,analysis.spacing,analysis.nData,GeoMesh.MAX_CELLS,0.5*ramBytes(),
+        $u('upload-mesh').value==='octree'):null;
     if(recommended&&!meshEdited)setMeshInputs(recommended);
     renderMesh();
   }
@@ -6224,16 +6236,18 @@ window.GeoPreview=GeoPreview;
     let v; try{v=readMesh();}catch(err){est.innerHTML=`<span class="up-err">${escH(err.message)}</span>`;return;}
     if(!analysis.extent){est.innerHTML='';return;}
     const shape=GeoMesh.tensorShape(analysis.extent,v.core_cell_m,v.core_cell_z_m,v.depth_core_m,v.pad_distance_m);
-    const n=shape[0]*shape[1]*shape[2], g=analysis.nData*n*4, ram=ramBytes();
-    const octree=$u('upload-mesh').value==='octree';
+    const octree=$u('upload-mesh').value==='octree', counted=octree?meshCount(v):null;
+    const n=meshCells(v), g=analysis.nData*n*4, ram=ramBytes();
     const warn=[];
     if(g>0.5*ram)warn.push(`the sensitivity matrix (${fmtBytes(g)}) exceeds half of the memory of ${where==='local'?'this computer':$u('upload-instance').value} — use larger cells, `+
       (where==='local'?'a preview, or AWS':'or a bigger instance'));
     if(n>GeoMesh.MAX_CELLS)warn.push(`more than ${fmtInt(GeoMesh.MAX_CELLS)} cells — runs will be slow`);
     if(v.core_cell_m<0.5*analysis.spacing)warn.push('cells much finer than the data spacing add cost but little resolution');
-    est.innerHTML=`${octree?'Tensor-equivalent size':'Mesh size'}: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `+
+    est.innerHTML=(octree?`OcTree: <b>${counted?'':'≈ '}${fmtInt(n)}</b> cells below the ground`+
+        `<span class="up-en"> (${counted?'counted on the mesh the job builds':counted===undefined?'estimated; counting the mesh…':'estimated'})</span> · `
+      :`Mesh size: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `)+
       `sensitivity matrix ≈ <b>${fmtBytes(g)}</b> for ${fmtInt(analysis.nData)} data`+
-      (octree?'<br><span class="up-en">OcTree keeps the finest cells only near the surface, so it uses fewer cells than this.</span>':'')+
+      (octree?`<br><span class="up-en">OcTree keeps the finest cells only in the top layers; a tensor mesh of these cells would have ${fmtInt(shape[0]*shape[1]*shape[2])}.</span>`:'')+
       (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
       warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
     renderEstimate();
@@ -6506,7 +6520,7 @@ window.GeoPreview=GeoPreview;
   });
   $u('up-aoi-layer').addEventListener('change',drawMap);
 
-  $u('upload-mesh').addEventListener('change',renderMesh);
+  $u('upload-mesh').addEventListener('change',recommend);
 
   // ── Step 5: jobs — status, progress, logs, stop, results ──
   const apiBase=()=>window.GEOINV3D_API||'http://localhost:8000';
@@ -7054,13 +7068,35 @@ window.GeoPreview=GeoPreview;
   // used 14.3 GB, and took minutes per λ point after the first 30).
   const INSTANCE_MEM_GB={'c5.xlarge':6.8,'c5.2xlarge':14.2,'c5.4xlarge':28.8,'c5.9xlarge':66.4};   // usable
   const CDA_SLOW_ENTRIES=3e8;
-  // Cells of the mesh: the tensor mesh exactly; an octree coarsens its padding and its deep
-  // part, and keeps about 0.9 of its core cells (53,120 for a 70 × 70 × 12 km core of 1 km cells)
+  // Cells of the mesh: the tensor mesh exactly; an octree as the server counts it on the
+  // mesh the job would build (flat ground), GeoMesh.octreeCells until it answers
   function meshCells(m){
-    const ext=analysis.extent, ceil=(a,b)=>Math.max(1,Math.ceil(a/b));
-    if($u('upload-mesh').value==='octree')
-      return Math.round(0.9*ceil(ext[1]-ext[0],m.core_cell_m)*ceil(ext[3]-ext[2],m.core_cell_m)*ceil(m.depth_core_m,m.core_cell_z_m));
+    const ext=analysis.extent;
+    if($u('upload-mesh').value==='octree')return meshCount(m)||GeoMesh.octreeCells(ext,m.core_cell_m);
     return GeoMesh.tensorShape(ext,m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m).reduce((a,b)=>a*b,1);
+  }
+  // Octree counts by window and mesh settings: a number, null (too large to build), or
+  // undefined while asked; each answer redraws what depends on it
+  const MESH_COUNTS=new Map();
+  let meshCountTimer=null;
+  function meshCount(m){
+    const key=JSON.stringify([analysis.extent.map(Math.round),m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m]);
+    if(MESH_COUNTS.has(key))return MESH_COUNTS.get(key);
+    clearTimeout(meshCountTimer);
+    meshCountTimer=setTimeout(async()=>{
+      if(MESH_COUNTS.has(key))return;
+      MESH_COUNTS.set(key,undefined);
+      try{
+        const r=await fetch(apiBase()+'/api/mesh/cells',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({extent:analysis.extent,core_cell_m:m.core_cell_m,core_cell_z_m:m.core_cell_z_m,
+            depth_core_m:m.depth_core_m,pad_distance_m:m.pad_distance_m,mesh_type:'octree'})});
+        const d=await r.json();
+        MESH_COUNTS.set(key,r.ok&&d.ok&&!d.too_large?d.n_cells:null);
+      }catch(err){MESH_COUNTS.set(key,null);}     // no server: keep the estimate
+      renderMesh();
+      if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    },250);
+    return undefined;
   }
   const bigCount=v=>v>=1e9?(v/1e9).toFixed(2)+' billion':v>=1e6?(v/1e6).toFixed(0)+' million':fmtInt(v);
   function sizeEstimate(jobs){

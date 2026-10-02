@@ -465,6 +465,31 @@ class TestGroundAndField:
         assert client.post("/api/dem", json={"bounds": [1, 2], "crs": "EPSG:32643"}).status_code == 400
 
 
+class TestMeshCells:
+    """The page's memory estimate counts the octree a job would build, not a tensor mesh."""
+
+    def test_an_octree_of_a_5_km_window(self, api):
+        pytest.importorskip("discretize")
+        client, _, _ = api
+        mesh = {"extent": [0, 5000, 0, 5000], "core_cell_m": 50, "core_cell_z_m": 25,
+                "depth_core_m": 4000, "pad_distance_m": 2000}
+        d = client.post("/api/mesh/cells", json=mesh).json()
+        assert d["ok"] and not d["too_large"]
+        # finest cells only near the surface: about 11 per column of the 100 x 100 core,
+        # where a tensor mesh of these cells would have over 2 million
+        assert 80_000 < d["n_cells"] < 150_000 and d["n_total"] > d["n_cells"]
+        tensor = client.post("/api/mesh/cells", json={**mesh, "mesh_type": "tensor"}).json()
+        assert tensor["n_cells"] > 10 * d["n_cells"]
+
+    def test_too_large_or_bad_meshes(self, api):
+        client, _, _ = api
+        whole = {"extent": [607200, 796725, 1520325, 1743187.5], "core_cell_m": 50,
+                 "core_cell_z_m": 25, "depth_core_m": 4000, "pad_distance_m": 2000}
+        assert client.post("/api/mesh/cells", json=whole).json() == {"ok": True, "too_large": True, "n_cells": None}
+        assert client.post("/api/mesh/cells", json={**whole, "core_cell_m": 0}).status_code == 400
+        assert client.post("/api/mesh/cells", json={"extent": [0, 1]}).status_code == 400
+
+
 class TestEnhance:
     def test_maps_and_reuse(self, api):
         pytest.importorskip("scipy")

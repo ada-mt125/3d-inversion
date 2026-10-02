@@ -11,6 +11,7 @@ Endpoints:
     GET    /api/inversion/{job_id}/bundle — a job's inputs as a zip (params.json, data/), to
                                             run it again anywhere: geoinv3d.cloud.worker --local
     GET    /api/estimates                 — run times of finished jobs, to estimate new ones
+    POST   /api/mesh/cells                — the cells a job's mesh would have (built as the worker does)
     POST   /api/dem, GET /api/dem/{id}    — a DEM downloaded for a box (SRTM, else ETOPO 2022)
     GET    /api/igrf                      — the IGRF-14 field at a place and date
     GET    /api/crs                       — check a coordinate system (e.g. EPSG:32643)
@@ -63,6 +64,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from functools import lru_cache
 import os
 import re
 import shutil
@@ -984,6 +986,51 @@ async def workspace_workflow(workspace_id: str, known: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
     _write_json(cache, {"key": key, "workflow": workflow}, separators=(",", ":"))
     return JSONResponse({"ok": True, **counts, "workflow": workflow})
+
+
+# ── The size of a job's mesh: an OcTree keeps its finest cells only near the ground, so
+# counting the core as if it were all fine cells overstates it many times ──
+MESH_COUNT_MAX_FINE = 4_000_000     # fine cells in one layer above which no mesh is built
+
+
+@lru_cache(maxsize=64)
+def _mesh_cells(extent: tuple, h: float, dz: float, depth: float, pad: float, mesh_type: str,
+                levels: tuple) -> dict:
+    from ..cloud.worker import _build_octree_mesh, _build_tensor_mesh
+    flat = lambda x, y: np.zeros_like(np.asarray(x, dtype=float))   # noqa: E731 (a DEM adds a few layers)
+    t0 = time.time()
+    if mesh_type == "octree":
+        mesh = _build_octree_mesh(extent, flat, h, dz, depth, pad, list(levels)).to_discretize()
+    else:
+        mesh = _build_tensor_mesh(extent, flat, False, h, dz, depth, pad).to_discretize()
+    below = int((mesh.cell_centers[:, 2] < 0).sum())
+    return {"n_cells": below, "n_total": int(mesh.n_cells), "seconds": round(time.time() - t0, 2)}
+
+
+@app.post("/api/mesh/cells")
+def mesh_cells(body: dict = Body(...)):
+    """The cells below the ground of the mesh a job would build over ``extent`` [W, E, S, N]
+    with core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m and mesh_type (flat ground:
+    a DEM adds a few layers), for the page's memory and time estimates.  ``too_large`` when
+    the finest layer alone would hold more than MESH_COUNT_MAX_FINE cells."""
+    try:
+        ext = tuple(float(v) for v in body["extent"])
+        h, dz = float(body["core_cell_m"]), float(body["core_cell_z_m"])
+        depth, pad = float(body["depth_core_m"]), float(body.get("pad_distance_m") or 0.0)
+        mesh_type = str(body.get("mesh_type") or "octree")
+        levels = tuple(int(v) for v in body.get("octree_levels") or (4, 4, 4))
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Bad mesh: {e}")
+    if len(ext) != 4 or not (ext[1] > ext[0] and ext[3] > ext[2] and h > 0 and dz > 0 and depth > 0):
+        raise HTTPException(status_code=400, detail="Bad mesh extent or cells")
+    fine = ((ext[1] - ext[0] + 2 * pad) / h) * ((ext[3] - ext[2] + 2 * pad) / h)
+    if fine > MESH_COUNT_MAX_FINE or (mesh_type != "octree" and fine * depth / dz > 3 * MESH_COUNT_MAX_FINE):
+        return JSONResponse({"ok": True, "too_large": True, "n_cells": None})
+    try:
+        return JSONResponse({"ok": True, "too_large": False,
+                             **_mesh_cells(ext, h, dz, depth, pad, mesh_type, levels)})
+    except Exception as e:   # a mesh the worker could not build either
+        raise HTTPException(status_code=400, detail=f"The mesh cannot be built: {e}")
 
 
 # ── Ground and field for a survey area: a DEM, the IGRF, the coordinate system ──

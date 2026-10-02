@@ -1513,3 +1513,22 @@ A 20 km piece of the real grid ran end to end: IGRF-14 for 2020 (date unknown), 
 on the 37.5 m grid, thinned to 1 km, inverted. Also: the user's workspace had been created on
 the test server (the launcher found it running); it was copied into ~/.geoinv3d, and the test
 server moved to another port.
+
+## 2026-10-02 — The memory estimate counts the octree the job builds
+
+On a 5 km window of the Block-8 grid (17,689 nodes at 37.5 m, 50 m × 25 m cells, 4 km core,
+2 km padding) the Mesh step said ≈ 153 GB. The window was applied; the octree was not: the
+page counted 0.9 × every core cell at the finest size (1.44 million), where a job's octree
+keeps the finest cells in the top layers only (`refine_surface`, levels [4, 4, 4]) and has
+107,845 below the ground.
+
+- `POST /api/mesh/cells` builds the mesh the worker would (`_build_octree_mesh` or
+  `_build_tensor_mesh`, flat ground) and counts its cells below the ground, cached; under a
+  second for a 5 km window. Above 4 million cells in the finest layer it answers `too_large`
+  without building (the whole Block-8 survey at 50 m).
+- The page uses the count for the Mesh step's text and warnings, the time and memory
+  estimates, the size check and the review; until it answers, or without a server,
+  `GeoMesh.octreeCells` (12 cells per finest column; 9-15 measured on 5 km windows). The
+  recommendation budgets octree cells when OcTree is chosen.
+- That window now: ≈ 11.9 GB (7.6 GB of float32 sensitivities); thinned to 75 m (4,489 data),
+  ≈ 3 GB.
