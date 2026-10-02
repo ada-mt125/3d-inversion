@@ -430,6 +430,8 @@ svg#dag:active{cursor:grabbing;}
 }
 
 #file-input{display:none;}
+#stale-banner{background:#5a3b12;color:#ffe2b0;padding:7px 40px 7px 14px;font-size:12.5px;line-height:1.5;position:relative;border-bottom:1px solid #8a5a1c;}
+#stale-banner button{position:absolute;right:8px;top:6px;background:none;border:0;color:inherit;cursor:pointer;font-size:14px;}
 #dropzone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:10;}
 #dropzone.hidden{display:none;}
 .drop-box{border:2px dashed var(--border);border-radius:14px;padding:40px 60px;text-align:center;cursor:pointer;}
@@ -440,6 +442,9 @@ svg#dag:active{cursor:grabbing;}
 </head>
 <body>
 
+<div id="stale-banner" hidden>⚠ GeoInv3D was updated after this server started, so the newest fixes are not in use yet.
+  Restart it: press Ctrl-C in the GeoInv3D window, open GeoInv3D.command again, then reload this page. Jobs running on this computer go on.
+  <button type="button" id="stale-close" title="Hide">✕</button></div>
 <header>
   <h1>GeoInv3D</h1>
   <span class="sub" id="ws-sub">Unified Workflow Viewer</span>
@@ -7594,6 +7599,17 @@ window.GeoPreview=GeoPreview;
     layersChanged:()=>{if(step===S.AREA&&analysis){drawMap(); enhSoon(0);}},
     dataExtent:()=>analysis&&analysis.native?analysis.native.extent:null,
   };
+})();
+</script>
+<script>
+// The server loads its Python once: tell the user when the code on disk is newer
+(async()=>{
+  if(!window.GEOINV3D_API)return;
+  try{
+    const h=await (await fetch(window.GEOINV3D_API+'/api/health')).json();
+    if(h.code_changed){const b=document.getElementById('stale-banner'); b.hidden=false;
+      document.getElementById('stale-close').onclick=()=>{b.hidden=true;};}
+  }catch(e){}
 })();
 </script>
 </body>

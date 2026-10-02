@@ -1373,6 +1373,17 @@ async def fetch_stopped_job(job_id: str):
 
 
 PAGE_PATH = Path(__file__).resolve().parent.parent / "viz" / "dag_interactive.html"
+CODE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _code_mtime() -> float:
+    """The newest modification time of the package's Python files."""
+    return max((p.stat().st_mtime for p in CODE_DIR.rglob("*.py")), default=0.0)
+
+
+# Python is loaded once: code changed after this server started is not in use until it
+# restarts (the page itself is read on every request, so it is always the new one)
+CODE_MTIME_AT_START = _code_mtime()
 
 
 @app.get("/", include_in_schema=False)
@@ -1401,6 +1412,7 @@ async def health():
         # where jobs can run: this machine (its cores and memory) and AWS
         "local": get_local_backend().resources(),
         "comparisons_dir": str(_comparisons_dir()),
+        "code_changed": _code_mtime() > CODE_MTIME_AT_START + 1e-3,
     })
 
 

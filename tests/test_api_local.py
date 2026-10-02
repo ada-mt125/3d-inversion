@@ -544,3 +544,11 @@ class TestEnhance:
             both[flag] = np.array(r3["maps"]["residual"]["values"], dtype=float)
             assert ("reduced to the pole" in " ".join(r3["notes"])) == flag
         assert not np.allclose(both[False], both[True], equal_nan=True)
+
+
+def test_health_says_when_the_code_changed_after_the_start(api, monkeypatch):
+    from geoinv3d.api import server
+    client, _, _ = api
+    assert client.get("/api/health").json()["code_changed"] is False
+    monkeypatch.setattr(server, "_code_mtime", lambda: server.CODE_MTIME_AT_START + 60)
+    assert client.get("/api/health").json()["code_changed"] is True

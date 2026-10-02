@@ -1655,3 +1655,11 @@ cells 200-500 m deep (depth weighting and the compact norm).
 
 New Review check: a magnetic noise floor under 0.4 % of the window's 5-95 % spread, with a
 fix to 1.5 % of it (80 nT on this window) and 2 %.
+
+## 2026-10-02 — The page says when the server runs older code
+
+The user saw the old 3D grid again: their server had started at 11:47, the fix went in at
+12:16, and Python is loaded once (its /api/workflow still gave 134 × 132 × 313 voxels from
+4,394 m). /api/health now reports `code_changed` (a package .py file newer than at start),
+and the page shows a banner asking to restart GeoInv3D.command. The page itself is read on
+every request, so it is always the new one.
