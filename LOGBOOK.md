@@ -1958,3 +1958,15 @@ about 0, so 0 is the same pale colour in every run: both signs the whole bar, po
 models its red half from 0, negative ones the blue half; only values far from 0 on one side
 (a log resistivity) spread the map over their own range. Turbo is gone. (A compared run
 keeps its purple-green map, to tell it apart in the overlay.)
+
+## 2026-10-05 — The threshold as a share of the largest value, as before
+
+The user liked that the old 3D view did not show the deep anomaly of local-e43be0cd791d.
+It did so only because its threshold was 20 % of the largest voxel (40 SI): it drew the
+305 voxels above 8 SI (98 % of them 300-1,000 m deep) and nothing weaker, so the weak deep
+cloud the slices showed (0.01-0.06 SI, 80 % of it below 1 km) was left out with every other
+weak body. That is kept as a choice under the threshold, "% of the largest value (only the
+strongest)", next to the default "% of the colour bar's max (as the slices)": the threshold
+and the fixed shells are then shares of the largest |value| shown (`m3dBase`), the colours
+stay the shared scale (saturated), and the colour bars no longer blank inside a threshold
+beyond them. The threshold's value is shown next to the slider ("20% = 8").
