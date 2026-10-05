@@ -2108,3 +2108,27 @@ here). Both now reach `DISPLAY_BOTTOM_ELEV_M` = -3,000 m (or the core's bottom w
 never below the mesh): `ViewerGrid` samples the padding below a shallow core, and
 `ResultModel.line` goes down to the same elevation (by depth below the ground: to the
 highest ground on the line + 3,000 m, the cells below -3,000 m left blank).
+
+## 2026-10-05 — A synthetic ablation: no prior, a wrong prior, boreholes only
+
+`examples/output/synthetic_ablation/` (report `ablation_report.html`, in Chinese). A cube (0.5 SI,
+100–400 m) and a 45° intrusion (1 SI, 50–1,000 m) under random ground (±150 m, seed 2026), TMI
+80 m above it at Block 8's field, noise 2 % + 5 nT, forward modelled on 25 m cells; inverted on
+the OcTree 50/25 m, levels 8/8/8 (233,268 cells), κ in [0, 3], depth weighting β 1.5. Six
+regularizations × three priors, 18 local runs of 1–2 minutes:
+
+- All fit (χ²/N 0.90–1.38, RMS 12–26 nT); the models differ by 169 m in the cube's depth and 41°
+  in the intrusion's dip.
+- A, no prior: L2/MGS/TV put the cube's magnetization at 423–435 m (true 250) and the intrusion at
+  67–70° (true 45°), κ 4–6 × too low. Lp (0,2,2,1) is closest in shape (266 m, 40°) but packs the
+  magnetization into blocks over 2 SI; its correlation with the truth is the lowest (0.21).
+- B, the bodies drawn ~100 m off, 50 m deeper, 10° steeper, κ ±50 %: the model builder's default
+  bounds (±0.005 SI, weight 5) pin the prior's inner cells (the cube at 0.745, its lower bound;
+  the intrusion at 0.495–0.505), so every method returns the prior; the wrong parts keep
+  0.37–0.39 SI (A: 0.07–0.17) at the same fit, and the correlation falls for five of six.
+- C, five holes (88 cells): held at their logs, but the change from A falls below 0.025 SI
+  (mostly below 0.01) beyond 100 m of a hole; a hole 150 m from H5, not given to the inversion,
+  sees the same model as in A.
+
+Open: a looser prior (B′: ±50 %, lower weight) and boreholes with a radius of influence (C′); the
+model builder's ±0.005 default amounts to a hard constraint and the page does not say so.

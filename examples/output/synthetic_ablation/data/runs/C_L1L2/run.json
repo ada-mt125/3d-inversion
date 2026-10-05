@@ -1,0 +1,12 @@
+{
+ "job": "local-db1611184a6b",
+ "workspace": "69a9bb3bfb59",
+ "group": "C",
+ "method": "L1L2",
+ "label": "L1\u2013L2 \u03b1 0.8 (S1)",
+ "chi2_per_datum": 1.1256569217725445,
+ "status": "not_converged",
+ "iterations": 33,
+ "minutes": 1.2,
+ "machine": "MacBook (local)"
+}

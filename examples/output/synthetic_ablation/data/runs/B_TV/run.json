@@ -1,0 +1,12 @@
+{
+ "job": "local-2b05525666e6",
+ "workspace": "69a9bb3bfb59",
+ "group": "B",
+ "method": "TV",
+ "label": "TV",
+ "chi2_per_datum": 1.3774330000789898,
+ "status": "not_converged",
+ "iterations": 38,
+ "minutes": 1.6,
+ "machine": "MacBook (local)"
+}

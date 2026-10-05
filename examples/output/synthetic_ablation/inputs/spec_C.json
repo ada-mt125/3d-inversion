@@ -1,0 +1,43 @@
+{
+ "name": "C: borehole logs only (5 holes)",
+ "property": "susceptibility",
+ "units": {
+  "hole: background": {
+   "value": 0.0,
+   "lower": 0.0,
+   "upper": 0.005,
+   "weight": 5
+  },
+  "hole: 0.5 SI": {
+   "value": 0.5,
+   "lower": 0.495,
+   "upper": 0.505,
+   "weight": 5
+  },
+  "hole: 1 SI": {
+   "value": 1.0,
+   "lower": 0.995,
+   "upper": 1.005,
+   "weight": 5
+  }
+ },
+ "sources": [
+  {
+   "type": "boreholes",
+   "file": "boreholes_C.csv",
+   "crs": "job",
+   "collar": "elevation",
+   "collar_field": "z_top",
+   "azimuth_field": "bearing",
+   "inclination_field": "inclination",
+   "length_field": "length_m",
+   "unit_by": {
+    "field": "unit"
+   }
+  }
+ ],
+ "unconstrained": {
+  "lower": 0.0,
+  "upper": 3.0
+ }
+}

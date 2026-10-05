@@ -1,0 +1,12 @@
+{
+ "job": "local-29679ee98ba1",
+ "workspace": "69a9bb3bfb59",
+ "group": "A",
+ "method": "Lp",
+ "label": "Lp 0,2,2,1",
+ "chi2_per_datum": 0.9745706732505525,
+ "status": "converged",
+ "iterations": 37,
+ "minutes": 1.5,
+ "machine": "MacBook (local)"
+}

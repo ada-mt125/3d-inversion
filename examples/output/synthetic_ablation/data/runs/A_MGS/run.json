@@ -1,0 +1,12 @@
+{
+ "job": "local-f829be87dc0b",
+ "workspace": "69a9bb3bfb59",
+ "group": "A",
+ "method": "MGS",
+ "label": "MGS",
+ "chi2_per_datum": 1.0912626887664676,
+ "status": "converged",
+ "iterations": 19,
+ "minutes": 1.0,
+ "machine": "MacBook (local)"
+}

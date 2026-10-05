@@ -1,0 +1,2075 @@
+{
+ "A_L2": {
+  "group": "A",
+  "method": "L2",
+  "label": "smooth L2",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l2",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "A_Lp": {
+  "group": "A",
+  "method": "Lp",
+  "label": "Lp 0,2,2,1",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    0,
+    2,
+    2,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "A_L1": {
+  "group": "A",
+  "method": "L1",
+  "label": "L1 (1,1,1,1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "A_L1L2": {
+  "group": "A",
+  "method": "L1L2",
+  "label": "L1\u2013L2 \u03b1 0.8 (S1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l1l2",
+   "l1_ratio": 0.8,
+   "l1l2_solver": "irls",
+   "l1l2_weighting": "S1"
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "A_MGS": {
+  "group": "A",
+  "method": "MGS",
+  "label": "MGS",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "mgs",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "A_TV": {
+  "group": "A",
+  "method": "TV",
+  "label": "TV",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "tv",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_L2": {
+  "group": "B",
+  "method": "L2",
+  "label": "smooth L2",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l2",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_Lp": {
+  "group": "B",
+  "method": "Lp",
+  "label": "Lp 0,2,2,1",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    0,
+    2,
+    2,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_L1": {
+  "group": "B",
+  "method": "L1",
+  "label": "L1 (1,1,1,1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_L1L2": {
+  "group": "B",
+  "method": "L1L2",
+  "label": "L1\u2013L2 \u03b1 0.8 (S1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l1l2",
+   "l1_ratio": 0.8,
+   "l1l2_solver": "irls",
+   "l1l2_weighting": "S1",
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_MGS": {
+  "group": "B",
+  "method": "MGS",
+  "label": "MGS",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "mgs",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "B_TV": {
+  "group": "B",
+  "method": "TV",
+  "label": "TV",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "tv",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "B: perturbed prior (model builder defaults)",
+    "property": "susceptibility",
+    "units": {
+     "cube (prior)": {
+      "value": 0.75,
+      "lower": 0.745,
+      "upper": 0.755,
+      "weight": 5
+     },
+     "intrusion (prior)": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "body",
+      "unit": "cube (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        601230.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602290.0
+       ],
+       [
+        601530.0,
+        1602590.0
+       ],
+       [
+        601230.0,
+        1602590.0
+       ]
+      ],
+      "top_m": 150.0,
+      "bottom_m": 450.0
+     },
+     {
+      "type": "body",
+      "unit": "intrusion (prior)",
+      "crs": "job",
+      "polygon": [
+       [
+        602839.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1601600.0
+       ],
+       [
+        602961.0,
+        1603600.0
+       ],
+       [
+        602839.0,
+        1603600.0
+       ]
+      ],
+      "top_m": 100.0,
+      "bottom_m": 1000.0,
+      "dip": 55.0,
+      "dip_direction": 90.0
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif"
+  ]
+ },
+ "C_L2": {
+  "group": "C",
+  "method": "L2",
+  "label": "smooth L2",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l2",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ },
+ "C_Lp": {
+  "group": "C",
+  "method": "Lp",
+  "label": "Lp 0,2,2,1",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    0,
+    2,
+    2,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ },
+ "C_L1": {
+  "group": "C",
+  "method": "L1",
+  "label": "L1 (1,1,1,1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "sparse",
+   "norms": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ },
+ "C_L1L2": {
+  "group": "C",
+  "method": "L1L2",
+  "label": "L1\u2013L2 \u03b1 0.8 (S1)",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "l1l2",
+   "l1_ratio": 0.8,
+   "l1l2_solver": "irls",
+   "l1l2_weighting": "S1",
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ },
+ "C_MGS": {
+  "group": "C",
+  "method": "MGS",
+  "label": "MGS",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "mgs",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ },
+ "C_TV": {
+  "group": "C",
+  "method": "TV",
+  "label": "TV",
+  "params": {
+   "method_type": "magnetic",
+   "inversion_mode": "single",
+   "datasets": [
+    {
+     "type": "magnetic",
+     "method": "magnetic",
+     "files": [
+      "synthetic_tmi_80m.csv"
+     ],
+     "noise_pct": 0.02,
+     "noise_floor": 5.0,
+     "component": "tmi",
+     "method_kwargs": {
+      "inducing_field": [
+       42085.1,
+       19.24,
+       -1.32
+      ]
+     },
+     "decimate_spacing_m": 100.0
+    }
+   ],
+   "data_file": "synthetic_tmi_80m.csv",
+   "noise_pct": 0.02,
+   "noise_floor": 5.0,
+   "method_kwargs": {
+    "inducing_field": [
+     42085.1,
+     19.24,
+     -1.32
+    ]
+   },
+   "topography": {
+    "file": "synthetic_dem.tif"
+   },
+   "crs": "EPSG:32643",
+   "param_mode": "manual",
+   "beta_selection": "auto",
+   "beta0_ratio": 1,
+   "cooling_factor": 2,
+   "max_iter": 60,
+   "max_irls_iterations": 30,
+   "use_preconditioner": true,
+   "bounds_lower": 0.0,
+   "bounds_upper": 3.0,
+   "alpha_s": 1,
+   "alpha_x": 1,
+   "alpha_y": 1,
+   "alpha_z": 1,
+   "core_cell_m": 50.0,
+   "core_cell_z_m": 25.0,
+   "depth_core_m": 2000.0,
+   "pad_distance_m": 3000.0,
+   "mesh_type": "octree",
+   "octree_levels": [
+    8,
+    8,
+    8
+   ],
+   "regularization_type": "tv",
+   "depth_weighting": "depth",
+   "depth_weighting_exponent": 1.5,
+   "geology": {
+    "name": "C: borehole logs only (5 holes)",
+    "property": "susceptibility",
+    "units": {
+     "hole: background": {
+      "value": 0.0,
+      "lower": 0.0,
+      "upper": 0.005,
+      "weight": 5
+     },
+     "hole: 0.5 SI": {
+      "value": 0.5,
+      "lower": 0.495,
+      "upper": 0.505,
+      "weight": 5
+     },
+     "hole: 1 SI": {
+      "value": 1.0,
+      "lower": 0.995,
+      "upper": 1.005,
+      "weight": 5
+     }
+    },
+    "sources": [
+     {
+      "type": "boreholes",
+      "file": "boreholes_C.csv",
+      "crs": "job",
+      "collar": "elevation",
+      "collar_field": "z_top",
+      "azimuth_field": "bearing",
+      "inclination_field": "inclination",
+      "length_field": "length_m",
+      "unit_by": {
+       "field": "unit"
+      }
+     }
+    ],
+    "unconstrained": {
+     "lower": 0.0,
+     "upper": 3.0
+    }
+   }
+  },
+  "files": [
+   "synthetic_tmi_80m.csv",
+   "synthetic_dem.tif",
+   "boreholes_C.csv"
+  ]
+ }
+}

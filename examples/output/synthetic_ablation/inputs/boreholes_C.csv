@@ -1,0 +1,14 @@
+hole,x,y,z_top,bearing,inclination,length_m,unit
+H1 cube centre,601300.0,1602500.0,550.78,0.0,90.0,105.0,hole: background
+H1 cube centre,601300.0,1602500.0,445.78,0.0,90.0,300.0,hole: 0.5 SI
+H1 cube centre,601300.0,1602500.0,145.78,0.0,90.0,195.0,hole: background
+H2 east of the cube,601500.0,1602500.0,564.2,0.0,90.0,500.0,hole: background
+"H3 dyke, inclined",603700.0,1602500.0,639.43,270.0,60.0,490.0,hole: background
+"H3 dyke, inclined",603455.0,1602500.0,215.08,270.0,60.0,105.0,hole: 1 SI
+"H3 dyke, inclined",603402.5,1602500.0,124.14,270.0,60.0,205.0,hole: background
+"H4 dyke, shallow",603100.0,1602000.0,581.86,0.0,90.0,80.0,hole: background
+"H4 dyke, shallow",603100.0,1602000.0,501.86,0.0,90.0,145.0,hole: 1 SI
+"H4 dyke, shallow",603100.0,1602000.0,356.86,0.0,90.0,175.0,hole: background
+"H5 dyke, deep",603600.0,1603000.0,668.58,0.0,90.0,580.0,hole: background
+"H5 dyke, deep",603600.0,1603000.0,88.58,0.0,90.0,145.0,hole: 1 SI
+"H5 dyke, deep",603600.0,1603000.0,-56.42,0.0,90.0,175.0,hole: background

@@ -1,0 +1,50 @@
+{
+ "crs": "EPSG:32643",
+ "field": [
+  42085.1,
+  19.24,
+  -1.32
+ ],
+ "cube": {
+  "centre": [
+   601300.0,
+   1602500.0
+  ],
+  "edge": 300.0,
+  "top_depth": 100.0,
+  "kappa": 0.5,
+  "top_elev": 450.7794690652646,
+  "bottom_elev": 150.7794690652646
+ },
+ "dyke": {
+  "top_x": 603000.0,
+  "y": [
+   1601500.0,
+   1603500.0
+  ],
+  "top_depth": 50.0,
+  "bottom_depth": 1000.0,
+  "dip": 45.0,
+  "dip_direction": 90.0,
+  "thickness": 100.0,
+  "kappa": 1.0
+ },
+ "noise": "2 % + 5 nT",
+ "station_height": 80.0,
+ "station_spacing": 50.0,
+ "seed": 2026,
+ "dem": "synthetic_dem.tif (50 m, random seed 2026, about \u00b1150 m)",
+ "n_stations": 10201,
+ "tmi_range": [
+  -1758.5684520765597,
+  1667.2142130899474
+ ],
+ "ground_range": [
+  510.01084909110205,
+  750.0
+ ],
+ "true_cells": {
+  "cube": 1728,
+  "dyke": 17118
+ }
+}
