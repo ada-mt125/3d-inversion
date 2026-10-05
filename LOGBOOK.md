@@ -1774,3 +1774,12 @@ selected node, which could be another). It now refills the run's own node at onc
 `minutes_per_run`), and the group's name on the Jobs page. The profile A-B has a ✎ Draw
 button: click A, then B on the depth slice (the line follows the pointer; Esc cancels; a drag
 still works), the depth slice saying what to do.
+
+## 2026-10-05 — The agreement from any run of a robustness check
+
+"Colour slices by: agreement" stayed disabled for the user: the check's six runs are nodes
+of the workflow too, and only the checked run's node had the agreement. `robustness`, and
+`section?field=agreement`, now resolve a run of a check to the run it checks
+(`_robust_base`) and compute the agreement on the requested run's own grid; the node says
+"this run is one of the check of …". When the agreement is unavailable the 3D panel says
+why (no check of this run; fewer than two runs finished; not a run of the server).

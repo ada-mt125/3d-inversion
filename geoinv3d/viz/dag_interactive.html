@@ -598,7 +598,8 @@ svg#dag:active{cursor:grabbing;}
         </div>
         <div style="font-size:10px;line-height:1.4;color:#57677a;">Across the strike of the strongest bodies to start with. ✎ Draw, then click A and B on the depth slice (<a href="#" id="m3d-prof-reset" style="color:#8b97a6;">back across the strike</a>).</div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Colour slices by
-          <select id="m3d-secfield" class="m3d-cmp-sel" disabled title="The agreement needs a robustness check of this run (its node: 🧪 Check robustness)"><option value="model">the model</option><option value="agreement">agreement of the robustness runs</option></select></label>
+          <select id="m3d-secfield" class="m3d-cmp-sel" disabled><option value="model">the model</option><option value="agreement">agreement of the robustness runs</option></select></label>
+        <div id="m3d-secfield-note" style="font-size:10px;line-height:1.4;color:#57677a;"></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Vertical axis
           <select id="m3d-secref" class="m3d-cmp-sel"><option value="ground">depth below the ground</option><option value="elev">elevation</option></select></label>
         <div style="height:1px;background:#212b37;"></div>
@@ -1869,7 +1870,8 @@ async function robFill(n){
   const left=d.runs.filter(r=>r.status!=='SUCCEEDED'&&r.status!=='FAILED').length;
   const busy=left?`<div class="rob-busy">⏳ ${left} run${left>1?'s':''} to go, one after another on this computer`+
     (d.minutes_per_run?` · about ${Math.max(1,Math.round(left*d.minutes_per_run))} min left`:'')+` (Jobs page: “${escH(d.group_label||'Robustness')}”)</div>`:'';
-  let h=`<div class="rob-h">Robustness: ${d.n_done} of ${d.n_runs} runs finished</div>${busy}<div class="rob-runs">`+
+  const of=d.of_job&&d.of_job!==n.job.id?` <span class="rob-en">(this run is one of the check of ${escH(d.of_job)})</span>`:'';
+  let h=`<div class="rob-h">Robustness: ${d.n_done} of ${d.n_runs} runs finished${of}</div>${busy}<div class="rob-runs">`+
     d.runs.map(r=>`<div>${r.status==='SUCCEEDED'?'✓':r.status==='FAILED'?'✗':'…'} ${escH(r.variant||r.job_id)}${r.chi2_per_datum!=null?` <span class="rob-en">χ²/N ${(+r.chi2_per_datum).toFixed(2)}</span>`:''}</div>`).join('')+'</div>';
   if(s){
     const md=s.moment_depth_m.filter(v=>v!=null);
@@ -2779,9 +2781,14 @@ function init3D(n) {
       SEC.strike=p; if(!(SEC.profile&&SEC.profile.user)){SEC.profile=p;updateSectionRow();schedule3D();}});
   $v('m3d-prof-reset').onclick=e=>{e.preventDefault(); SEC.profile=SEC.strike; updateSectionRow(); schedule3D();};
   m3dRob=null; $v('m3d-secfield').value='model'; $v('m3d-secfield').disabled=true;
+  const fieldNote=t=>{$v('m3d-secfield').title=t; $v('m3d-secfield-note').textContent=t;};
+  fieldNote(SEC.job?'Agreement: looking for a robustness check of this run…':'Agreement: only for runs of the GeoInv3D server');
   if(SEC.job)fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(SEC.job)}/robustness?grid=1`)
     .then(r=>r.ok?r.json():null).catch(()=>null).then(d=>{
-      if(!d||!d.grid||SEC.job!==(n.job&&n.job.id))return;
+      if(SEC.job!==(n.job&&n.job.id))return;
+      if(!d||!d.n_runs){fieldNote('Agreement: after a robustness check of this run (its node in the Workflow: 🧪 Check robustness)');return;}
+      if(!d.grid){fieldNote(`Agreement: ${d.n_done} of ${d.n_runs} robustness runs finished; it needs two`);return;}
+      fieldNote('');
       m3dRob={job:SEC.job,m3:{...m3,values:d.grid.values,true_values:null,true_other:false},summary:d.summary,grid:null};
       const lab=document.createElement('label');
       lab.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0';

@@ -205,6 +205,12 @@ class TestComparisons:
         none = finished.get("/api/inversion/i-b/section", params={"kind": "plan", "level": 100,
                             "field": "agreement"})
         assert none.status_code == 409                              # i-b has no robustness runs
+        # one of the check's runs shows the check too, on its own grid
+        member = finished.get("/api/inversion/r-1/robustness", params={"grid": True}).json()
+        assert member["of_job"] == "i-a" and member["n_done"] == 3 and member["grid"]["values"]
+        sl = finished.get("/api/inversion/r-1/section", params={"kind": "plan", "level": 100,
+                          "field": "agreement"})
+        assert sl.status_code == 200 and sl.json()["n_runs"] == 3
 
     def test_compare_jobs_in_one_workflow(self, finished):
         wf = finished.get("/api/workflow", params={"ids": "i-a,i-b"}).json()

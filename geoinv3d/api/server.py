@@ -1530,8 +1530,15 @@ async def start_robustness(job_id: str, body: dict = Body(default={})):
 _ROBUST_CACHE: "OrderedDict[str, dict]" = OrderedDict()
 
 
+def _robust_base(job_id: str) -> str:
+    """The job a robustness check is of: the job itself, or for one of the check's runs
+    the job it checks (so that each of them shows the agreement too)."""
+    record = get_store().get(job_id) or {}
+    return record.get("robustness_of") or job_id
+
+
 def _robust_models(job_id: str):
-    members = _robustness_members(job_id)
+    members = _robustness_members(_robust_base(job_id))
     done = [m for m in members if m.get("display_status") == "SUCCEEDED"]
     return members, done, [_result_model(m["job_id"]) for m in done]
 
@@ -1543,8 +1550,9 @@ def robustness(job_id: str, grid: bool = False):
     if not get_store().get(job_id):
         raise HTTPException(status_code=404, detail="Unknown job")
     members, done, models = _robust_models(job_id)
+    base_job = _robust_base(job_id)
     took = [(m["stopped"] - m["started"]) / 60000.0 for m in done if m.get("started") and m.get("stopped")]
-    out = {"job_id": job_id, "n_runs": len(members), "n_done": len(done),
+    out = {"job_id": job_id, "of_job": base_job, "n_runs": len(members), "n_done": len(done),
            "group_label": members[0].get("group_label") if members else None,
            "minutes_per_run": round(float(np.median(took)), 2) if took else None,
            "runs": [{"job_id": m["job_id"], "variant": m.get("variant"), "status": m.get("display_status"),
@@ -1554,7 +1562,7 @@ def robustness(job_id: str, grid: bool = False):
         from ..viz.sections import agreement_grid, ensemble_summary
         key = job_id + "|" + ",".join(m["job_id"] for m in done) + ("|grid" if grid else "")
         if key not in _ROBUST_CACHE:
-            base = _result_model(job_id)
+            base = _result_model(job_id)      # this job's grid and window, whichever run it is
             res = {"summary": ensemble_summary(base, models)}
             res["summary"]["variants"] = [m.get("variant") for m in done]
             if grid:
