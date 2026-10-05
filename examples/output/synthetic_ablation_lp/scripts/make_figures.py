@@ -1,4 +1,4 @@
-"""Figures and figures/numbers.json of the Lp ablation report (labels in Chinese).
+"""Figures and figures/numbers.json of the Lp ablation report.
 
     py examples/output/synthetic_ablation_lp/scripts/make_figures.py
 
@@ -31,11 +31,13 @@ FIGS = ROOT / "figures"
 # the results: data/runs/ (or a folder given as the first argument, e.g. a part of the runs)
 RUNS = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "data" / "runs"
 RUNS_JSON = json.loads((ROOT / "inputs" / "runs.json").read_text())
-plt.rcParams.update({"font.sans-serif": ["Arial Unicode MS", "Heiti SC", "DejaVu Sans"], "font.size": 9,
+plt.rcParams.update({"font.sans-serif": ["Arial", "DejaVu Sans"], "font.size": 9,
                      "axes.titlesize": 9.5, "axes.unicode_minus": False, "savefig.dpi": 140})
 
-GROUPS = {"A": "A 无先验", "Bw1": "B 参考模型 · 权重 1", "Bw10": "B 参考模型 · 权重 10",
-          "Bw100": "B 参考模型 · 权重 100", "C": "C 钻孔（半径 150 m）"}
+GROUPS = {"A": "A: no prior", "Bw1": "B: reference, weight 1", "Bw10": "B: reference, weight 10",
+          "Bw100": "B: reference, weight 100", "C": "C: boreholes, 150 m reach"}
+GTICK = {"A": "A\nno prior", "Bw1": "B\nweight 1", "Bw10": "B\nweight 10", "Bw100": "B\nweight 100",
+         "C": "C\nboreholes"}
 GCOL = {"A": "#8a8f98", "Bw1": "#c4b0ff", "Bw10": "#7b4cff", "Bw100": "#3d1d99", "C": "#e07b39"}
 NORMS = {"n0000": "(0,0,0,0)", "n0111": "(0,1,1,1)", "n0221": "(0,2,2,1)", "n0222": "(0,2,2,2)", "n1111": "(1,1,1,1)"}
 BETAS = {"b10": "1", "b15": "1.5", "b20": "2", "b30": "3"}
@@ -161,9 +163,9 @@ def fig_setup(traces):
             ax.add_patch(Circle((xx, yy), 0.15, fill=False, ec="#e07b39", lw=0.5, alpha=0.7))
         ax.annotate(name.split()[0], (km(x[0]), kmy(y[0])), xytext=(3, 4), textcoords="offset points", fontsize=7)
     ax.axhline(kmy(YSEC), color="k", ls=":", lw=0.8)
-    ax.set(xlim=(0, 5), ylim=(0, 5), xlabel="东向（km，自 600 km）", ylabel="北向（km，自 1600 km）",
-           title="(a) 地形、异常体（红）、B 组参考模型（紫虚线）、钻孔（▲，橙圈为 150 m 半径）")
-    fig.colorbar(im, ax=ax, shrink=0.8, label="地面高程 (m)")
+    ax.set(xlim=(0, 5), ylim=(0, 5), xlabel="easting from 600 km (km)", ylabel="northing from 1600 km (km)",
+           title="(a) ground, bodies (red), B's reference (dashed), holes (▲, 150 m circles)")
+    fig.colorbar(im, ax=ax, shrink=0.8, label="ground elevation (m)")
     ax = axes[1]
     raw = np.loadtxt(mt.INPUTS / "synthetic_tmi_80m.csv", delimiter=",", skiprows=1)
     n = int(round(np.sqrt(len(raw))))
@@ -171,7 +173,7 @@ def fig_setup(traces):
     v = np.percentile(np.abs(tmi), 99)
     im = ax.imshow(tmi, extent=[0, 5, 0, 5], origin="lower", cmap="RdBu_r", vmin=-v, vmax=v)
     ax.axhline(kmy(YSEC), color="k", ls=":", lw=0.8)
-    ax.set(xlabel="东向（km）", title=f"(b) 总场异常，离地 80 m，{len(raw):,} 个点（含噪声）")
+    ax.set(xlabel="easting (km)", title=f"(b) total-field anomaly 80 m above the ground, {len(raw):,} points")
     fig.colorbar(im, ax=ax, shrink=0.8, label="ΔT (nT)")
     ax = axes[2]
     xs, zs, shape, pts, above = section_points()
@@ -182,9 +184,9 @@ def fig_setup(traces):
     ax.plot(km(xs), mt.ground(xs, np.full_like(xs, YSEC)), "k-", lw=0.8)
     prior_section(ax)
     holes_section(ax, traces)
-    ax.set(xlabel="东向（km）", ylabel="高程 (m)",
-           title=f"(c) 真实模型，北向 {kmy(YSEC):.1f} km 东西剖面：立方体 0.5 SI，侵入体 1 SI")
-    fig.colorbar(im, ax=ax, shrink=0.8, label="磁化率 (SI)")
+    ax.set(xlabel="easting (km)", ylabel="elevation (m)",
+           title=f"(c) true model on the E–W section at northing {kmy(YSEC):.1f} km: cube 0.5 SI, intrusion 1 SI")
+    fig.colorbar(im, ax=ax, shrink=0.8, label="susceptibility (SI)")
     fig.tight_layout()
     fig.savefig(FIGS / "setup.png", bbox_inches="tight")
     plt.close(fig)
@@ -210,7 +212,7 @@ def fig_tuning(N):
         ax.set_yticks(range(len(NORMS)), list(NORMS.values()))
         ax.set_title(GROUPS[g], loc="left")
     axes[0].set_ylabel("norms (p_s, p_x, p_y, p_z)")
-    fig.colorbar(im, ax=axes, shrink=0.8, label="体积匹配重叠率（两体平均）", pad=0.01)
+    fig.colorbar(im, ax=axes, shrink=0.8, label="score: volume-matched overlap, mean of the two bodies", pad=0.01)
     fig.savefig(FIGS / "tuning.png", bbox_inches="tight")
     plt.close(fig)
 
@@ -218,16 +220,17 @@ def fig_tuning(N):
 def fig_effects(N):
     """Mean score by each parameter, per group."""
     fig, axes = plt.subplots(1, 3, figsize=(14, 3.6), sharey=True)
-    for ax, (dim, values, title) in zip(axes, [(0, NORMS, "norms"), (1, BETAS, "深度加权 β"), (2, LENGTHS, "光滑长度 L")]):
+    for ax, (dim, values, title) in zip(axes, [(0, NORMS, "norms"), (1, BETAS, "depth weighting β"),
+                                               (2, LENGTHS, "length scale L")]):
         for g in [g for g in GROUPS if g in N["best"]]:
             means = [np.nanmean([val(N, f"{g}_{s}") for s in SETTINGS if s.split("_")[dim] == v]) for v in values]
             best = [np.nanmax([val(N, f"{g}_{s}") for s in SETTINGS if s.split("_")[dim] == v]) for v in values]
             ax.plot(range(len(values)), means, "o-", color=GCOL[g], label=GROUPS[g], lw=1.4)
             ax.plot(range(len(values)), best, "v:", color=GCOL[g], lw=0.9, ms=4)
         ax.set_xticks(range(len(values)), list(values.values()))
-        ax.set_title(f"按{title}：实线为平均，虚线为最好", loc="left")
+        ax.set_title(f"by {title}: mean (solid), best (dotted)", loc="left")
         ax.grid(alpha=0.3)
-    axes[0].set_ylabel("体积匹配重叠率")
+    axes[0].set_ylabel("score")
     axes[-1].legend(fontsize=7, frameon=False, loc="lower right")
     fig.tight_layout()
     fig.savefig(FIGS / "effects.png", bbox_inches="tight")
@@ -237,14 +240,14 @@ def fig_effects(N):
 def fig_paired(N):
     """Each setting: its score with the prior against without."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.6))
-    for ax, key, title in ((axes[0], "overlap_cube", "立方体"), (axes[1], "overlap_dyke", "侵入体")):
+    for ax, key, title in ((axes[0], "overlap_cube", "cube"), (axes[1], "overlap_dyke", "intrusion")):
         a = np.array([val(N, f"A_{s}", key) for s in SETTINGS])
         for g in [g for g in GROUPS if g != "A" and g in N["best"]]:
             b = np.array([val(N, f"{g}_{s}", key) for s in SETTINGS])
             ax.scatter(a, b, s=14, color=GCOL[g], label=GROUPS[g], alpha=0.85)
         ax.plot([0, 1], [0, 1], "k--", lw=0.8)
-        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="A 无先验：重叠率", ylabel="有先验：重叠率",
-               title=f"{title}：同一组参数，有先验 vs 无先验（40 组参数）")
+        ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="overlap without a prior (A)", ylabel="overlap with the prior",
+               title=f"{title}: the same 40 settings with and without a prior")
         ax.grid(alpha=0.3)
     axes[0].legend(fontsize=7, frameon=False, loc="lower right")
     fig.tight_layout()
@@ -271,27 +274,27 @@ def fig_sections(models, N, traces, rows):
         if g == "C":
             holes_section(ax, traces)
         ax.set_title(title, loc="left")
-        ax.set_ylabel("高程 (m)")
+        ax.set_ylabel("elevation (m)")
         return im
 
-    im = draw(axes[0], t, "真实模型（紫虚线：B 组参考模型；黑线：C 组钻孔）", "")
+    im = draw(axes[0], t, "true model (dashed: B's reference model; black: C's holes)", "")
     prior_section(axes[0])
     holes_section(axes[0], traces)
     for ax, (key, title) in zip(axes[1:], rows):
         r = N["runs"][key]
         v = np.where(above, np.nan, ResultModel(models[key]).sample(pts).reshape(shape))
-        draw(ax, v, f"{title}：{label(key.split('_', 1)[1])}  重叠率 {r['score']:.2f}，χ²/N {r['chi2_per_datum']:.2f}",
+        draw(ax, v, f"{title} — {label(key.split('_', 1)[1])}: score {r['score']:.2f}, χ²/N {r['chi2_per_datum']:.2f}",
              key.split("_")[0])
-    axes[-1].set_xlabel("东向（km，自 600 km）")
-    fig.colorbar(im, ax=axes, shrink=0.4, extend="max", label="磁化率 (SI)", pad=0.01)
+    axes[-1].set_xlabel("easting from 600 km (km)")
+    fig.colorbar(im, ax=axes, shrink=0.4, extend="max", label="susceptibility (SI)", pad=0.01)
     return fig
 
 
 def fig_metrics(N, best):
-    panels = [("overlap_cube", "立方体重叠率"), ("overlap_dyke", "侵入体重叠率"),
-              ("cube_depth", "立方体磁化中心深度 (m)"), ("dyke_base", "侵入体 90% 磁化深度 (m)"),
-              ("dip", "侵入体视倾角 (°)"), ("k_dyke", "侵入体内平均磁化率 (SI)"),
-              ("k_cube", "立方体内平均磁化率 (SI)"), ("k_wrong", "参考模型错位区平均磁化率 (SI)")]
+    panels = [("overlap_cube", "cube overlap"), ("overlap_dyke", "intrusion overlap"),
+              ("cube_depth", "depth of the cube's magnetization (m)"), ("dyke_base", "90 % depth of the intrusion's magnetization (m)"),
+              ("dip", "apparent dip of the intrusion (°)"), ("k_dyke", "mean κ in the intrusion (SI)"),
+              ("k_cube", "mean κ in the cube (SI)"), ("k_wrong", "mean κ where B's reference is wrong (SI)")]
     fig, axes = plt.subplots(2, 4, figsize=(16, 6.5))
     for ax, (key, title) in zip(axes.ravel(), panels):
         truth = N["truth_measures"][key]          # the true model, measured the same way
@@ -299,7 +302,7 @@ def fig_metrics(N, best):
         vals = [N["runs"][best[g]][key] for g in gs]
         ax.bar(range(len(gs)), vals, color=[GCOL[g] for g in gs])
         ax.axhline(truth, color="k", ls="--", lw=1)
-        ax.set_xticks(range(len(gs)), [GROUPS[g].replace(" · ", "\n").replace("（", "\n（") for g in gs], fontsize=7)
+        ax.set_xticks(range(len(gs)), [GTICK[g] for g in gs], fontsize=7)
         ax.set_title(title, loc="left")
         if key in ("cube_depth", "dyke_base"):
             ax.invert_yaxis()
@@ -315,13 +318,15 @@ def fig_boreholes(models, N, traces, setting):
     for s in N["boreholes"]["c_minus_a"]:
         ax.semilogy(range(len(labels)), N["boreholes"]["c_minus_a"][s], "-", color="#e07b39", lw=0.6, alpha=0.5)
     ax.semilogy(range(len(labels)), N["boreholes"]["c_minus_a"][setting], "o-", color="#b5501a", lw=2,
-                label=f"最优参数 {label(setting)}")
+                label=f"C's best: {label(setting)}")
     ax.set_xticks(range(len(labels)), labels)
     ax.axvspan(2.5, 5.5, color="#eee", zorder=-1)
-    ax.set(xlabel="网格到最近钻孔的距离 (m)", ylabel="|C − A| 平均差 (SI)", title="(a) 钻孔约束随距离衰减（40 组参数）")
+    ax.set(xlabel="distance from the nearest hole (m)", ylabel="mean |C − A| (SI)",
+           title="(a) reach of the holes (40 settings)")
     ax.legend(fontsize=7, frameon=False)
-    picks = [("H3 intrusion, inclined", "(b) H3：斜孔穿过侵入体"), ("H5 intrusion, deep", "(c) H5：侵入体深部"),
-             ("V", f"(d) 虚拟孔 V：距最近钻孔 {N['boreholes']['virtual']['nearest_hole_m']:.0f} m，未给反演")]
+    picks = [("H3 intrusion, inclined", "(b) H3, inclined through the intrusion"),
+             ("H5 intrusion, deep", "(c) H5, the intrusion's deeper part"),
+             ("V", f"(d) test hole V, {N['boreholes']['virtual']['nearest_hole_m']:.0f} m from any hole (not used)")]
     for ax, (name, title) in zip(axes[1:], picks):
         if name == "V":
             pts, depth, k = virtual_trace()
@@ -329,16 +334,123 @@ def fig_boreholes(models, N, traces, setting):
             s, x, y, z, k = traces[name]
             pts = np.column_stack([x, y, z])
             depth = mt.ground(x[0], y[0]) - z
-        ax.plot(k, depth, "k-", lw=2.0, label="真值（测井）")
+        ax.plot(k, depth, "k-", lw=2.0, label="log (true)")
         top = 1.1
         for g in ("A", "C"):
             v = ResultModel(models[f"{g}_{setting}"]).sample(pts)
             top = max(top, np.nanmax(v) * 1.05)
             ax.plot(v, depth, "-", color=GCOL[g], lw=1.4, label=GROUPS[g])
-        ax.set(ylim=(depth.max(), 0), xlim=(-0.03, top), xlabel="磁化率 (SI)", ylabel="地下深度 (m)", title=title)
+        ax.set(ylim=(depth.max(), 0), xlim=(-0.03, top), xlabel="susceptibility (SI)", ylabel="depth (m)", title=title)
     axes[1].legend(fontsize=7, frameon=False, loc="lower right")
     fig.tight_layout()
     fig.savefig(FIGS / "boreholes.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+# ── the boreholes across the settings ─────────────────────────────────
+
+# settings shown side by side for A and C: C's best, others across the grid, A's best, the page's
+# default and C's worst against A
+C_ROWS = [("n0000_b20_L3", "C's best"), ("n0111_b15_L3", ""), ("n1111_b15_L1", "A's best"),
+          ("n1111_b30_L1", "β = 3"), ("n0221_b15_L1", "the page's default"), ("n0222_b15_L1", "A's near-worst"),
+          ("n0221_b20_L3", "C's worst against A")]
+ROBUST = ["score", "overlap_cube", "overlap_dyke", "cube_depth", "dyke_base", "dip", "k_dyke", "k_cube"]
+
+
+def fig_robust_scores(N):
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 4.8), gridspec_kw={"width_ratios": [1.15, 1, 1.25]})
+    ax = axes[0]
+    gs = list(GROUPS)
+    data = [[val(N, f"{g}_{s}") for s in SETTINGS] for g in gs]
+    bp = ax.boxplot(data, widths=0.55, patch_artist=True, showfliers=False, medianprops={"color": "k"})
+    for patch, g in zip(bp["boxes"], gs):
+        patch.set(facecolor=GCOL[g], alpha=0.3, edgecolor=GCOL[g])
+    rng = np.random.default_rng(0)
+    for i, (g, d) in enumerate(zip(gs, data), start=1):
+        ax.scatter(i + rng.uniform(-0.17, 0.17, len(d)), d, s=11, color=GCOL[g], zorder=3)
+    ax.set_xticks(range(1, len(gs) + 1), [GTICK[g] for g in gs], fontsize=7.5)
+    ax.set(ylim=(0, 1), ylabel="score", title="(a) all 40 settings in each group")
+    ax.grid(axis="y", alpha=0.3)
+    ax = axes[1]
+    marker = {"n0000": "o", "n0111": "s", "n0221": "^", "n0222": "v", "n1111": "D"}
+    for st in SETTINGS:
+        n, b, ell = st.split("_")
+        ax.scatter(val(N, f"A_{st}"), val(N, f"C_{st}"), marker=marker[n], s=30, lw=1, edgecolor=GCOL["C"],
+                   facecolor=GCOL["C"] if ell == "L3" else "white", zorder=3)
+    ax.plot([0, 1], [0, 1], "k--", lw=0.8)
+    from matplotlib.lines import Line2D
+    handles = [Line2D([], [], ls="", marker=m, color=GCOL["C"], mfc="white", label=f"p = {NORMS[n]}")
+               for n, m in marker.items()]
+    handles += [Line2D([], [], ls="", marker="o", color=GCOL["C"], label="filled: L = 3, open: L = 1")]
+    ax.legend(handles=handles, fontsize=7, frameon=False, loc="lower right")
+    better = N["group_stats"]["C"]["better_than_A"]
+    ax.set(xlim=(0.2, 0.92), ylim=(0.2, 0.92), xlabel="score without a prior (A)", ylabel="score with the holes (C)",
+           title=f"(b) each setting with and without the holes: C higher in {better} of 40")
+    ax.grid(alpha=0.3)
+    ax = axes[2]
+    cols = [(b, ell) for b in BETAS for ell in LENGTHS]
+    D = np.array([[val(N, f"C_{n}_{b}_{ell}") - val(N, f"A_{n}_{b}_{ell}") for b, ell in cols] for n in NORMS])
+    im = ax.imshow(D, cmap="RdBu", vmin=-0.4, vmax=0.4, aspect="auto")
+    for i in range(D.shape[0]):
+        for j in range(D.shape[1]):
+            ax.text(j, i, f"{D[i, j]:+.2f}", ha="center", va="center", fontsize=7, color="k")
+    ax.set_xticks(range(len(cols)), [f"β{BETAS[b]}\nL{LENGTHS[ell]}" for b, ell in cols], fontsize=7)
+    ax.set_yticks(range(len(NORMS)), list(NORMS.values()))
+    ax.set_title("(c) gain from the holes (C − A score), per setting", loc="left")
+    fig.colorbar(im, ax=ax, shrink=0.8, label="C − A")
+    fig.tight_layout()
+    fig.savefig(FIGS / "c_scores.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig_robust_measures(N):
+    panels = [("overlap_cube", "cube overlap"), ("overlap_dyke", "intrusion overlap"),
+              ("cube_depth", "depth of the cube's magnetization (m)"), ("dyke_base", "90 % depth of the intrusion's magnetization (m)"),
+              ("dip", "apparent dip of the intrusion (°)"), ("k_dyke", "mean κ in the intrusion (SI)")]
+    fig, axes = plt.subplots(1, 6, figsize=(17, 3.9))
+    rng = np.random.default_rng(1)
+    for ax, (key, title) in zip(axes, panels):
+        data = [[val(N, f"{g}_{s}", key) for s in SETTINGS] for g in ("A", "C")]
+        bp = ax.boxplot(data, widths=0.55, patch_artist=True, showfliers=False, medianprops={"color": "k"})
+        for patch, g in zip(bp["boxes"], ("A", "C")):
+            patch.set(facecolor=GCOL[g], alpha=0.3, edgecolor=GCOL[g])
+        for i, (g, d) in enumerate(zip(("A", "C"), data), start=1):
+            ax.scatter(i + rng.uniform(-0.15, 0.15, len(d)), d, s=9, color=GCOL[g], zorder=3)
+        ax.axhline(N["truth_measures"][key], color="k", ls="--", lw=1)
+        ax.set_xticks([1, 2], ["A\nno prior", "C\nboreholes"], fontsize=7.5)
+        ax.set_title(title, loc="left", fontsize=8.5)
+        if key in ("cube_depth", "dyke_base"):
+            ax.invert_yaxis()
+        ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(FIGS / "c_measures.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def fig_c_sections(models, N, traces):
+    xs, zs, shape, pts, above = section_points()
+    fig, axes = plt.subplots(len(C_ROWS), 2, figsize=(15.5, 1.85 * len(C_ROWS) + 0.5), sharex=True, sharey=True,
+                             gridspec_kw={"hspace": 0.42, "wspace": 0.05})
+    ext = [0, 5, zs[-1], zs[0]]
+    gline = mt.ground(xs, np.full_like(xs, YSEC))
+    for i, (st, tag) in enumerate(C_ROWS):
+        for j, g in enumerate(("A", "C")):
+            ax = axes[i, j]
+            r = N["runs"][f"{g}_{st}"]
+            v = np.where(above, np.nan, ResultModel(models[f"{g}_{st}"]).sample(pts).reshape(shape))
+            im = ax.imshow(v, extent=ext, aspect="auto", cmap=CMAP, vmin=0, vmax=VMAX, interpolation="nearest")
+            ax.plot(km(xs), gline, "k-", lw=0.6)
+            cube_box_section(ax)
+            dyke_section(ax, color="k", lw=0.6)
+            if g == "C":
+                holes_section(ax, traces)
+            head = f"{'A, no prior' if g == 'A' else 'C, boreholes'} — {label(st)}"
+            ax.set_title(f"{head}{f'  ({tag})' if tag else ''}: score {r['score']:.2f}", loc="left", fontsize=8.5)
+        axes[i, 0].set_ylabel("elevation (m)")
+    for ax in axes[-1]:
+        ax.set_xlabel("easting from 600 km (km)")
+    fig.colorbar(im, ax=axes, shrink=0.35, extend="max", label="susceptibility (SI)", pad=0.01)
+    fig.savefig(FIGS / "c_sections.png", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -431,6 +543,13 @@ def main():
     for g in ("A", "C"):
         v = ResultModel(models[f"{g}_{sbest}"]).sample(pts)
         b["virtual"][g] = float(np.nanmean(v[hit]))
+    N["robust"] = {g: {m: [float(np.nanpercentile([val(N, f"{g}_{s}", m) for s in SETTINGS], q)) for q in (0, 25, 50, 75, 100)]
+                       for m in ROBUST} for g in present}
+    tm = N["truth_measures"]
+    N["near_truth"] = {g: {"dip_10": int(sum(abs(val(N, f"{g}_{s}", "dip") - tm["dip"]) <= 10 for s in SETTINGS)),
+                           "cube_depth_50": int(sum(abs(val(N, f"{g}_{s}", "cube_depth") - tm["cube_depth"]) <= 50 for s in SETTINGS)),
+                           "dyke_base_100": int(sum(abs(val(N, f"{g}_{s}", "dyke_base") - tm["dyke_base"]) <= 100 for s in SETTINGS)),
+                           "score_07": int(sum(val(N, f"{g}_{s}") >= 0.7 for s in SETTINGS))} for g in present}
     (FIGS / "numbers.json").write_text(json.dumps(N, indent=1, ensure_ascii=False, default=float), encoding="utf-8")
 
     fig_setup(traces)
@@ -438,7 +557,7 @@ def main():
     fig_effects(N)
     fig_paired(N)
     fig_metrics(N, best)
-    rows = [(best[g], f"{GROUPS[g]}最优") for g in GROUPS if g in best]
+    rows = [(best[g], f"{GROUPS[g]}, best") for g in GROUPS if g in best]
     fig = fig_sections(models, N, traces, rows)
     fig.savefig(FIGS / "best_sections.png", bbox_inches="tight")
     plt.close(fig)
@@ -447,6 +566,10 @@ def main():
     fig.savefig(FIGS / "same_setting_sections.png", bbox_inches="tight")
     plt.close(fig)
     fig_boreholes(models, N, traces, sbest)
+    if all(f"{g}_{s}" in models for g in ("A", "C") for s in SETTINGS):
+        fig_robust_scores(N)
+        fig_robust_measures(N)
+        fig_c_sections(models, N, traces)
     # the runs the report shows, kept in the repository (data/runs/ is not)
     import shutil
     shown = set(best.values()) | {f"{g}_{sa}" for g in GROUPS if f"{g}_{sa}" in models} | {f"A_{sbest}", f"C_{sbest}"}

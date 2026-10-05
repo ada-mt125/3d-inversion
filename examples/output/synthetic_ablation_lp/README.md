@@ -1,9 +1,11 @@
 # Synthetic ablation 2: Lp, tuned, against a reference model and boreholes
 
-The code, inputs, runs and figures of the report `ablation_report.html` (and `.pdf`, in Chinese),
-which replaces the first study (`../synthetic_ablation`): there every method had one setting,
-the intrusion was a 100 m sheet, the prior was pinned by the model builder's default range,
-and the holes reached no further than their trace.
+The code, inputs, runs and figures of the report `ablation_report.html` (and `.pdf`), which
+replaces the first study (`../synthetic_ablation`): there every method had one setting, the
+intrusion was a 100 m sheet, the prior was pinned by the model builder's default range, and the
+holes reached no further than their trace. The report is written for readers new to the test
+and does not refer to the first study; it is published privately as a claude.ai artifact
+(https://claude.ai/artifact/SrqZzEDy5cYpgkdJEJQAfW).
 
 The model: a cube (300 m, 100–400 m below the ground, 0.5 SI) and a stubby intrusion (250 m thick,
 1.2 km along strike, 100–600 m, 45° to the east, 1 SI) under random ground at Block 8's field

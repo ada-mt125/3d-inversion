@@ -2161,3 +2161,11 @@ share 1 − d/radius). 200 runs on 10 × c5.4xlarge (`deploy/ec2_sweep.py`, `dep
 
 Open: the page's Lp defaults (L 3 or (1,1,1,1)), a smaller radius for background intervals, and
 `radius_m` in the page's borehole import.
+
+The report is now in English, for readers new to the test (no comparison with the first ablation),
+with a section on how the boreholes do across all 40 settings (`c_scores`, `c_measures`,
+`c_sections`, Table 7): they raise the score at 35 settings, by a median of +0.21 where the
+inversion alone scores below 0.5 and +0.00 where it scores 0.7 or more; the cube's overlap falls
+below 0.4 at 2 settings with the holes against 14 without; the intrusion's dip stays too steep in
+most settings (median 64° → 61°). Published privately as an artifact
+(https://claude.ai/artifact/SrqZzEDy5cYpgkdJEJQAfW).
