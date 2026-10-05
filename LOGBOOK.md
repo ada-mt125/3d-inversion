@@ -1813,3 +1813,9 @@ the default and the evidence is reported. Either way: the variance reduction is 
 per cell (the data do not fix single cells); along the profile across the strike the
 bodies' top is at 6 / 19-44 / 70-130 m (10/50/90 %), their base anywhere from about 0.5 km
 to below the core (2.5 km).
+
+## 2026-10-05 — Deleting a group of jobs at once
+
+A group on the Jobs page (a sweep, or the twelve jobs the removed robustness check left in
+the user's app) has "🗑 Delete the group" once none of its jobs runs: one confirmation, then
+`DELETE /api/jobs/{id}` for each, a toast with how many went (and why any did not).

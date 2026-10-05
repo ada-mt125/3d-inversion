@@ -3899,6 +3899,22 @@ async function deleteJob(id,label){
   return true;
 }
 
+// Delete several jobs that have ended, after one confirmation (a group on the Jobs page)
+async function deleteJobs(ids,label,btn){
+  if(!window.GEOINV3D_API||!ids.length)return;
+  if(!confirm(`Delete the ${ids.length} jobs of “${label}”?\n\nTheir results, the inputs kept for re-running them and their files on this computer are removed, and they leave the workflow. This cannot be undone.\n(Saved comparisons keep their own copy.)`))return;
+  if(btn){btn.disabled=true; btn.textContent='⏳ Deleting…';}
+  let done=0, failed=[];
+  for(const id of ids){
+    try{const r=await fetch(`${window.GEOINV3D_API}/api/jobs/${encodeURIComponent(id)}`,{method:'DELETE'});
+      if(r.ok)done++; else failed.push(id+': '+((await r.json().catch(()=>({}))).detail||r.status));}
+    catch(err){failed.push(id+': '+err.message);}
+  }
+  toast(`🗑 Deleted ${done} of ${ids.length} jobs`+(failed.length?`<br><span class="up-err">${failed.map(escH).join('<br>')}</span>`:''),failed.length?12000:5000);
+  if(typeof WS!=='undefined'&&WS.id){WS.key=''; wsRefresh();}
+  if(window.GeoUpload&&GeoUpload.jobsChanged)GeoUpload.jobsChanged();
+}
+
 function toast(html,ms=9000){
   const t=$v('toast'); t.innerHTML=html; t.hidden=false;
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{t.hidden=true;},ms);
@@ -7039,6 +7055,7 @@ window.GeoPreview=GeoPreview;
       <span class="up-grp-btns">
         <button type="button" class="up-btn up-btn-sm up-btn-primary" data-compare="${escH(ids)}"${ok.length<2?' disabled':''}>📊 Compare in DAG</button>
         <button type="button" class="up-btn up-btn-sm" data-save="${escH(ids)}" data-name="${escH(label)}"${ok.length<2?' disabled':''}>💾 Save comparison</button>
+        ${active?'':`<button type="button" class="up-btn up-btn-sm up-btn-danger" data-del-group="${escH(js.map(j=>j.job_id).join(','))}" data-name="${escH(label)}" title="Delete every job of this group, their results and their files on this computer">🗑 Delete the group</button>`}
       </span></div>${js.map(jobCard).join('')}</div>`;
   }
 
@@ -7278,6 +7295,8 @@ window.GeoPreview=GeoPreview;
   }
 
   $u('up-jobs').addEventListener('click',e=>{
+    const dg=e.target.closest('[data-del-group]');
+    if(dg){deleteJobs(dg.dataset.delGroup.split(','),dg.dataset.name,dg);return;}
     const del=e.target.closest('[data-del-job]');
     if(del){const j=jobsCache.find(x=>x.job_id===del.dataset.delJob); deleteJob(del.dataset.delJob,j&&(j.note||j.variant)||''); return;}
     const full=e.target.closest('[data-full]'), rr=e.target.closest('[data-rerun-job]'), st=e.target.closest('[data-start-job]');
