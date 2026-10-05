@@ -1228,6 +1228,7 @@ const NCOL = {
   RegularizedInversionNode:'#E91E63', JointInversionNode:'#e94560',
   ModelExportNode:'#8BC34A', ResultExportNode:'#8BC34A',
   RegularizationBranchNode:'#009688', ParameterBranchNode:'#5C6BC0',
+  BayesianPosteriorNode:'#b8901f',
 };
 const NCAT = {
   RegularizationBranchNode:'Regularization', ParameterBranchNode:'Setting',
@@ -1239,6 +1240,7 @@ const NCAT = {
   SingleInversionNode:'Inversion', SparseInversionNode:'Sparse Inv.',
   RegularizedInversionNode:'Inversion', JointInversionNode:'Joint Inv.',
   ModelExportNode:'Export', ResultExportNode:'Export',
+  BayesianPosteriorNode:'Posterior',
 };
 
 const CMAP = [
@@ -1369,6 +1371,8 @@ function loadFile(file) {
 // DAG: NODE CONFIG HELPER
 // ══════════════════════════════════════════
 function isInv(t) { return t==='SingleInversionNode'||t==='SparseInversionNode'||t==='RegularizedInversionNode'||t==='JointInversionNode'; }
+// A Bayesian posterior of a run: drawn after it, in a column of its own
+function isPost(t) { return t==='BayesianPosteriorNode'; }
 // Runs of one study are split by regularization, then one setting per level (result_workflow.py)
 function isBranch(t) { return t==='RegularizationBranchNode'||t==='ParameterBranchNode'; }
 function fitLine(n) {
@@ -1412,6 +1416,11 @@ function cfgLines(n) {
             'iter='+p.max_iter+(p.bounds&&p.bounds[1]!=null?' χ≤'+p.bounds[1]:'')];
   if (t === 'JointInversionNode')
     return [(p.method_types||[]).join('+'), 'iter='+p.max_iter];
+  if (t === 'BayesianPosteriorNode') {
+    const b=p.bayes||{};
+    return [`smooth L2 prior · β ${b.beta!=null?(+b.beta).toPrecision(2):'?'} · χ²/N ${b.chi2_per_datum!=null?(+b.chi2_per_datum).toFixed(2):'?'}`,
+            `P(body), posterior std · variance −${b.variance_reduction_median!=null?Math.round(100*b.variance_reduction_median):'?'} %`];
+  }
   return [];
 }
 
@@ -1477,13 +1486,17 @@ function treeLayout(nodes) {
   const colBase=id=>{let k=id; while(prim[k]!=null&&isBranch(nmap[prim[k]].type))k=prim[k];
     return Math.max(0,...ins(nmap[k]).map(i=>layers[i]))+1;};
   nodes.forEach(n=>{if(isBranch(n.type)&&n.branch&&n.branch.column!=null)layers[n.id]=colBase(n.id)+n.branch.column;});
-  const maxL=Math.max(...Object.values(layers))+(nodes.some(n=>isBranch(n.type)&&n.branch&&n.branch.column!=null)?1:0);
-  nodes.forEach(n=>{if(isInv(n.type)&&!kids[n.id])layers[n.id]=maxL;});
+  const maxL=Math.max(...nodes.filter(n=>!isPost(n.type)).map(n=>layers[n.id]))+(nodes.some(n=>isBranch(n.type)&&n.branch&&n.branch.column!=null)?1:0);
+  nodes.forEach(n=>{if(isInv(n.type)&&!(kids[n.id]||[]).some(k=>!isPost(k.type)))layers[n.id]=maxL;});
+  nodes.forEach(n=>{if(isPost(n.type))layers[n.id]=maxL+1;});
   // with the settings folded the result cards have room to name every setting of a run
   const wide=!nodes.some(n=>isBranch(n.type));
-  const size=n=>isInv(n.type)?{w:wide?400:280,h:58}:isBranch(n.type)?{w:170,h:44}:{w:170,h:48};
-  // the results column sits further right: its cards are wider
-  const colW=250, vGap=12, xOf=n=>layers[n.id]*colW+(layers[n.id]===maxL?(wide?120:60):0), pos={};
+  const resW=wide?400:280, postW=260;
+  const size=n=>isInv(n.type)?{w:resW,h:58}:isPost(n.type)?{w:postW,h:58}:isBranch(n.type)?{w:170,h:44}:{w:170,h:48};
+  // the results column sits further right: its cards are wider; a posterior just after them
+  const colW=250, vGap=12, pos={};
+  const colX=l=>l*colW+(l===maxL?(wide?120:60):l===maxL+1?(wide?120:60)-colW+resW/2+48+postW/2:0);
+  const xOf=n=>colX(layers[n.id]);
   let y=0;
   const place=n=>{
     const s=size(n), ch=kids[n.id]||[];
@@ -1532,14 +1545,14 @@ function treeLayout(nodes) {
     const p=pos[n.id]; if(!p)return;
     const t=tree[n.id], l=layers[n.id];
     top[t]=Math.min(top[t]??Infinity, p.y-p.h/2);
-    const title=isBranch(n.type)?levelTitle(n):isInv(n.type)?'Results':'Data & mesh';
+    const title=isBranch(n.type)?levelTitle(n):isInv(n.type)?'Results':isPost(n.type)?'Uncertainty':'Data & mesh';
     ((titles[t]=titles[t]||{})[l]=titles[t][l]||new Set()).add(title);
   });
   Object.values(dagGhosts).forEach(g=>Object.entries(g).forEach(([t,p])=>{top[t]=Math.min(top[t]??Infinity,p.y-p.h/2);}));
   dagTreeOf=tree;
   dagColTitles=[];
   Object.entries(titles).forEach(([t,cs])=>Object.entries(cs).forEach(([l,set])=>
-    dagColTitles.push({x:+l*colW+(+l===maxL?(wide?120:60):0), y:top[t]-22, title:[...set].join(' / ')})));
+    dagColTitles.push({x:colX(+l), y:top[t]-22, title:[...set].join(' / ')})));
   return pos;
 }
 
@@ -1564,11 +1577,12 @@ function layeredLayout(nodes, edges) {
 
   for (let l=0; l<=maxL; l++) {
     const g = groups[l]||[];
-    const maxH = Math.max(nH, ...g.map(n => isInv(n.type)?iH:nH));
-    const totW = g.reduce((s,n)=>s+(isInv(n.type)?iW:nW),0)+(g.length-1)*gap;
+    const big=t=>isInv(t)||isPost(t);
+    const maxH = Math.max(nH, ...g.map(n => big(n.type)?iH:nH));
+    const totW = g.reduce((s,n)=>s+(big(n.type)?iW:nW),0)+(g.length-1)*gap;
     let cx = -totW/2;
     g.forEach(n => {
-      const w=isInv(n.type)?iW:nW, h=isInv(n.type)?iH:nH;
+      const w=big(n.type)?iW:nW, h=big(n.type)?iH:nH;
       pos[n.id]={x:cx+w/2, y:l*(maxH+lGap)+maxH/2, w, h};
       cx+=w+gap;
     });
@@ -1679,7 +1693,17 @@ function drawDAG(nodes, edges) {
     ng.setAttribute('class','dag-node'+(selNode===n.id?' selected':''));
     ng.setAttribute('data-id',n.id);
 
-    if (inv && dagLR) {
+    if (isPost(n.type)) {
+      // a posterior: a card after its run, dashed
+      const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
+      r.setAttribute('x',p.x-p.w/2); r.setAttribute('y',p.y-p.h/2);
+      r.setAttribute('width',p.w); r.setAttribute('height',p.h); r.setAttribute('rx',8);
+      r.setAttribute('fill',col); r.setAttribute('stroke','#f4c542'); r.setAttribute('stroke-width','2');
+      r.setAttribute('stroke-dasharray','5 3');
+      ng.appendChild(r);
+      addText(ng, p.x, p.y-15, '🎲 '+trunc(n.name,40), 'node-label');
+      cfgLines(n).forEach((ln,i)=>addText(ng, p.x, p.y+5+i*13, trunc(ln,46), 'node-cfg'));
+    } else if (inv && dagLR) {
       // A result in a branch tree: a card with the setting that sets it apart, the fit
       // and the other settings that differ in this study
       const r=document.createElementNS('http://www.w3.org/2000/svg','rect');
@@ -1893,7 +1917,8 @@ async function bayesStart(id,btn){
   if(!confirm('Compute the Bayesian posterior of this run?\n\nOne job on this computer: the same data, the smooth L2 regularization as a Gaussian prior, 30 posterior samples. Thinned data when there are more than 6,000; minutes to some tens of minutes for a window like this.'))return;
   btn.disabled=true; btn.textContent='⏳ Starting…';
   try{
-    const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(id)}/bayes`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(id)}/bayes`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(typeof WS!=='undefined'&&WS.id?{workspace_id:WS.id}:{})});
     const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
     toast(`🎲 Posterior run started`+(d.thinned_to_m?` (data thinned to ${d.thinned_to_m} m)`:'')+` · ≈ ${d.memory_gb} GB`,6000);
     if(window.GeoUpload)GeoUpload.jobStarted();

@@ -254,3 +254,27 @@ class TestViewerGrid:
         core = model.reshape(mesh.shape_cells, order="F")[n_pad:-n_pad, n_pad:-n_pad, n_pad:]
         top = core[:k, :k, ::-1][:, :, :kz].mean()
         assert v[0] == pytest.approx(top)
+
+
+def test_a_posterior_hangs_after_its_run(tmp_path):
+    """A Bayesian posterior (``_posterior_of`` a run of the workflow) is a node after that
+    run's, with no mesh, survey or branch nodes of its own."""
+    _, zpath, _ = _run(tmp_path)
+    base, other, post = (load_result(zpath) for _ in range(3))
+    base["_job_id"], other["_job_id"], post["_job_id"] = "j-1", "j-2", "j-post"
+    other["settings"] = {**other.get("settings", {}), "alpha_s": 0.5}
+    post["_posterior_of"] = "j-1"
+    post["bayes"] = {"n_samples": 30, "beta": 1e-3, "chi2_per_datum": 1.0}
+    post["_prob_body"] = np.full(len(post["_model"]), 0.5)
+    wf = build_workflow([base, other, post])
+    kinds = [n["type"] for n in wf["nodes"]]
+    assert kinds.count("MeshCreateNode") == 1 and kinds.count("SurveyCreateNode") == 1
+    assert kinds.count("RegularizedInversionNode") == 2
+    (p,) = [n for n in wf["nodes"] if n["type"] == "BayesianPosteriorNode"]
+    parent = next(n for n in wf["nodes"] if n.get("job", {}).get("id") == "j-1")
+    assert p["inputs"] == [parent["id"]] and p["params"]["posterior_of"] == "j-1"
+    assert p["output"]["model_3d"]["prob_values"] and p["job"]["id"] == "j-post"
+    assert len({n["id"] for n in wf["nodes"]}) == len(wf["nodes"])          # ids unique
+    # without its run in the workflow it is a run of its own
+    alone = build_workflow([other, post])
+    assert not [n for n in alone["nodes"] if n["type"] == "BayesianPosteriorNode"]

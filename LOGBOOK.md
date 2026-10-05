@@ -1819,3 +1819,14 @@ to below the core (2.5 km).
 A group on the Jobs page (a sweep, or the twelve jobs the removed robustness check left in
 the user's app) has "🗑 Delete the group" once none of its jobs runs: one confirmation, then
 `DELETE /api/jobs/{id}` for each, a toast with how many went (and why any did not).
+
+## 2026-10-05 — A posterior after its run; a clean workspace
+
+The user found the workspace's workflow cluttered: a Bayesian posterior showed as one more
+run (its thinned data made it a tree of its own). `build_workflow` now draws a run whose
+`_posterior_of` (the job's `bayes_of`) is in the workflow as a `BayesianPosteriorNode` after
+that run's node, on its own grid, with no mesh, survey or branch nodes (alone it stays a
+run). The page draws it as a gold dashed card in an "Uncertainty" column after the results,
+level with its run (tree layout), or below it (layers). A posterior started from a node joins
+the workspace being viewed. `POST /api/workspaces/{id}/jobs` adds existing jobs to a
+workspace (a job may be in several), with their posteriors.

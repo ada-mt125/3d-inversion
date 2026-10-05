@@ -632,6 +632,8 @@ def _label_run(run: dict, record: dict) -> None:
     run["_backend"] = record.get("backend", "ec2")
     run["_job_id"] = record["job_id"]
     run["_rerun"] = _has_inputs(record)
+    if record.get("bayes_of"):    # a Bayesian posterior: drawn after the run it is of
+        run["_posterior_of"] = record["bayes_of"]
 
 
 def _workflow_for(job_ids: list[str]) -> dict:
@@ -948,6 +950,23 @@ async def open_workspace(workspace_id: str):
 async def rename_workspace(workspace_id: str, body: dict = Body(...)):
     ws = _read_workspace(workspace_id)
     ws["name"] = _workspace_name(body.get("name"))
+    _write_json(_workspace_path(workspace_id), ws)
+    return JSONResponse({"ok": True, **ws})
+
+
+@app.post("/api/workspaces/{workspace_id}/jobs")
+async def add_workspace_jobs(workspace_id: str, body: dict = Body(...)):
+    """Add jobs that exist to a workspace ({"job_ids": [...]}; a job may be in several),
+    and with each run its Bayesian posteriors."""
+    ws = _read_workspace(workspace_id)
+    ids = _job_ids(body.get("job_ids"))
+    unknown = [j for j in ids if not get_store().get(j)]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Unknown jobs: {', '.join(unknown)}")
+    posteriors = [j["job_id"] for j in get_store().all() if j.get("bayes_of") in ids]
+    for j in ids + posteriors:
+        if j not in ws["job_ids"]:
+            ws["job_ids"].append(j)
     _write_json(_workspace_path(workspace_id), ws)
     return JSONResponse({"ok": True, **ws})
 
@@ -1511,7 +1530,7 @@ async def start_bayes(job_id: str, body: dict = Body(default={})):
                   mesh_type=params.get("mesh_type") or record.get("mesh_type") or "tensor",
                   instance_type=body.get("instance_type") or "c5.2xlarge",
                   note=f"Bayesian posterior of {record.get('note') or job_id}"[:300],
-                  workspace_id=record.get("workspace_id") or "", backend=backend,
+                  workspace_id=body.get("workspace_id") or record.get("workspace_id") or "", backend=backend,
                   extra={"parent_job": job_id, "bayes_of": job_id, "changes": changes})
     return JSONResponse({**job, "thinned_to_m": ds_change.get("decimate_spacing_m"),
                          "memory_gb": round(need_gb, 1)})

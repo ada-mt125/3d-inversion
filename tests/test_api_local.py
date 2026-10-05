@@ -239,7 +239,10 @@ class TestWorkspaces:
 
     def test_ids_cannot_reach_other_files(self, ws_api):
         client, _, _ = ws_api
-        assert client.get("/api/workspaces/..%2Fjobs").status_code == 404
+        # (405: the path is the POST route .../{id}/jobs, which then refuses the id)
+        assert client.get("/api/workspaces/..%2Fjobs").status_code in (404, 405)
+        assert client.post("/api/workspaces/..%2Fjobs", json={"job_ids": ["x"]}).status_code == 404
+        assert client.post("/api/workspaces/..%2F..%2Fjobs/jobs", json={"job_ids": ["x"]}).status_code == 404
         assert client.get("/api/workspaces/0123456789ab").status_code == 404
 
     def test_jobs_submitted_from_a_workspace_join_it(self, ws_api):
@@ -395,6 +398,17 @@ class TestLocalJobsAndReruns:
         store.update(job, summary={"n_data": 4000, "n_active_cells": 400000})
         big = client.post(f"/api/inversion/{job}/bayes")
         assert big.status_code == 400 and "GB" in big.json()["detail"]
+
+    def test_jobs_join_another_workspace_with_their_posteriors(self, both):
+        client, aws, local, store = both
+        a = _submit(client, backend="local").json()["job_id"]
+        store.put({"job_id": "post-1", "task_id": "post-1", "status": "SUCCEEDED", "bayes_of": a})
+        ws = client.post("/api/workspaces", json={"name": "Clean"}).json()
+        r = client.post(f"/api/workspaces/{ws['id']}/jobs", json={"job_ids": [a]})
+        assert r.status_code == 200 and r.json()["job_ids"] == [a, "post-1"]
+        again = client.post(f"/api/workspaces/{ws['id']}/jobs", json={"job_ids": [a]}).json()
+        assert again["job_ids"] == [a, "post-1"]                       # no duplicates
+        assert client.post(f"/api/workspaces/{ws['id']}/jobs", json={"job_ids": ["nope"]}).status_code == 404
 
     def test_unknown_backend(self, both):
         client, *_ = both

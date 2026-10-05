@@ -452,6 +452,11 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
     named in the workflow's ``skipped``.
     """
     runs, skipped = split_joint_runs(runs)
+    # Bayesian posteriors of runs in this workflow (``_posterior_of`` their job id): a node
+    # after their run's, not a run of their own in the trees
+    parents = {r.get("_job_id") for r in runs if r.get("_job_id")}
+    posteriors = [r for r in runs if r.get("_posterior_of") in parents]
+    runs = [r for r in runs if r.get("_posterior_of") not in parents]
     if not runs:
         raise ValueError("None of these results can be shown: joint results of the "
                          "cross-gradient inversion carry no per-dataset data")
@@ -574,8 +579,13 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             below = _levels(settings_of(sub[0][1])["regularization_type"], extra_keys) if name == "regularization" else rest
             grow(sub, [node_id], below, path + [label], shorts + [short], extra_keys, names + (name,))
 
-    def inversion_node(i, run, inputs, name, path=None):
-        mesh_id, mesh, grid = mesh_node(run)
+    def inversion_node(i, run, inputs, name, path=None, node_id=None, own_mesh=False,
+                       node_type="RegularizedInversionNode"):
+        if own_mesh:   # a posterior: its own grid, no Mesh node of its own
+            mesh_id, mesh = None, result_mesh(run)
+            grid = ViewerGrid(run, mesh)
+        else:
+            mesh_id, mesh, grid = mesh_node(run)
         d = run["_data"]
         locs, observed, pred = d["locations"], d["observed"], d.get("predicted")
         m_full = full_model(run, mesh)
@@ -642,14 +652,15 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                 params["gl_warnings"] = info["warnings"]
         if run.get("notes"):
             params["notes"] = run["notes"]
-        node = {"id": 10 + i, "order": next(order), "type": "RegularizedInversionNode", "name": name,
-                "inputs": inputs, "params": params, "output": out}
+        node = {"id": 10 + i if node_id is None else node_id, "order": next(order), "type": node_type,
+                "name": name, "inputs": inputs, "params": params, "output": out}
         if run.get("_job_id"):   # a job of the API server: the page can run it again with changes
             node["job"] = {"id": run["_job_id"], "rerun": bool(run.get("_rerun")),
                            "backend": run.get("_backend", "ec2")}
         if path is not None:
             node["branch"] = {"level": "run", "label": name, "path": path}
         nodes.append(node)
+        return node
 
     # (a joint run's two parts go to different data, hence different trees)
     # runs on the same mesh and data: one tree per pair
@@ -680,6 +691,16 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
         columns = sorted({n["branch"]["level"] for n in made}, key=lambda name: rank.get(name, len(rank)))
         for n in made:
             n["branch"]["column"] = columns.index(n["branch"]["level"])
+    by_job = {n["job"]["id"]: n for n in nodes if n.get("job")}
+    for run in posteriors:
+        b = run.get("bayes") or {}
+        node = inversion_node(None, run, [by_job[run["_posterior_of"]]["id"]],
+                              f"Bayesian posterior · {b.get('n_samples', '?')} samples",
+                              node_id=next(extra_ids), own_mesh=True, node_type="BayesianPosteriorNode")
+        node["params"]["bayes"] = {k: b.get(k) for k in (
+            "prior", "beta", "beta_rule", "chi2_per_datum", "n_samples", "threshold", "std_median",
+            "variance_reduction_median", "beta_evidence", "error_scale_evidence")}
+        node["params"]["posterior_of"] = run["_posterior_of"]
     nodes.sort(key=lambda n: n["id"])
     workflow = {"version": 1, "created": time.strftime("%Y-%m-%dT%H:%M:%S"), "nodes": nodes}
     if skipped:
