@@ -885,3 +885,25 @@ class TestEMData:
         # the mesh covers the electrodes too
         cc = capture["mesh"].to_discretize().cell_centers
         assert cc[:, 0].min() < rows[:, 0].min() and cc[:, 0].max() > rows[:, 9].max()
+
+
+class TestMaxSourceDepth:
+    """No sources below a depth (gravity, magnetics): the deeper cells leave the model."""
+
+    def test_the_deep_cells_are_taken_out(self, grav_grid_dir, capture):
+        params = _single("gravity", ["grav.grd"], **SMALL_MESH, max_source_depth_m=150.0)
+        result = run_data_pipeline(params, str(grav_grid_dir))
+        task, mesh = capture["task"], capture["mesh"]
+        cc = mesh.to_discretize().cell_centers
+        assert task.active_cells is not None
+        assert not task.active_cells[cc[:, 2] < -150.0].any()          # flat ground at 0
+        assert task.active_cells[(cc[:, 2] > -150.0) & (cc[:, 2] < 0)].all()
+        assert result["settings"]["max_source_depth_m"] == 150.0
+
+    def test_only_for_potential_fields_and_positive(self, grav_grid_dir):
+        with pytest.raises(ValueError, match="positive"):
+            run_data_pipeline(_single("gravity", ["grav.grd"], **SMALL_MESH, max_source_depth_m=-5),
+                              str(grav_grid_dir))
+        with pytest.raises(ValueError, match="within"):
+            run_data_pipeline(_single("gravity", ["grav.grd"], **SMALL_MESH, max_source_depth_m=1.0),
+                              str(grav_grid_dir))

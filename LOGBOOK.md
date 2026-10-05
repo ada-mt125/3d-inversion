@@ -1932,3 +1932,29 @@ the workflow's arrows are a soft grey-lavender instead of cream and dark grey.
 The logo is `geoinv3d/viz/assets/altcarbon-logo-black-horizontal.png` (package data),
 served at `/assets/{name}` (plain names only) and written into stand-alone viewers as a
 data URI (`serve_dag.inline_assets`), so it shows without the server too.
+
+## 2026-10-05 — No sources below a depth; showing down to a depth; one colour map
+
+The user knows the deep anomalies of the Block-8 runs are not real and does not want them
+shown. Two levels:
+
+* `max_source_depth_m` (Upload → Mesh "Max source depth", ↻ Run again with changes, any
+  saved setup): gravity and magnetics only; `run_data_pipeline` takes the cells whose
+  centre is deeper than that below the ground out of the active set, like the air, so they
+  stay 0 and the data are fitted by the cells above (refused for DC / MT, where the cells
+  taken out would be air, and when no cell is left). The result's settings record it, so
+  the workflow tree splits runs with and without it ("sources above (m)"). Hiding a wrong
+  deep body is not enough: while it is in the model it carries part of the fit and bends
+  the shallow part too; with the depth limit the misfit says whether the data can do
+  without it (if not, the depth is too shallow).
+* "Show down to … m below the ground" in the 3D view: only the display. The shells (values
+  deeper set to 0 on the 3D grid, per grid and depth), the box and the slice outlines stop
+  there, sections ask the server for `depth_max` (elevation sections are blanked below it),
+  and a depth slice below it says so. Kept in the browser (localStorage).
+
+Colours: unsigned models were turbo (blue-green-yellow-red, so "green to red" on a mostly
+weak model), signed ones blue-yellow-red. Every model now uses the same blue-yellow-red map
+about 0, so 0 is the same pale colour in every run: both signs the whole bar, positive
+models its red half from 0, negative ones the blue half; only values far from 0 on one side
+(a log resistivity) spread the map over their own range. Turbo is gone. (A compared run
+keeps its purple-green map, to tell it apart in the overlay.)

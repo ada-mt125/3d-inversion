@@ -2992,6 +2992,24 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                           f"(by {lifted['mean_m']:g} m on average, at most {lifted['max_m']:g} m)")
     if lifts:
         topo_info["stations_lifted"] = lifts
+    # No sources deeper than this below the ground (gravity and magnetics): those cells
+    # leave the model like the air, so they stay 0 and the data are fitted above them
+    max_src = params.get("max_source_depth_m")
+    max_src = float(max_src) if max_src not in (None, "") else None
+    if max_src is not None:
+        if not max_src > 0:
+            raise ValueError("max_source_depth_m must be positive")
+        if any(canonical_method(ds.method) not in ("gravity", "magnetics") for ds in datasets):
+            raise ValueError("A maximum source depth is for gravity and magnetic data (for DC "
+                             "or MT the cells taken out would be air)")
+        cc = dmesh.cell_centers
+        deep = surface(cc[:, 0], cc[:, 1]) - cc[:, 2] > max_src
+        active = (np.ones(dmesh.n_cells, bool) if active is None else active) & ~deep
+        if not active.any():
+            raise ValueError(f"No mesh cells lie within {max_src:g} m of the ground")
+        n_params = int(active.sum())
+        print(f"[Pipeline] No sources below {max_src:g} m: {int(deep.sum())} deeper cells "
+              f"taken out of the model ({n_params} left)")
     print(f"[Pipeline] {mesh_type} mesh: {mesh.n_cells} cells "
           f"({n_params} active), {n_data} observations, "
           f"topography: {topo_info['source']}")
@@ -3242,6 +3260,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 result["settings"]["coupling_weight"] = task.effective_coupling_weight
     if geology is not None:   # a column of the workflow tree: runs with and without it
         result["settings"]["geology"] = str(params["geology"].get("name") or "constrained")
+    if max_src is not None:   # likewise: no sources below this depth
+        result["settings"]["max_source_depth_m"] = max_src
 
     # How much of the recovered anomaly sits outside the core (in padding)?
     gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),

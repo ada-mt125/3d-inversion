@@ -579,6 +579,11 @@ svg#dag:active{cursor:grabbing;}
         </div>
         <div style="font-size:10px;line-height:1.4;color:var(--text2);">Opacity follows the colour bar: faint near zero, solid at the ends. Shells are drawn back to front for the current view, so a body in front covers the one behind.</div>
         <div style="height:1px;background:var(--border-soft);"></div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Show down to</div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">
+          <input type="number" id="m3d-showdepth" min="0" step="any" placeholder="all" class="m3d-cmp-sel" style="width:78px"> m below the ground</label>
+        <div style="font-size:10px;line-height:1.4;color:var(--text3);">Only the display: the 3D view and the slices stop at this depth, the model is unchanged. To keep the inversion from putting sources deeper, set Max source depth (Upload → Mesh, or ↻ Run again with changes).</div>
+        <div style="height:1px;background:var(--border-soft);"></div>
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Slice Planes</div>
         <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2);cursor:pointer;">
           <input type="checkbox" id="m3d-show-zslice" checked style="accent-color:var(--accent);"> Depth slice (Z)
@@ -823,6 +828,10 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col"><label class="up-lbl" for="up-mesh-dz">Vertical cell (m)</label><input id="up-mesh-dz" type="number" class="up-in" min="0" step="any" value="250"></div>
                 <div class="up-col"><label class="up-lbl" for="up-mesh-depth">Core depth (m)</label><input id="up-mesh-depth" type="number" class="up-in" min="0" step="any" value="3000"></div>
                 <div class="up-col"><label class="up-lbl" for="up-mesh-pad">Padding distance (m)</label><input id="up-mesh-pad" type="number" class="up-in" min="0" step="any" value="2000"></div>
+              </div>
+              <div class="up-row up-4">
+                <div class="up-col"><label class="up-lbl" for="up-max-src" title="Gravity and magnetics: the cells deeper than this below the ground are taken out of the model (like the air), so no source can sit there and the data are fitted by the ones above">Max source depth (m)</label><input id="up-max-src" type="number" class="up-in" min="0" step="any" placeholder="none"></div>
+                <div class="up-col" style="grid-column:span 3"><div class="up-note" style="margin-top:18px">Optional, gravity and magnetics: no sources deeper than this below the ground (when you know, e.g. from geology, that the deep ones are not real). Compare the misfit with and without it: if the data cannot be fitted, the depth is too shallow.</div></div>
               </div>
               <div class="up-est" id="up-mesh-est"></div>
             </div>
@@ -1300,15 +1309,19 @@ function cmapOf(M, v, vmin, vmax) {
 function cmap(v, vmin, vmax) { return cmapOf(CMAP, v, vmin, vmax); }
 function cmap2(v, vmin, vmax) { return cmapOf(CMAP2, v, vmin, vmax); }
 
-// One colour scale for a model's 3D view and its slices, from its 1st-99th percentile
-// (``range``, the server's for both) and whether it takes both signs: blue to red about 0
-// then, else turbo from 0 (from the lowest value when that is far from 0, e.g. a log
-// resistivity) up.  Beyond the range the colours saturate.
+// One colour scale for every run's 3D view and slices: the same blue-yellow-red map (CMAP)
+// about 0, to the 1st-99th percentile of |value| (``range``, the server's for both), so 0 is
+// the same pale colour and a value of either sign reads alike in every run.  A model of
+// both signs shows the whole bar, one from 0 up the red half (down: the blue half); values
+// far from 0 on one side (a log resistivity) spread the map over their own range.  Beyond
+// the range the colours saturate.
 function modelScale(range, signed){
-  const [r0,r1]=range||[0,1];
-  if(signed){const L=Math.max(Math.abs(r0),Math.abs(r1))||1; return {lo:-L,hi:L,L,signed:true,col:v=>cmap(v,-L,L)};}
-  const lo=r0>=0&&r0<=0.2*r1?0:r0, hi=r1>lo?r1:lo+1;
-  return {lo,hi,L:Math.max(Math.abs(lo),Math.abs(hi)),signed:false,col:v=>turbo((v-lo)/(hi-lo))};
+  const [r0,r1]=range||[0,1], L=Math.max(Math.abs(r0),Math.abs(r1))||1, col=v=>cmap(v,-L,L);
+  if(signed)return {lo:-L,hi:L,L,signed:true,col};
+  if(r0>=0&&r0<=0.2*r1)return {lo:0,hi:L,L,signed:false,col};
+  if(r1<=0&&r1>=0.2*r0)return {lo:-L,hi:0,L,signed:false,col};
+  const lo=r0, hi=r1>r0?r1:r0+1;
+  return {lo,hi,L:Math.max(Math.abs(lo),Math.abs(hi)),signed:false,col:v=>cmap(v,lo,hi)};
 }
 
 function fmtN(n) {
@@ -2466,7 +2479,9 @@ function m3dBuildGrid(m){
   };
   const scale=m3dScale(m), vmin=scale.lo, vmax=scale.hi;
   const [omin,omax]=m.true_other?modelRange([m.true_values]):[0,0];   // an overlay's own range
-  return {x,y,z,xc,yc,zc,vmin,vmax,scale,omin,omax,geo:new Map(),
+  const G=secGround(m), dep=new Float32Array(x.length);              // depth below the ground
+  for(let q=0;q<x.length;q++)dep[q]=G(x[q],y[q])-z[q];
+  return {x,y,z,xc,yc,zc,vmin,vmax,scale,omin,omax,dep,geo:new Map(),
           rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
 }
 
@@ -2501,11 +2516,31 @@ function scaleRgb(scale,t){   // a Plotly colour scale ([[t,'#rrggbb'],…]) at 
 
 const M3D_LEVELS=[0.2,0.4,0.6,0.8];   // the fixed shells, shares of the colour bar's |max|
 
+// Show down to this depth below the ground (null: all): the shells, the box and the slices
+// stop there.  Only the display; the model is unchanged.
+let m3dShowDepth=null;
+try{const v=parseFloat(localStorage.getItem('geoinv3d.showDepth')); if(v>0)m3dShowDepth=v;}catch(e){}
+// A grid's values with those deeper than the display depth set to 0 (kept per grid and depth)
+function m3dShown(g,vals,tag){
+  const D=m3dShowDepth; if(!(D>0)||!g.dep)return vals;
+  const k=tag+'|'+D; g.shown=g.shown||{};
+  if(!g.shown[k]){const out=new Array(vals.length); for(let q=0;q<vals.length;q++)out[q]=g.dep[q]>D?0:vals[q]; g.shown[k]=out;}
+  return g.shown[k];
+}
+// The lowest elevation shown: the grid's bottom, or the display depth under the lowest ground
+function m3dBottom(m){
+  const ze=m.z_edges, base=Math.min(ze[0],ze[m.nz]), D=m3dShowDepth;
+  if(!(D>0))return base;
+  const low=m.surface?Math.min(...m.surface.z.map(r=>Math.min(...r))):Math.max(ze[0],ze[m.nz]);
+  return Math.max(base,low-D);
+}
+
 // Nested shells of one model (grid g, values vals) per sign: at the threshold and at the
 // fixed levels beyond it (not closer than 6 % of L to it) up to the sign's peak; their
 // meshes are kept in g.geo under ``tag``.
 function m3dNested(g,vals,L,tag,name,color){
-  const thr=L*(+$v('m3d-thresh').value)/100, out=[];
+  vals=m3dShown(g,vals,tag);
+  const thr=L*(+$v('m3d-thresh').value)/100, out=[], D=m3dShowDepth>0?m3dShowDepth:'';
   for(const sgn of [1,-1]){
     const peak=sgn>0?arrMax(vals):-arrMin(vals);
     const levels=[thr,...M3D_LEVELS.map(f=>f*L).filter(v=>v>thr+0.06*L)].filter(v=>v>0&&v<peak);
@@ -2513,7 +2548,7 @@ function m3dNested(g,vals,L,tag,name,color){
       const iso=sgn*v;
       out.push({trace:{type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name,caps:M3D_NO_CAPS,
         isomin:iso,isomax:iso,surface:{count:1,fill:1}},
-        cache:g.geo,key:`${tag}|${iso.toPrecision(8)}`,color,alpha:q=>m3dAlpha(q,L)});
+        cache:g.geo,key:`${tag}|${D}|${iso.toPrecision(8)}`,color,alpha:q=>m3dAlpha(q,L)});
     }
   }
   return out;
@@ -2532,7 +2567,7 @@ function m3dSpecs(){
   if($v('m3d-chk-rec')?.checked)shells.push(...m3dNested(g,g.rec,g.scale.L,'rec','Recovered',g.scale.col));
   if(m3dRob&&$v('m3d-chk-rob')?.checked){
     const o=m3dRob.grid||(m3dRob.grid=m3dBuildGrid(m3dRob.m3));
-    shells.push({trace:{type:'isosurface',x:o.x,y:o.y,z:o.z,value:o.rec,name:'P(body) ≥ 0.8',caps:M3D_NO_CAPS,
+    shells.push({trace:{type:'isosurface',x:o.x,y:o.y,z:o.z,value:m3dShown(o,o.rec,'rob'),name:'P(body) ≥ 0.8',caps:M3D_NO_CAPS,
       isomin:0.8,isomax:0.8,surface:{count:1,fill:0.6,pattern:'all'}},
       color:()=>[244,197,66], alpha:()=>0.45*(+$v('m3d-opacity').value/100)});
   }
@@ -2697,7 +2732,7 @@ function m3dWatch(){
 // Slice planes are drawn as outlines only, so they never hide the isosurfaces
 function m3dSliceTraces(){
   const m=m3dData, g=m3dGrid, XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
-  const x0=XE[0], x1=XE[m.nx], y0=YE[0], y1=YE[m.ny], z0=ZE[0], z1=ZE[m.nz];
+  const x0=XE[0], x1=XE[m.nx], y0=YE[0], y1=YE[m.ny], z0=Math.max(ZE[0],ZE[m.nz]), z1=m3dBottom(m);
   const zv=g.zc[+$v('m3d-zslice').value], yv=g.yc[+$v('m3d-ewslice').value], xv=g.xc[+$v('m3d-nsslice').value];
   const rect=(name,color,visible,x,y,z)=>({type:'scatter3d',mode:'lines',name,visible,x,y,z,
     line:{color,width:5},hovertemplate:name+'<extra></extra>'});
@@ -2744,6 +2779,7 @@ function m3dLayout(){
   const xs=xb-xa, ys=yb-ya, mx=Math.max(xs,ys);
   // the vertical range takes in the ground and the stations above the top cell
   let [zlo,zhi]=span(m.z_edges,m.nz,o&&o.z_edges,o&&o.nz);
+  if(m3dShowDepth>0)zlo=Math.max(zlo,m3dBottom(m));
   if(m.stations)for(const z of m.stations.z)if(z>zhi)zhi=z;
   if(m.surface)for(const row of m.surface.z)for(const z of row)if(z>zhi)zhi=z;
   const zs=zhi-zlo;
@@ -2968,6 +3004,12 @@ function init3D(n) {
     drawCbar(); drawCbar2(); clearTimeout(recolorTimer); recolorTimer=setTimeout(m3dRecolor,60);
   });
   bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();secRedraw(['z']);schedule3D();});
+  const sd=$v('m3d-showdepth'); sd.value=m3dShowDepth??''; let sdTimer=null;
+  sd.oninput=()=>{clearTimeout(sdTimer); sdTimer=setTimeout(()=>{
+    const v=parseFloat(sd.value); m3dShowDepth=v>0?v:null;
+    try{m3dShowDepth?localStorage.setItem('geoinv3d.showDepth',String(m3dShowDepth)):localStorage.removeItem('geoinv3d.showDepth');}catch(e){}
+    updateSectionRow(); schedule3D(true);
+  },300);};
   $v('m3d-show-prof').onchange=()=>{updateSectionRow();schedule3D();};
   $v('m3d-secref').onchange=()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();updateSectionRow();};
   bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;secRedraw(['ew','z']);schedule3D();});
@@ -3077,15 +3119,8 @@ function m3dSampleAt(m,x,y,z){
 // SLICES at the mesh's resolution: the depth slice, the E-W and N-S sections and a profile
 // A-B (across the strike by default; dragged on the depth slice), from
 // GET /api/inversion/{id}/section (viz/sections.py) for a job of the server, else sampled
-// from the 3D grid.  Models without negative values are coloured with turbo from 0 to their
-// 99th percentile, signed ones with the 3D view's diverging map.
+// from the 3D grid.  Coloured as the 3D view (modelScale).
 // ══════════════════════════════════════════
-const TURBO_HEX='30123b351e58392a733d358b4040a2424bb54456c74661d6466be34776ee4680f6458afc4294ff3d9efe37a8fa2fb2f428bceb22c5e21ccdd819d5cd18ddc219e3b91fe9af27eea432f2983ff68a4ef97d5dfc6f6dfe627dff568bff4b99fe42a4fc3caffa37b9f635c3f134cdec34d7e535dfdf37e7d739eecf3af4c73af8be39fbb637fdac34fea130fe962bfd8a26fb7e21f8721cf46617f05b12eb500ee5470bdf3f08d83706d02f05c82803be2102b41b01a916019e1001920b01850702';
-const TURBO_RGB=(()=>{const a=[];for(let i=0;i<TURBO_HEX.length;i+=6)a.push([0,2,4].map(k=>parseInt(TURBO_HEX.substr(i+k,2),16)));return a;})();
-function turbo(t){
-  t=Math.max(0,Math.min(1,t)); const f=t*(TURBO_RGB.length-1), i=Math.min(TURBO_RGB.length-2,Math.floor(f)), w=f-i;
-  return TURBO_RGB[i].map((c,k)=>Math.round(c+(TURBO_RGB[i+1][k]-c)*w));
-}
 const SEC={job:null, cache:new Map(), want:{}, busy:new Set(), last:{}, profile:null, drag:null, threshold:null};
 const SEC_SHOW={z:'m3d-show-zslice',ew:'m3d-show-ew',ns:'m3d-show-ns',prof:'m3d-show-prof'};
 const SEC_CANVAS={z:'m3d-z-canvas',ew:'m3d-ew-canvas',ns:'m3d-ns-canvas',prof:'m3d-prof-canvas'};
@@ -3111,7 +3146,8 @@ function secParams(mode,field){
   const extra=f&&f!=='model'?{field:f,...(f==='probability'&&SEC.threshold!=null?{threshold:String(SEC.threshold)}:{})}:{};
   if(mode==='z')return {kind:'plan',level:secPlanLevel().toFixed(1),ref,...extra};
   const L=secLine(mode); if(!L)return null;
-  return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref,...extra};
+  const dm=m3dShowDepth>0?{depth_max:String(m3dShowDepth)}:{};
+  return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref,...extra,...dm};
 }
 // A job's slice at its mesh's resolution: the cached one, else asked for and drawn when it
 // comes; undefined meanwhile, null when it cannot be had.  One request per slice at a time
@@ -3188,7 +3224,7 @@ function secLocal(m,mode){
   let v=[], values;
   if(ref==='ground'){
     // as deep as the server's (the core depth), not to the grid's bottom under the highest ground
-    const dmax=m.depth_max||(secTop(m)-zlo), vs=Math.max(dzc/2||0,dmax/300,1e-6); for(let d=vs/2;d<dmax;d+=vs)v.push(d);
+    const dmax=Math.min(m.depth_max||(secTop(m)-zlo),m3dShowDepth>0?m3dShowDepth:Infinity), vs=Math.max(dzc/2||0,dmax/300,1e-6); for(let d=vs/2;d<dmax;d+=vs)v.push(d);
     values=v.map(d=>P.map((q,i)=>m3dSampleAt(m,q[0],q[1],ground[i]-d)));
   }else{
     const vs=Math.max(dzc/2||0,(secTop(m)-zlo)/300,1e-6); for(let z=secTop(m)-vs/2;z>zlo;z-=vs)v.push(z);
@@ -3290,7 +3326,11 @@ function drawSection2D(mode){
   if(!d)d=secLocal(m3dData,mode);
   if(!d){ctx.fillStyle=TH.text3;ctx.font='11px sans-serif';ctx.textAlign='center';
     ctx.fillText(!secParams(mode)?(mode==='prof'?'Drag on the depth slice to draw a profile':'—'):'loading…',cw/2,ch/2);return;}
-  const plan=d.kind==='plan', layers=mlShown().length;
+  const plan=d.kind==='plan', layers=mlShown().length, D=m3dShowDepth>0?m3dShowDepth:null;
+  if(plan&&D&&d.ref==='ground'&&d.level>D){ctx.fillStyle=TH.text3;ctx.font='11px sans-serif';ctx.textAlign='center';
+    ctx.fillText(`${Math.round(d.level)} m: below the depth shown (${fmtN(D)} m)`,cw/2,ch/2);return;}
+  if(!plan&&D&&d.ref!=='ground'&&d.ground)   // an elevation section: blank deeper than D below the ground
+    d={...d,values:d.values.map((row,k)=>row.map((q,i)=>d.ground[i]-d.v[k]>D?null:q))};
   const pad={t:(!plan&&layers?32:20),r:46,b:28,l:50};
   let pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
   if(pw<20||ph<20)return;
@@ -4095,7 +4135,8 @@ const RR_FIELDS=[
     ['depth_weighting','Cell weighting','sel',[['','(as before)'],['sensitivity','sensitivity'],['depth','depth']]],
     ['depth_weighting_exponent','Depth weighting β','num'],['bounds_lower','Lower bound','num'],['bounds_upper','Upper bound','num']]],
   ['Mesh',[['core_cell_m','Horizontal cell (m)','num'],['core_cell_z_m','Vertical cell (m)','num'],
-    ['depth_core_m','Core depth (m)','num'],['pad_distance_m','Padding (m)','num']]],
+    ['depth_core_m','Core depth (m)','num'],['pad_distance_m','Padding (m)','num'],
+    ['max_source_depth_m','Max source depth (m)','num']]],
 ];
 function rrGet(p,key){
   if(key.startsWith('ds')){const [,i,k]=key.split(':');const d=(p.datasets||[])[+i];return d?d[k]:undefined;}
@@ -5171,6 +5212,7 @@ window.GeoPreview=GeoPreview;
     igrfInfo=null; renderFieldMode();
     // mesh and area (the window is placed once the files have been read)
     MESH_INPUTS.forEach(([k,id])=>{if(p[k]!=null)$u(id).value=p[k];});
+    $u('up-max-src').value=p.max_source_depth_m??'';
     if(MESH_INPUTS.some(([k])=>p[k]!=null))meshEdited=true;
     if(setv('upload-mesh',page.mesh_type||p.mesh_type))fire('upload-mesh');
     pendingAoi=page.aoi||p.aoi||null;
@@ -7500,6 +7542,7 @@ window.GeoPreview=GeoPreview;
       ['Inversion',modeTxt],
       ['Topography',topoFile?`DEM: ${escH(topoFile.name)}`:`Flat at ${escH(p.topography.flat_elevation)} m`],
       ['Mesh',`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
+        (p.max_source_depth_m?` · <b>no sources below ${fmtLen(p.max_source_depth_m)}</b>`:'')+
         (cells?` · ≈ ${fmtInt(cells)} cells`:'')+(meshEdited?' (edited)':recommended?' (recommended)':'')],
       ['Compute',($u('up-preview').checked?'Preview on this computer first, then ':'')+
         (where==='local'?'this computer':'AWS · '+escH($u('upload-instance').selectedOptions[0].textContent))],
@@ -8106,6 +8149,14 @@ window.GeoPreview=GeoPreview;
     const extra=topoFile?[topoFile]:[];
     const crsKnown=dataCrs()||(s.types.some(t=>t.key==='magnetic')&&fieldAuto()?detectedCrs():'');
     const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams(),...(crsKnown?{crs:crsKnown}:{})};
+    const maxSrc=num('up-max-src','max source depth',{min:0,optional:true});
+    if(maxSrc!==undefined){
+      if(!(maxSrc>0))throw new Error('The max source depth must be positive (or left empty)');
+      if(s.types.some(t=>!['gravity','magnetic'].includes(t.key)))
+        throw new Error('A max source depth is for gravity and magnetic data (for DC or MT the cells taken out would be air)');
+      if(maxSrc<mesh.core_cell_z_m)throw new Error(`The max source depth (${maxSrc} m) is less than one vertical cell (${mesh.core_cell_z_m} m)`);
+      mesh.max_source_depth_m=maxSrc;
+    }
     if(s.mode==='joint'&&$u('up-magnetic-mag').value==='vector'&&s.types.some(t=>t.key==='magnetic'))
       throw new Error('The magnetization-vector inversion (MVI) is for single magnetic inversions; set Magnetization to Induced for a joint inversion');
     if(reg.regularization_type==='bayes'){
