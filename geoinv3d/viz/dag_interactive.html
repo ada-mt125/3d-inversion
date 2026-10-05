@@ -557,7 +557,7 @@ svg#dag:active{cursor:grabbing;}
           <button id="m3d-mode-rotate" class="m3d-mode active" data-mode="turntable">Rotate</button>
           <button id="m3d-mode-pan" class="m3d-mode" data-mode="pan">Pan</button>
         </div>
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Threshold (% of the colour bar's max |value|)</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;" title="Shells stay at 20, 40, 60 and 80 % of the colour bar's |max|; the threshold adds the outermost one and hides those below it, so a higher threshold peels the bodies layer by layer">Threshold (% of the colour bar's max |value|)</div>
         <div style="display:flex;align-items:center;gap:6px;">
           <input type="range" id="m3d-thresh" min="5" max="90" value="20" style="flex:1;accent-color:#d98e4a;">
           <span id="m3d-thresh-disp" style="font-size:11px;color:#d98e4a;min-width:30px;">20%</span>
@@ -1285,6 +1285,17 @@ function cmapOf(M, v, vmin, vmax) {
 }
 function cmap(v, vmin, vmax) { return cmapOf(CMAP, v, vmin, vmax); }
 function cmap2(v, vmin, vmax) { return cmapOf(CMAP2, v, vmin, vmax); }
+
+// One colour scale for a model's 3D view and its slices, from its 1st-99th percentile
+// (``range``, the server's for both) and whether it takes both signs: blue to red about 0
+// then, else turbo from 0 (from the lowest value when that is far from 0, e.g. a log
+// resistivity) up.  Beyond the range the colours saturate.
+function modelScale(range, signed){
+  const [r0,r1]=range||[0,1];
+  if(signed){const L=Math.max(Math.abs(r0),Math.abs(r1))||1; return {lo:-L,hi:L,L,signed:true,col:v=>cmap(v,-L,L)};}
+  const lo=r0>=0&&r0<=0.2*r1?0:r0, hi=r1>lo?r1:lo+1;
+  return {lo,hi,L:Math.max(Math.abs(lo),Math.abs(hi)),signed:false,col:v=>turbo((v-lo)/(hi-lo))};
+}
 
 function fmtN(n) {
   if (n == null) return '-';
@@ -2396,11 +2407,14 @@ const $v=id=>document.getElementById(id);
 // The colour range of the recovered model.  A true model or a reference of the same property
 // shares it; an overlay of another property (true_other: e.g. susceptibility over density)
 // has its own units and keeps its own range.
-// The colour range: the model's 1st-99th percentile when the server gives it (as its slices;
-// beyond it the colours saturate), else its extremes; with a true model on the same scale, both.
-function m3dRange(m,vals){
-  if(!vals&&m.range&&!(m.true_values&&!m.true_other))return modelRange([m.range]);
-  return modelRange(m.true_other?[vals||m.values]:[vals||m.values,m.true_values||[]]);
+// The 3D view's colour scale (modelScale): the server's range and sign, as its slices', else
+// (a workflow file) the extremes; with a true model on the same scale, of both.
+function m3dScale(m){
+  if(m.range&&!(m.true_values&&!m.true_other))
+    return modelScale(m.range,m.signed!=null?m.signed:(m.range[0]<0&&m.range[1]>0));
+  const [lo,hi]=modelRange(m.true_other?[m.values]:[m.values,m.true_values||[]]);
+  const t=1e-9*Math.max(1,Math.abs(lo),Math.abs(hi));
+  return modelScale([lo,hi],lo<-t&&hi>t);
 }
 
 function m3dCenters(E){const c=[];for(let i=0;i<E.length-1;i++)c.push((E[i]+E[i+1])/2);return c;}
@@ -2436,17 +2450,20 @@ function m3dBuildGrid(m){
         }}}
     return out;
   };
-  const [vmin,vmax]=m3dRange(m);
+  const scale=m3dScale(m), vmin=scale.lo, vmax=scale.hi;
   const [omin,omax]=m.true_other?modelRange([m.true_values]):[0,0];   // an overlay's own range
-  return {x,y,z,xc,yc,zc,vmin,vmax,omin,omax,rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
+  return {x,y,z,xc,yc,zc,vmin,vmax,scale,omin,omax,geo:new Map(),
+          rec:interp(m.values),tru:m.true_values?interp(m.true_values):null};
 }
 
 // ── Isosurfaces ──
-// The recovered model is drawn as nested shells per sign, from the threshold to near that
-// sign's peak.  Colour and opacity both follow the colour bar: opacity rises from zero at
-// the centre (value 0) to full at the ends, times the overall opacity, so every body is
-// faint outside and solid inside.  The threshold (a share of the colour bar's |max|)
-// hides everything closer to zero.
+// The recovered model is drawn as nested shells per sign at fixed shares of the colour
+// bar's |max| (M3D_LEVELS), plus one at the threshold: raising the threshold moves only
+// the outermost shell inwards and peels off the fixed ones it passes, so the bodies close
+// in layer by layer instead of changing shape.  Colour and opacity both follow the colour
+// bar: opacity rises from a faint floor at 0 to full at the ends, times the overall
+// opacity, so every body is faint outside and solid inside.  Each shell's mesh is kept
+// (per grid and level), so a new threshold computes only its own.
 //
 // Transparency without depth errors: gl-plot3d draws every translucent triangle with
 // "over" blending and no depth writes, in buffer order, so a translucent scene is right
@@ -2468,7 +2485,25 @@ function scaleRgb(scale,t){   // a Plotly colour scale ([[t,'#rrggbb'],…]) at 
   return hexRgb(scale[scale.length-1][1]);
 }
 
-const M3D_SHELLS_PER_SIGN=3;
+const M3D_LEVELS=[0.2,0.4,0.6,0.8];   // the fixed shells, shares of the colour bar's |max|
+
+// Nested shells of one model (grid g, values vals) per sign: at the threshold and at the
+// fixed levels beyond it (not closer than 6 % of L to it) up to the sign's peak; their
+// meshes are kept in g.geo under ``tag``.
+function m3dNested(g,vals,L,tag,name,color){
+  const thr=L*(+$v('m3d-thresh').value)/100, out=[];
+  for(const sgn of [1,-1]){
+    const peak=sgn>0?arrMax(vals):-arrMin(vals);
+    const levels=[thr,...M3D_LEVELS.map(f=>f*L).filter(v=>v>thr+0.06*L)].filter(v=>v>0&&v<peak);
+    for(const v of levels){
+      const iso=sgn*v;
+      out.push({trace:{type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name,caps:M3D_NO_CAPS,
+        isomin:iso,isomax:iso,surface:{count:1,fill:1}},
+        cache:g.geo,key:`${tag}|${iso.toPrecision(8)}`,color,alpha:q=>m3dAlpha(q,L)});
+    }
+  }
+  return out;
+}
 
 // Opacity of a value on the colour bar [-L, L]: rises from a faint floor at 0 to 1 at ±L,
 // times the overall opacity.
@@ -2479,19 +2514,8 @@ function m3dAlpha(v,L){
 // Isosurface specs.  Each only lends its geometry to the sorted shell mesh, with a colour
 // and an opacity per vertex value.
 function m3dSpecs(){
-  const g=m3dGrid, L=Math.max(Math.abs(g.vmin),Math.abs(g.vmax)), shells=[];
-  if($v('m3d-chk-rec')?.checked){
-    const vals=g.rec, thr=L*(+$v('m3d-thresh').value)/100;
-    const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:'Recovered',caps:M3D_NO_CAPS};
-    for(const sgn of [1,-1]){
-      // shells from the threshold to 90 % of this sign's peak, equally spaced in value
-      const top=0.9*(sgn>0?arrMax(vals):-arrMin(vals));
-      if(!(top>thr))continue;
-      const n=top>1.2*thr?M3D_SHELLS_PER_SIGN:1;
-      shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
-        color:v=>cmap(v,g.vmin,g.vmax), alpha:v=>m3dAlpha(v,L)});
-    }
-  }
+  const g=m3dGrid, shells=[];
+  if($v('m3d-chk-rec')?.checked)shells.push(...m3dNested(g,g.rec,g.scale.L,'rec','Recovered',g.scale.col));
   if(m3dRob&&$v('m3d-chk-rob')?.checked){
     const o=m3dRob.grid||(m3dRob.grid=m3dBuildGrid(m3dRob.m3));
     shells.push({trace:{type:'isosurface',x:o.x,y:o.y,z:o.z,value:o.rec,name:'P(body) ≥ 0.8',caps:M3D_NO_CAPS,
@@ -2499,32 +2523,17 @@ function m3dSpecs(){
       color:()=>[244,197,66], alpha:()=>0.45*(+$v('m3d-opacity').value/100)});
   }
   if(m3dOther){
-    const o=m3dOther.grid||(m3dOther.grid=m3dBuildGrid(m3dOther.m3)), vals=o.rec;
-    const L2=Math.max(Math.abs(o.vmin),Math.abs(o.vmax)), thr=L2*(+$v('m3d-thresh').value)/100;
-    const base={type:'isosurface',x:o.x,y:o.y,z:o.z,value:vals,name:m3dOther.label,caps:M3D_NO_CAPS};
-    for(const sgn of [1,-1]){
-      const top=0.9*(sgn>0?arrMax(vals):-arrMin(vals));
-      if(!(top>thr))continue;
-      const n=top>1.2*thr?M3D_SHELLS_PER_SIGN:1;
-      shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
-        color:v=>cmap2(v,o.vmin,o.vmax), alpha:v=>m3dAlpha(v,L2)});
-    }
+    const o=m3dOther.grid||(m3dOther.grid=m3dBuildGrid(m3dOther.m3));
+    shells.push(...m3dNested(o,o.rec,o.scale.L,'other',m3dOther.label,v=>cmap2(v,o.vmin,o.vmax)));
   }
   // True models are usually piecewise constant: nested shells would all sit on the body
   // boundary.  One translucent open-lattice shell at half the true amplitude instead.
   if($v('m3d-chk-true')?.checked&&g.tru&&m3dData.true_other&&!m3dOther){   // the second colour map is the comparison's
     // Another property on the same cells (e.g. susceptibility over density): drawn like the
-    // recovered model (nested shells per sign from the threshold to near the peak, colour
-    // and opacity following its colour bar), on its own range and its own colour map.
-    const vals=g.tru, L2=Math.max(Math.abs(g.omin),Math.abs(g.omax)), thr=L2*(+$v('m3d-thresh').value)/100;
-    const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:m3dData.true_label||'Overlay',caps:M3D_NO_CAPS};
-    for(const sgn of [1,-1]){
-      const top=0.9*(sgn>0?arrMax(vals):-arrMin(vals));
-      if(!(top>thr))continue;
-      const n=top>1.2*thr?M3D_SHELLS_PER_SIGN:1;
-      shells.push({trace:{...base,isomin:sgn>0?thr:-top,isomax:sgn>0?top:-thr,surface:{count:n,fill:1}},
-        color:v=>cmap2(v,g.omin,g.omax), alpha:v=>m3dAlpha(v,L2)});
-    }
+    // recovered model (nested shells per sign, colour and opacity following its colour
+    // bar), on its own range and its own colour map.
+    shells.push(...m3dNested(g,g.tru,Math.max(Math.abs(g.omin),Math.abs(g.omax)),'overlay',
+      m3dData.true_label||'Overlay',v=>cmap2(v,g.omin,g.omax)));
   }else if($v('m3d-chk-true')?.checked&&g.tru&&!m3dData.true_other){
     const vals=g.tru, lo=arrMin(vals), hi=arrMax(vals);
     const base={type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name:m3dData.true_label||'True model',caps:M3D_NO_CAPS,
@@ -2755,11 +2764,24 @@ async function render3D(isoChanged){
     const build=++m3dBuild, shells=m3dSpecs();
     let mesh=null;
     if(shells.length){
-      // Plotly computes the shells' isosurface meshes (drawn almost invisible for a moment)
-      await Plotly.react(div,[...shells.map(s=>({...s.trace,opacity:0.01,hoverinfo:'skip'})),
-        ...m3dSliceTraces()],layout,cfg);
-      if(build!==m3dBuild)return;   // a newer build started meanwhile
-      mesh=m3dShellMesh(div._fullData.slice(0,shells.length),shells);
+      // Plotly computes the meshes of the shells not kept yet (drawn almost invisible for a moment)
+      for(const sh of shells)if(sh.cache&&sh.cache.has(sh.key))sh.geo=sh.cache.get(sh.key);
+      const todo=shells.filter(sh=>!sh.geo);
+      if(todo.length){
+        await Plotly.react(div,[...todo.map(s=>({...s.trace,opacity:0.01,hoverinfo:'skip'})),
+          ...m3dSliceTraces()],layout,cfg);
+        if(build!==m3dBuild)return;   // a newer build started meanwhile
+        div._fullData.slice(0,todo.length).forEach((t,i)=>{
+          const geo={};
+          for(const k of ['_meshX','_meshY','_meshZ','_meshI','_meshJ','_meshK','_meshIntensity'])geo[k]=t[k]||[];
+          todo[i].geo=geo;
+          if(todo[i].cache){
+            todo[i].cache.set(todo[i].key,geo);
+            while(todo[i].cache.size>40)todo[i].cache.delete(todo[i].cache.keys().next().value);
+          }
+        });
+      }
+      mesh=m3dShellMesh(shells.map(sh=>sh.geo),shells);
     }
     m3dIso=mesh?[mesh.trace]:[];
     m3dShells=mesh;
@@ -2825,7 +2847,7 @@ function init3D(n) {
     $v('m3d-zslice').value=k??order[0];
   }
   // slices at the mesh's resolution for a job of the server; the default profile across the strike
-  SEC.job=n.job&&n.job.id&&window.GEOINV3D_API?n.job.id:null; SEC.cache.clear(); SEC.drag=null;
+  SEC.job=n.job&&n.job.id&&window.GEOINV3D_API?n.job.id:null; SEC.cache.clear(); SEC.last={}; SEC.drag=null;
   SEC.strike=SEC.profile=secStrikeLocal(m3);
   if(SEC.job)fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(SEC.job)}/section?kind=strike`)
     .then(r=>r.ok?r.json():null).catch(()=>null).then(p=>{
@@ -2872,16 +2894,17 @@ function init3D(n) {
   $v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;
   $v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;
 
-  const [vmin,vmax]=m3dRange(m3);
-  // the colour bar shows the shells' opacity too: blank inside the threshold, fading in
+  const sc3=m3dScale(m3), vmin=sc3.lo, vmax=sc3.hi;
+  // the colour bar (the slices' own) shows the shells' opacity too: blank inside the
+  // threshold, fading in
   const drawCbar=()=>{
-    const cctx=$v('m3d-cbar').getContext('2d'), L=Math.max(Math.abs(vmin),Math.abs(vmax));
+    const cctx=$v('m3d-cbar').getContext('2d'), L=sc3.L;
     const thr=L*(+$v('m3d-thresh').value)/100;
     cctx.clearRect(0,0,200,20);
     for(let i=0;i<200;i++){
       const v=vmin+(vmax-vmin)*(i+0.5)/200;
       if(Math.abs(v)<thr)continue;
-      const[r,g,b]=cmap(v,vmin,vmax);
+      const[r,g,b]=sc3.col(v);
       cctx.fillStyle=`rgba(${r},${g},${b},${m3dAlpha(v,L)})`; cctx.fillRect(i,0,1,20);
     }
   };
@@ -2893,13 +2916,13 @@ function init3D(n) {
   $v('m3d-cbar-label').textContent=fm.prop?`${fm.prop}${fm.unit?' ('+fm.unit+')':''}`:'';
   // the second colour bar: the compared run, else this run's other property; its own range
   // and colour map, the same threshold and opacity
-  const second=()=>m3dOther?{vals:m3dOther.m3.values,label:'Compared: '+m3dOther.label,unit:m3dOther.unit}
+  const second=()=>m3dOther?{vals:m3dOther.m3.values,label:'Compared: '+m3dOther.label,unit:m3dOther.unit,scale:m3dScale(m3dOther.m3)}
     :m3.true_other?{vals:m3.true_values,label:m3.true_label,unit:m3.true_unit}:null;
   function drawCbar2(){
     const o=second();
     $v('m3d-cbar2-wrap').style.display=o?'flex':'none';
     if(!o)return;
-    const [omin,omax]=modelRange([o.vals]), cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
+    const [omin,omax]=o.scale?[o.scale.lo,o.scale.hi]:modelRange([o.vals]), cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
     const thr=L*(+$v('m3d-thresh').value)/100;
     cctx.clearRect(0,0,200,20);
     for(let i=0;i<200;i++){
@@ -2930,11 +2953,11 @@ function init3D(n) {
     $v('m3d-opacity-disp').textContent=$v('m3d-opacity').value+'%';
     drawCbar(); drawCbar2(); clearTimeout(recolorTimer); recolorTimer=setTimeout(m3dRecolor,60);
   });
-  bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();updateSectionRow();schedule3D();});
+  bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();secRedraw(['z']);schedule3D();});
   $v('m3d-show-prof').onchange=()=>{updateSectionRow();schedule3D();};
   $v('m3d-secref').onchange=()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();updateSectionRow();};
-  bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;updateSectionRow();schedule3D();});
-  bind('m3d-nsslice',()=>{$v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;updateSectionRow();schedule3D();});
+  bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;secRedraw(['ew','z']);schedule3D();});
+  bind('m3d-nsslice',()=>{$v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;secRedraw(['ns','z']);schedule3D();});
   ['m3d-chk-rec','m3d-chk-true'].forEach(id=>{const el=$v(id);if(el)el.onchange=()=>schedule3D(true);});
   ['m3d-show-zslice','m3d-show-ew','m3d-show-ns'].forEach(id=>{
     const el=$v(id); if(el)el.onchange=()=>{updateSectionRow();schedule3D();};
@@ -3049,7 +3072,8 @@ function turbo(t){
   t=Math.max(0,Math.min(1,t)); const f=t*(TURBO_RGB.length-1), i=Math.min(TURBO_RGB.length-2,Math.floor(f)), w=f-i;
   return TURBO_RGB[i].map((c,k)=>Math.round(c+(TURBO_RGB[i+1][k]-c)*w));
 }
-const SEC={job:null, cache:new Map(), wait:new Set(), timers:{}, profile:null, drag:null, threshold:null};
+const SEC={job:null, cache:new Map(), want:{}, busy:new Set(), last:{}, profile:null, drag:null, threshold:null};
+const SEC_SHOW={z:'m3d-show-zslice',ew:'m3d-show-ew',ns:'m3d-show-ns',prof:'m3d-show-prof'};
 const SEC_CANVAS={z:'m3d-z-canvas',ew:'m3d-ew-canvas',ns:'m3d-ns-canvas',prof:'m3d-prof-canvas'};
 const secRef=()=>$v('m3d-secref')?$v('m3d-secref').value:'ground';
 function secTop(m){const ze=m.z_edges;return Math.max(ze[0],ze[m.nz]);}
@@ -3067,32 +3091,52 @@ function secLine(mode){
   if(mode==='ns'){const ix=+$v('m3d-nsslice').value, x=(XE[ix]+XE[ix+1])/2; return {a:[x,YE[0]],b:[x,YE[m.ny]]};}
   return SEC.profile;
 }
+const secField=()=>$v('m3d-secfield')&&!$v('m3d-secfield').disabled?$v('m3d-secfield').value:'model';
 function secParams(mode,field){
-  const ref=secRef(), f=field||($v('m3d-secfield')&&!$v('m3d-secfield').disabled?$v('m3d-secfield').value:'model');
+  const ref=secRef(), f=field||secField();
   const extra=f&&f!=='model'?{field:f,...(f==='probability'&&SEC.threshold!=null?{threshold:String(SEC.threshold)}:{})}:{};
   if(mode==='z')return {kind:'plan',level:secPlanLevel().toFixed(1),ref,...extra};
   const L=secLine(mode); if(!L)return null;
   return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref,...extra};
 }
-// A job's slice at its mesh's resolution: the cached one, else asked for after a short pause
-// (slider drags) and drawn when it comes; undefined meanwhile, null when it cannot be had
+// A job's slice at its mesh's resolution: the cached one, else asked for and drawn when it
+// comes; undefined meanwhile, null when it cannot be had.  One request per slice at a time
+// (a few tens of ms): while one is out, only the newest slice wanted waits, and goes next,
+// so a slider or profile drag is followed closely without a queue of stale requests.
 function secFetch(job,mode,field){
   const p=secParams(mode,field); if(!job||!p||!window.GEOINV3D_API)return null;
   const qs=new URLSearchParams(p).toString(), key=job+'|'+qs;
   if(SEC.cache.has(key))return SEC.cache.get(key);
-  if(!SEC.wait.has(key)){
-    clearTimeout(SEC.timers[job+mode]);
-    SEC.timers[job+mode]=setTimeout(()=>{
-      SEC.wait.add(key);
-      fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(job)}/section?${qs}`)
-        .then(r=>r.ok?r.json():null).catch(()=>null).then(d=>{
-          SEC.wait.delete(key); SEC.cache.set(key,d);
-          while(SEC.cache.size>80)SEC.cache.delete(SEC.cache.keys().next().value);
-          if(d&&key===job+'|'+new URLSearchParams(secParams(mode,field)||{}).toString())drawSection2D(mode);
-        });
-    },140);
-  }
+  const slot=job+'|'+mode+'|'+(field||'');
+  SEC.want[slot]={key,qs};
+  if(!SEC.busy.has(slot))secGo(job,mode,field,slot);
   return undefined;
+}
+function secGo(job,mode,field,slot){
+  const w=SEC.want[slot]; delete SEC.want[slot];
+  if(!w||SEC.cache.has(w.key)){SEC.busy.delete(slot);return;}
+  SEC.busy.add(slot);
+  fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(job)}/section?${w.qs}`)
+    .then(r=>r.ok?r.json():null).catch(()=>null).then(d=>{
+      SEC.cache.set(w.key,d);
+      while(SEC.cache.size>80)SEC.cache.delete(SEC.cache.keys().next().value);
+      if(d&&!field&&job===SEC.job)SEC.last[mode]=d;   // this slice's newest, shown until the next comes
+      SEC.busy.delete(slot);
+      if(SEC.want[slot])secGo(job,mode,field,slot);
+      if(d)drawSection2D(mode);
+    });
+}
+// Can a fine slice stand in for this one while it comes (the same kind, reference and field)?
+const secFits=(d,mode)=>!!d&&d.kind===(mode==='z'?'plan':'line')&&d.ref===secRef()&&(d.field||'model')===secField();
+// Redraw these slices once, on the next frame (slider drags fire faster than frames)
+let secQueued=null;
+function secRedraw(modes){
+  if(!secQueued){
+    secQueued=new Set();
+    requestAnimationFrame(()=>{const q=secQueued; secQueued=null;
+      for(const md of q)if($v(SEC_SHOW[md])?.checked)drawSection2D(md);});
+  }
+  for(const md of modes)secQueued.add(md);
 }
 // The ground of a model_3d at (x, y): its terrain (nearest node), else the top of its grid
 function secGround(m){
@@ -3108,10 +3152,15 @@ function secGround(m){
 // a workflow file
 function secLocal(m,mode){
   const p=secParams(mode,'model'); if(!p)return null;
+  const field=secField();
+  if(field==='probability'&&m.prob_values)m={...m,values:m3dRob?m3dRob.m3.values:m.prob_values};
+  else if(field!=='model')return null;               // the posterior std is only the server's
   const ref=p.ref, G=secGround(m), [vmin,vmax]=modelRange([m.values]);
   const cell=Math.min(Math.abs(m.x_edges[1]-m.x_edges[0]),Math.abs(m.y_edges[1]-m.y_edges[0]));
   const dzc=Math.abs(m.z_edges[1]-m.z_edges[0]);
-  const info={range:[vmin,vmax],signed:vmin<-1e-9*Math.max(1,Math.abs(vmax)),local:true};
+  // the colours of the server's slices (and the 3D view's)
+  const info=field==='probability'?{range:[0,1],signed:false,field,local:true}
+    :{range:m.range||[vmin,vmax],signed:m.signed!=null?m.signed:(vmin<0&&vmax>0),local:true};
   if(p.kind==='plan'){
     const x=m3dCenters(m.x_edges), y=m3dCenters(m.y_edges), level=+p.level;
     const values=y.map(yy=>x.map(xx=>m3dSampleAt(m,xx,yy,ref==='ground'?G(xx,yy)-level:level)));
@@ -3124,7 +3173,8 @@ function secLocal(m,mode){
   const zlo=Math.min(m.z_edges[0],m.z_edges[m.nz]);
   let v=[], values;
   if(ref==='ground'){
-    const dmax=secTop(m)-zlo, vs=Math.max(dzc/2||0,dmax/300,1e-6); for(let d=vs/2;d<dmax;d+=vs)v.push(d);
+    // as deep as the server's (the core depth), not to the grid's bottom under the highest ground
+    const dmax=m.depth_max||(secTop(m)-zlo), vs=Math.max(dzc/2||0,dmax/300,1e-6); for(let d=vs/2;d<dmax;d+=vs)v.push(d);
     values=v.map(d=>P.map((q,i)=>m3dSampleAt(m,q[0],q[1],ground[i]-d)));
   }else{
     const vs=Math.max(dzc/2||0,(secTop(m)-zlo)/300,1e-6); for(let z=secTop(m)-vs/2;z>zlo;z-=vs)v.push(z);
@@ -3221,10 +3271,11 @@ function drawSection2D(mode){
   const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr);
   ctx.fillStyle='#0e131a'; ctx.fillRect(0,0,cw,ch);
   let d=SEC.job?secFetch(SEC.job,mode):null;
+  if(!d&&SEC.job&&secFits(SEC.last[mode],mode))d=SEC.last[mode];   // the previous fine one, a moment behind
   const fine=!!d;
   if(!d)d=secLocal(m3dData,mode);
   if(!d){ctx.fillStyle='#57677a';ctx.font='11px sans-serif';ctx.textAlign='center';
-    ctx.fillText(mode==='prof'?'Drag on the depth slice to draw a profile':'—',cw/2,ch/2);return;}
+    ctx.fillText(!secParams(mode)?(mode==='prof'?'Drag on the depth slice to draw a profile':'—'):'loading…',cw/2,ch/2);return;}
   const plan=d.kind==='plan', layers=mlShown().length;
   const pad={t:(!plan&&layers?32:20),r:46,b:28,l:50};
   let pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
@@ -3244,8 +3295,7 @@ function drawSection2D(mode){
   const vBot=plan?Math.min(vA,vB):(d.ref==='ground'?Math.max(vA,vB):Math.min(vA,vB));
   const toY=v=>pad.t+ph*(v-vTop)/(vBot-vTop);
   // the image, one pixel per sample, smoothed when scaled up
-  const [r0,r1]=d.range||[0,1], L=Math.max(Math.abs(r0),Math.abs(r1))||1;
-  const col=v=>d.signed?cmap(v,-L,L):turbo(v/(r1>0?r1:L));
+  const sc=modelScale(d.range,d.signed), col=sc.col;   // the 3D view's own for the model
   const off=document.createElement('canvas'); off.width=nh; off.height=nv;
   const oc=off.getContext('2d'), img=oc.createImageData(nh,nv);
   for(let iv=0;iv<nv;iv++){
@@ -3272,7 +3322,7 @@ function drawSection2D(mode){
   if(m3dOther){
     const ov=secOtherValues(d,mode);
     if(ov){
-      const o=m3dOther.m3, [omin,omax]=m3dRange(o), thr=Math.max(Math.abs(omin),Math.abs(omax))*(+$v('m3d-thresh').value)/100;
+      const thr=m3dScale(m3dOther.m3).L*(+$v('m3d-thresh').value)/100;
       const S=ov.map(r=>r.map(q=>q==null?0:q>=thr?1:q<=-thr?-1:0));
       const xe=i=>toX(hMin+i*dh), ye=k=>toY(vA+k*dv);
       ctx.lineWidth=1.6;
@@ -3355,10 +3405,10 @@ function drawSection2D(mode){
   ctx.fillText(title+(d.field==='probability'?` · P(above ${d.threshold!=null?fmtN(+(+d.threshold).toPrecision(3)):'the threshold'})`:d.field==='std'?' · posterior std':'')+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
   // the colour bar, on the right
   const bx=pad.l+pw+12, by=pad.t, bw=9, bh=Math.max(30,ph);
-  for(let k=0;k<bh;k++){const t=1-k/bh, v=d.signed?(-L+2*L*t):t*(r1>0?r1:L), [r,g,b]=col(v);
+  for(let k=0;k<bh;k++){const t=1-k/bh, v=sc.lo+(sc.hi-sc.lo)*t, [r,g,b]=col(v);
     ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(bx,by+k,bw,1.2);}
   ctx.fillStyle='#9aabb8';ctx.font='8px Consolas,monospace';ctx.textAlign='left';
-  ctx.fillText(fmtN(d.signed?L:(r1>0?r1:L)),bx-2,by-3);ctx.fillText(fmtN(d.signed?-L:0),bx-2,by+bh+9);
+  ctx.fillText(fmtN(sc.hi),bx-2,by-3);ctx.fillText(fmtN(sc.lo),bx-2,by+bh+9);
 }
 
 

@@ -311,6 +311,18 @@ def robust_range(values) -> list:
     return [float(lo), float(hi)]
 
 
+def model_signed(values) -> bool:
+    """Values of both signs (a density contrast, an unbounded susceptibility): coloured
+    blue to red about 0, by the slices and the 3D view alike; others from 0 (or their
+    lowest) up."""
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return False
+    s = 1e-9 * max(1.0, float(np.abs(v).max()))
+    return bool(v.min() < -s and v.max() > s)
+
+
 MAX_VIEWER_CELLS = 600_000   # voxels of the 3D tab: Plotly's isosurfaces crawl beyond
 
 
@@ -614,7 +626,8 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                             "min": float(run["_model"].min()), "max": float(run["_model"].max()),
                             "mean": float(run["_model"].mean())},
             "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4),
-                         "range": robust_range(run["_model"])},
+                         "range": robust_range(run["_model"]), "signed": model_signed(run["_model"]),
+                         "depth_max": ((run.get("mesh_design") or {}).get("used") or {}).get("depth_core_m")},
         }
         if run.get("_prob_body") is not None:   # a Bayesian posterior: the probability of a body
             prob_full = full_model({**run, "_model": run["_prob_body"]}, mesh)

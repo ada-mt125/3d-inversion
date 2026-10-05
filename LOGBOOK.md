@@ -1883,3 +1883,35 @@ use too) is now the 3D view's range as well; beyond it the colours saturate. A p
 "Open the probability in 3D" opened the previous result (`data-bayes-3d` is
 `dataset["bayes-3d"]`, not `bayes3d`), and its card's status never refreshed (a node
 compared with an id).
+
+## 2026-10-05 — One colour scale; shells that peel; slices that follow a drag
+
+The user still saw the slices and the 3D view coloured differently, the bodies changing
+shape with the 3D threshold, and dark half-drawn slices while dragging a section.
+
+Colours: a model without negative values was turbo from 0 to its 99th percentile in the
+slices, but blue-yellow-red from its 1st to 99th percentile in 3D; and the two decided
+"signed" differently (the slices on the minimum, the 3D view on the range).
+`result_workflow.model_signed` (both signs present) is now the one rule, `model_3d` carries
+`signed` and the slices' `range`, and the page's `modelScale(range, signed)` colours the 3D
+shells, its colour bar and every slice: blue to red about 0 for signed models, else turbo
+from 0 (from the lowest value when that is far from 0) to the 99th percentile.
+
+Shells: each sign's three shells were spread evenly between the threshold and 90 % of the
+peak, so every one moved with the threshold. They now sit at fixed shares of the colour
+bar's |max| (`M3D_LEVELS` 20, 40, 60, 80 %) plus one at the threshold; a higher threshold
+moves only the outermost inwards and drops the fixed ones it passes (thresholds 20 / 30 /
+45 / 70 % on local-e43be0cd791d: shells at 20-40-60-80, 30-40-60-80, 45-60-80, 70-80 %).
+Each shell's mesh is kept per grid and level, so a new threshold computes only its own
+(270-520 ms for 75k-250k triangles).
+
+Slices: a slice was asked for only after a 140 ms pause, so during a drag the page drew
+the stand-in from the 3D grid: coarser, coloured by its extremes, and under the highest
+ground reaching the relief deeper than the server's (the grid's bottom, not the core
+depth), where it is empty, hence the dark band. Now one request per slice is out at a time
+and the newest position goes next (a slice of the 5 km window: 11-21 ms on the server,
+0.3-0.6 MB); while it comes the slice's previous fine one is shown; the stand-in (first
+draw only) has the server's colours and depth (`model_3d.depth_max`) and samples the
+probability when that is shown (nothing for the posterior std, which only the server has).
+A slider redraws only the slices it moves (the E-W slider: that section and the depth
+slice's line), once per frame. A 25-step drag of the E-W slider: 25 requests, one stand-in.

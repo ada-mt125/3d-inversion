@@ -67,3 +67,20 @@ def test_the_strike_of_an_elongated_body():
     assert p["strike_deg"] == pytest.approx(45.0, abs=2.0)
     (ax, ay), (bx, by) = p["a"], p["b"]
     assert math.degrees(math.atan2(by - ay, bx - ax)) == pytest.approx(-45.0, abs=2.0)   # across it
+
+
+def test_the_3d_view_and_the_slices_share_one_colour_scale(tmp_path):
+    """The 3D view's range and sign are the slices' (the 1st-99th percentile, both signs or
+    not), and its depth is theirs, so a cell looks the same in both."""
+    from geoinv3d.viz.result_workflow import build_workflow, model_signed, robust_range
+    _, zpath, _ = _run(tmp_path)
+    meta = load_result(zpath)
+    rm = ResultModel(meta)
+    node = next(n for n in build_workflow([meta])["nodes"] if n["type"] == "RegularizedInversionNode")
+    m3 = node["output"]["model_3d"]
+    assert m3["range"] == pytest.approx(rm.range) and m3["signed"] == rm.signed
+    assert m3["depth_max"] == pytest.approx(rm.depth_core)
+    # a few extreme cells do not set the scale; both signs only when both are there
+    v = np.r_[np.linspace(0.0, 1.0, 1000), 500.0]
+    assert robust_range(v)[1] < 1.0 and not model_signed(v) and model_signed(np.r_[v, -0.5])
+    assert not model_signed(-v[1:])          # all one sign (e.g. a log conductivity)

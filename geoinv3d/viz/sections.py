@@ -33,7 +33,7 @@ def _round(a, digits=4):
 
 class ResultModel:
     def __init__(self, meta):
-        from .result_workflow import result_mesh, robust_range
+        from .result_workflow import model_signed, result_mesh, robust_range
         self.meta = meta
         self.mesh = mesh = result_mesh(meta)
         active = meta.get("_active")
@@ -58,7 +58,7 @@ class ResultModel:
         self.extent = [float(v) for v in ex]          # the stations' extent
         finite = full[np.isfinite(full)]
         self.range = robust_range(finite)          # the 3D view's too
-        self.signed = bool(finite.size and finite.min() < -1e-9 * max(1.0, abs(finite.max())))
+        self.signed = model_signed(finite)
         topo = meta.get("_topography")
         if topo is not None and np.size(topo.get("z", [])) > 1:
             from scipy.interpolate import RegularGridInterpolator
