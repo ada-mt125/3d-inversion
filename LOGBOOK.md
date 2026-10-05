@@ -2032,3 +2032,29 @@ near the surface made the strong cells look shallow (91 / 236 / 655 m for the sa
 MVI and induced runs on the same data shared one Survey node and differed only at the
 result. `result_workflow.is_mvi` puts the magnetization in the data key: an MVI run gets a
 Survey node (and tree) of its own, named "MVI magnetics · N stations".
+
+## 2026-10-05 — Does a modelled body pull the inversion to its depth? A BIF band at 500 m
+
+The user asked whether a constraint in the starting model makes the inversion put the
+anomalies at its depth. For gravity and magnetics (linear) the starting model hardly
+matters; the model builder's body acts through the reference model, the smallness weight
+(x5) and its bounds (methods/geology.py). A 200 m wide band along the DEM iron-formation
+ridge in the window (147° E of N, through 661,256 / 1,667,375), 400-600 m below the ground,
+reference 1 SI, sparse 0, 2, 2, 1 with κ in [0, 3], OcTree 8/8/8:
+
+| run | χ²/N | κ in the band at 400-600 m | at 50-250 m | cells > 0.3 SI in the band |
+|---|---|---|---|---|
+| real data, no constraint (1 km limit) | 0.94 | 0.04 | 0.02 | 0 % |
+| real data, soft (0-3 SI, weight 5) | 0.90 | 0.80 | 0.02 | 5 % |
+| real data, hard (0.3-3 SI) | 0.93 | 0.81 | 0.02 | 5 % |
+| synthetic, true band 1 SI at 50-250 m, no constraint | 0.92 | 0.00 | 0.67 | 0 % (87 % at 50-250 m) |
+| the same, soft constraint at 400-600 m | 1.09 | 0.83 | 0.47 | 60 % (26 % at 50-250 m) |
+
+The synthetic data (forward modelled on 25 m cells at the survey's 4,489 stations, 1 % +
+10 nT noise) are recovered at the right depth without the constraint; with a wrong one at
+500 m the model takes it (60 % of the strong cells in it) and still fits (χ²/N 0.92 →
+1.09, RMS 26 → 25 nT): a band 200 m wide at 500 m under a shallow one is beyond what the
+data resolve, so whatever the constraint says there is kept. The real data accept the band
+just as well (χ²/N 0.90-0.93). A constraint should therefore come from evidence (holes,
+mapped units, measured properties) and be tested: with and without, the χ² (here +17 %,
+inside the ±10 % discrepancy tolerance only just) and the residual map along the body.
