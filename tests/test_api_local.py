@@ -185,6 +185,27 @@ class TestComparisons:
         assert bad.status_code == 400
         assert finished.get("/api/inversion/nope/section", params={"kind": "strike"}).status_code == 404
 
+    def test_the_agreement_of_robustness_runs(self, finished, api):
+        _, backend, store = api
+        server._MODELS.clear(); server._ROBUST_CACHE.clear()
+        for k in range(3):    # three runs of the same model: they agree everywhere they have bodies
+            store.put({"job_id": f"r-{k}", "task_id": f"r-{k}", "status": "SUCCEEDED", "summary": {},
+                       "robustness_of": "i-a", "variant": f"v{k}"})
+        d = finished.get("/api/inversion/i-a/robustness", params={"grid": True}).json()
+        assert (d["n_runs"], d["n_done"]) == (3, 3)
+        assert d["summary"]["n_runs"] == 3 and len(d["summary"]["moment_depth_m"]) == 3
+        vals = [v for v in d["grid"]["values"] if v is not None]
+        assert vals and set(vals) <= {0.0, 1.0}                    # identical models: all or none
+        assert len(d["grid"]["values"]) == d["grid"]["nx"] * d["grid"]["ny"] * d["grid"]["nz"]
+        strike = finished.get("/api/inversion/i-a/section", params={"kind": "strike"}).json()
+        (x0, y0), (x1, y1) = strike["a"], strike["b"]
+        a = finished.get("/api/inversion/i-a/section", params={"kind": "line", "field": "agreement",
+                         "x0": x0, "y0": y0, "x1": x1, "y1": y1}).json()
+        assert a["field"] == "agreement" and a["n_runs"] == 3 and a["range"] == [0.0, 1.0]
+        none = finished.get("/api/inversion/i-b/section", params={"kind": "plan", "level": 100,
+                            "field": "agreement"})
+        assert none.status_code == 409                              # i-b has no robustness runs
+
     def test_compare_jobs_in_one_workflow(self, finished):
         wf = finished.get("/api/workflow", params={"ids": "i-a,i-b"}).json()
         inv = [n for n in wf["nodes"] if n["type"] == "RegularizedInversionNode"]
@@ -371,6 +392,31 @@ class TestLocalJobsAndReruns:
         store.put({"job_id": "odd", "task_id": "../../keep.txt", "status": "FAILED", "summary": {}})
         assert client.delete("/api/jobs/odd").json()["removed"] == []
         assert victim.exists()
+
+    def test_a_robustness_check_starts_its_variants(self, both):
+        client, aws, local, store = both
+        base = {"param_mode": "manual", "regularization_type": "l1l2", "max_iter": 30, "method_type": "magnetic",
+                "datasets": [{"type": "magnetic", "method": "magnetic", "files": ["g.csv"],
+                              "noise_pct": 0.05, "noise_floor": 2}]}
+        job = _submit(client, backend="local", params=base).json()["job_id"]
+        assert client.post(f"/api/inversion/{job}/robustness").status_code == 409   # not finished
+        store.update(job, status="SUCCEEDED", summary={"n_data": 4000})
+        r = client.post(f"/api/inversion/{job}/robustness")
+        assert r.status_code == 200, r.text
+        started = local.started[-len(server.ROBUSTNESS_VARIANTS):]
+        assert len(r.json()["jobs"]) == len(server.ROBUSTNESS_VARIANTS) == len(started)
+        kinds = [p["regularization_type"] for _, p, _ in started]
+        assert kinds == [c["regularization_type"] for _, c in server.ROBUSTNESS_VARIANTS]
+        for _, p, _ in started:
+            d = p["datasets"][0]
+            assert (d["noise_pct"], d["noise_floor"]) == ("auto", "auto") and "decimate_spacing_m" not in d
+            assert p["param_mode"] == "manual"
+        assert [p["depth_weighting_exponent"] for _, p, _ in started[-2:]] == [1.5, 3.0]
+        recs = [store.get(j) for j in r.json()["jobs"]]
+        assert all(x["robustness_of"] == job and x["group_label"].startswith("Robustness of") for x in recs)
+        assert client.post(f"/api/inversion/{job}/robustness").status_code == 409   # once
+        status = client.get(f"/api/inversion/{job}/robustness").json()
+        assert status["n_runs"] == len(recs) and status["n_done"] == 0 and "summary" not in status
 
     def test_unknown_backend(self, both):
         client, *_ = both

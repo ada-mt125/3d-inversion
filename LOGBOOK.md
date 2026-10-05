@@ -1744,3 +1744,23 @@ the same resolution. A new Profile A-B panel follows the strike by default, any 
 dragged on the depth slice replaces it ("back across the strike" restores it), and its
 plane is outlined in 3D. "Vertical axis" switches depth below the ground / elevation. For a
 workflow file the same slices are sampled from the 3D grid.
+
+## 2026-10-05 — The robustness check
+
+The user found the 5 km window's models changing with the regularization and the depth
+weighting. Their six runs (all χ²/N 0.90-1.09) agreed on where the bodies are (a NW-SE belt,
+a body in ≥ 5 of 6 runs over 16 % of the window at 300 m) but not on their depth (the
+moment-weighted centre of the bodies 290-450 m below the ground for L1–L2, 1,250-1,360 m for
+smooth L2 and MVI): the depth is the settings', not the data's.
+
+`POST /api/inversion/{id}/robustness` runs ROBUSTNESS_VARIANTS on the job's inputs, a group
+of jobs marked `robustness_of` (on this computer unless asked; automatic errors; thinned to
+twice the spacing above 6,000 data; MVI skips L1–L2). `GET .../robustness` lists them and,
+from two finished, `ensemble_summary`: the share of the area with a body in ≥ 80 % of the
+runs at 100, 300, 600 and 1,000 m, the columns with one in the top km, each run's bodies'
+centre depth; `grid=1` adds the agreement on the job's 3D grid; `section?field=agreement`
+slices it. A body is above 25 % of the run's 98th percentile sampled evenly through the core
+(cell by cell an octree's many small surface cells raised compact runs' thresholds 2-3
+times). The node has "🧪 Check robustness" and then the runs and the summary; the 3D view
+draws the robust bodies (gold) and colours slices by the agreement on request. Tested on a
+small run: six runs in about two minutes, all χ²/N 0.98-1.08.

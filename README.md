@@ -188,7 +188,14 @@ at every iteration; at the end it says whether the run converged or why not (ite
 limit, IRLS limit) and offers the fix. Any finished job can be run again on its own files
 with changed settings (iterations, norms, weighting, bounds, mesh, data errors, or all
 parameters as JSON), from its card or from its node in the workflow; the new run joins the
-workspace's workflow next to the old one. In the 3D view, **Compare with** draws another run of the same workflow (the workspace's, or a
+workspace's workflow next to the old one. A finished run's node offers a **robustness check**: the same data inverted with six standard
+settings (L1–L2; Lp 0,1,1,1 and 0,2,2,2; smooth L2 with the default, a weaker and a
+stronger depth weighting), automatic errors, on this computer, as a group; the node then
+says where their models agree (a body in at least 80 % of them) and how deep each puts its
+bodies, and the 3D view adds the robust bodies and can colour its slices by the agreement.
+The depth slice and the sections are sampled from the mesh itself (`GET
+/api/inversion/{id}/section`), in depth below the ground or elevation, with a profile A–B
+across the strike that a drag on the depth slice replaces. In the 3D view, **Compare with** draws another run of the same workflow (the workspace's, or a
 comparison of chosen jobs) with the one shown: its shells on its own grid and colour bar,
 and the outline of its bodies on the depth slice and the sections. A job that has ended can be **deleted** from its
 card or its node (`DELETE /api/jobs/{id}`: its record, result, kept inputs and local files,

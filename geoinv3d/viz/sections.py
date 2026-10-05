@@ -172,3 +172,109 @@ class ResultModel:
         r_pos, r_neg = reach
         return {"a": [cx - r_neg * ux, cy - r_neg * uy], "b": [cx + r_pos * ux, cy + r_pos * uy],
                 "centre": [cx, cy], "strike_deg": float(math.degrees(math.atan2(uy, -ux)) % 180.0)}
+
+
+# ── Several runs of one area: where their models agree ──
+BODY_SHARE = 0.25          # a body: above 25 % of the run's 98th percentile (of its positive values)
+ROBUST_SHARE = 0.8         # robust: a body in at least 80 % of the runs
+
+
+def body_level(model: ResultModel) -> float:
+    """A body's threshold for a run: BODY_SHARE of the 98th percentile of its positive values
+    in the core (under the stations, down to the core depth), so that what the padding holds
+    (often large values in large cells) does not set it."""
+    # sampled evenly through the core, not cell by cell: an octree's cells are mostly the
+    # small ones near the surface, which would weigh a compact model's threshold 2-3 times up
+    # and a smooth one's (deep, in large cells) down
+    if getattr(model, "_body_level", None) is None:
+        W, E, S, N = model.extent
+        X, Y = np.meshgrid(np.linspace(W, E, 48), np.linspace(S, N, 48))
+        G = model.ground(X, Y).ravel()
+        ds = np.linspace(25.0, model.depth_core, 40)
+        pts = np.column_stack([np.tile(X.ravel(), len(ds)), np.tile(Y.ravel(), len(ds)),
+                               (G[None, :] - ds[:, None]).ravel()])
+        v = model.sample(pts)
+        v = v[np.isfinite(v) & (v > 0)]
+        model._body_level = BODY_SHARE * float(np.percentile(v, 98)) if v.size else np.inf
+    return model._body_level
+
+
+def agreement(models, pts) -> np.ndarray:
+    """The share of ``models`` with a body at each of the (n, 3) points (NaN where none of
+    them has a model there, e.g. above the ground)."""
+    pts = np.asarray(pts, dtype=float)
+    hits = np.zeros(len(pts))
+    seen = np.zeros(len(pts))
+    for m in models:
+        v = m.sample(pts)
+        ok = np.isfinite(v)
+        seen += ok
+        hits += ok & (v >= body_level(m))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(seen > 0, hits / np.maximum(seen, 1), np.nan)
+
+
+def agreement_slice(base: ResultModel, models, kind: str, **kw) -> dict:
+    """A slice of the agreement, on the geometry ``base.line`` / ``base.plan`` would give."""
+    d = base.line(**kw) if kind == "line" else base.plan(**kw)
+    if kind == "line":
+        L = d["length"]
+        (x0, y0), (x1, y1) = d["a"], d["b"]
+        h, v = np.asarray(d["h"]), np.asarray(d["v"])
+        x, y = x0 + (x1 - x0) * h / L, y0 + (y1 - y0) * h / L
+        ground = np.asarray(d["ground"])
+        z = ground[None, :] - v[:, None] if d["ref"] == "ground" else np.broadcast_to(v[:, None], (len(v), len(h)))
+        X, Y = np.broadcast_to(x, z.shape), np.broadcast_to(y, z.shape)
+        a = agreement(models, np.column_stack([X.ravel(), Y.ravel(), np.ravel(z)])).reshape(z.shape)
+        if d["ref"] != "ground":
+            a[z > ground[None, :]] = np.nan
+    else:
+        X, Y = np.meshgrid(d["x"], d["y"])
+        z = base.ground(X, Y) - d["level"] if d["ref"] == "ground" else np.full(X.shape, d["level"])
+        a = agreement(models, np.column_stack([X.ravel(), Y.ravel(), z.ravel()])).reshape(X.shape)
+    return {**d, "values": _round(a, 3), "range": [0.0, 1.0], "signed": False,
+            "field": "agreement", "n_runs": len(models)}
+
+
+def agreement_grid(base_meta, models) -> dict:
+    """The agreement on the base run's 3D grid (result_workflow.ViewerGrid), in its order."""
+    from .result_workflow import ViewerGrid, result_mesh
+    g = ViewerGrid(base_meta, result_mesh(base_meta)).geometry()
+    xe, ye, ze = (np.asarray(g[k]) for k in ("x_edges", "y_edges", "z_edges"))   # z top down
+    xc, yc, zc = (0.5 * (e[1:] + e[:-1]) for e in (xe, ye, ze))
+    Z, Y, X = np.meshgrid(zc, yc, xc, indexing="ij")          # x fastest, then y, then z
+    a = agreement(models, np.column_stack([X.ravel(), Y.ravel(), Z.ravel()]))
+    return {**g, "values": [None if not math.isfinite(v) else round(float(v), 3) for v in a]}
+
+
+def ensemble_summary(base: ResultModel, models, depths=(100, 300, 600, 1000)) -> dict:
+    """Where the runs agree at some depths below the ground, and how deep each puts its
+    bodies: the moment-weighted mean depth of its model in the columns where at least 80 %
+    of the runs have a body in the top kilometre."""
+    W, E, S, N = base.extent
+    step = max(base.h, max(E - W, N - S) / 120.0)
+    xs, ys = np.arange(W + step / 2, E, step), np.arange(S + step / 2, N, step)
+    X, Y = np.meshgrid(xs, ys)
+    G = base.ground(X, Y)
+    zs = np.arange(25.0, min(base.depth_core, 3000.0), 50.0)
+    pts = np.column_stack([np.repeat(X.ravel()[None, :], len(zs), 0).ravel(),
+                           np.repeat(Y.ravel()[None, :], len(zs), 0).ravel(),
+                           (G.ravel()[None, :] - zs[:, None]).ravel()])
+    vols = [m.sample(pts).reshape(len(zs), -1) for m in models]
+    bodies = [np.isfinite(v) & (v >= body_level(m)) for v, m in zip(vols, models)]
+    frac = np.mean(bodies, axis=0)                       # (depths, columns)
+    out = {"n_runs": len(models), "depths": []}
+    for d in depths:
+        k = int(np.argmin(abs(zs - d)))
+        f = frac[k]
+        out["depths"].append({"depth_m": float(d), "robust_share": float(np.mean(f >= ROBUST_SHARE)),
+                              "any_share": float(np.mean(f > 0))})
+    top = np.mean([b[zs <= 1000].any(axis=0) for b in bodies], axis=0) >= ROBUST_SHARE
+    out["robust_columns_share"] = float(np.mean(top))
+    centres = []
+    for v in vols:
+        w = np.clip(np.nan_to_num(v[:, top]), 0, None)
+        centres.append(float(np.median((w * zs[:, None]).sum(0) / np.maximum(w.sum(0), 1e-12)))
+                       if top.any() else None)
+    out["moment_depth_m"] = centres
+    return out
