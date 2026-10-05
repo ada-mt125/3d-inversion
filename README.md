@@ -188,11 +188,16 @@ at every iteration; at the end it says whether the run converged or why not (ite
 limit, IRLS limit) and offers the fix. Any finished job can be run again on its own files
 with changed settings (iterations, norms, weighting, bounds, mesh, data errors, or all
 parameters as JSON), from its card or from its node in the workflow; the new run joins the
-workspace's workflow next to the old one. A finished run's node offers a **robustness check**: the same data inverted with six standard
-settings (L1–L2; Lp 0,1,1,1 and 0,2,2,2; smooth L2 with the default, a weaker and a
-stronger depth weighting), automatic errors, on this computer, as a group; the node then
-says where their models agree (a body in at least 80 % of them) and how deep each puts its
-bodies, and the 3D view adds the robust bodies and can colour its slices by the agreement.
+workspace's workflow next to the old one. A finished gravity or (induced) magnetic run's node offers a **Bayesian posterior**
+(`methods/bayes.py`, `regularization_type: "bayes"`): one job on the same data with the
+smooth L2 regularization as a Gaussian prior (the run's depth weighting, reference 0),
+automatic errors, β for χ² = N (the evidence's choice of β and of an error scale is
+reported too), and 30 randomized-maximum-likelihood samples, all in data space: one sparse
+factorization of the prior's precision and N solves (the 5 km Block-8 window, 4,489 data ×
+141,759 cells: 4.3 min, 12 GB). It adds each cell's posterior standard deviation and
+probability of a body; the 3D view draws the cells with P ≥ 0.8 and colours the slices by
+any of them, and a profile of the probability carries the 10/50/90 % depths of the bodies'
+top and base in the samples.
 The depth slice and the sections are sampled from the mesh itself (`GET
 /api/inversion/{id}/section`), in depth below the ground or elevation, with a profile A–B
 across the strike that a drag on the depth slice replaces. In the 3D view, **Compare with** draws another run of the same workflow (the workspace's, or a

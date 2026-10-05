@@ -227,6 +227,9 @@ def load_result(path) -> dict:
             meta["_topography"] = read_npz("topography.npz")
         if "reference_model.npy" in names:   # geology constraints, on the active cells
             meta["_reference"] = read("reference_model.npy")
+        for key in ("posterior_std", "prob_body", "prior_std", "samples"):   # a Bayesian posterior
+            if f"{key}.npy" in names:
+                meta[f"_{key}"] = read(f"{key}.npy")
     meta["_name"] = path.name if path.is_dir() else path.stem.replace("_result", "")
     return meta
 
@@ -590,6 +593,9 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                             "mean": float(run["_model"].mean())},
             "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4)},
         }
+        if run.get("_prob_body") is not None:   # a Bayesian posterior: the probability of a body
+            prob_full = full_model({**run, "_model": run["_prob_body"]}, mesh)
+            out["model_3d"]["prob_values"] = _round(grid.values(prob_full), 3)
         true_grid = true_grids.get(truth_key(run))
         if true_grid is not None and mesh_id == first_mesh_id:
             out["model_3d"]["true_values"] = true_grid

@@ -71,6 +71,11 @@ class InversionTask:
     # Weighting "S2" (1/||k_j||, recommended by Utsugi) or "S1" (||k_j||^-1/2).
     l1l2_solver: str = "cda"
     l1l2_weighting: str = "S2"
+    # regularization_type "bayes": the linear-Gaussian posterior (worker.run_bayesian_inversion)
+    bayes_samples: int = 30
+    bayes_seed: int = 0
+    bayes_threshold: Optional[float] = None
+    bayes_beta: str = "discrepancy"     # chi^2 = N, or "evidence" (beta and the errors' scale)
     lambda_decades: float = 4.0
     lambda_step: float = 0.1
 
@@ -260,6 +265,10 @@ class InversionTask:
             "l1_ratio": self.l1_ratio,
             "l1l2_solver": self.l1l2_solver,
             "l1l2_weighting": self.l1l2_weighting,
+            "bayes_samples": self.bayes_samples,
+            "bayes_seed": self.bayes_seed,
+            "bayes_threshold": self.bayes_threshold,
+            "bayes_beta": self.bayes_beta,
             "lambda_decades": self.lambda_decades,
             "lambda_step": self.lambda_step,
             "beta_selection": self.beta_selection,
@@ -406,6 +415,10 @@ def unpack_task(archive_path: str) -> InversionTask:
             l1_ratio=meta.get("l1_ratio", 0.5),
             l1l2_solver=meta.get("l1l2_solver", "cda"),
             l1l2_weighting=meta.get("l1l2_weighting", "S2"),
+            bayes_samples=int(meta.get("bayes_samples", 30)),
+            bayes_seed=int(meta.get("bayes_seed", 0)),
+            bayes_threshold=meta.get("bayes_threshold"),
+            bayes_beta=meta.get("bayes_beta", "discrepancy"),
             lambda_decades=meta.get("lambda_decades", 4.0),
             lambda_step=meta.get("lambda_step", 0.1),
             beta_selection=meta.get("beta_selection", "auto"),

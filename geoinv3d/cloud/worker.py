@@ -27,6 +27,7 @@ Usage (on the cloud instance):
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import tempfile
@@ -702,7 +703,12 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     target misfit.
     """
     if getattr(_get_method(task), "vector", False):
+        if task.regularization_type == "bayes":
+            raise ValueError("The Bayesian inversion is for induced magnetization (and gravity): "
+                             "the magnetization vector is not linear-Gaussian")
         return run_mvi_inversion(task, mesh)
+    if task.regularization_type == "bayes":
+        return run_bayesian_inversion(task, mesh)
     if task.regularization_type == "l1l2":
         if task.l1l2_solver == "cda":
             return run_l1l2_cda(task, mesh)
@@ -714,6 +720,109 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     if task.regularization_type in ("sparse", "l1l2", "mgs", "tv"):
         return run_sparse_inversion(task, mesh)
     return run_smooth_inversion(task, mesh)
+
+
+def run_bayesian_inversion(task: InversionTask, mesh=None) -> dict:
+    """The linear-Gaussian posterior of a gravity or (induced) magnetic task: the smooth L2
+    regularization as the prior (with the task's depth or sensitivity weighting), beta for
+    chi^2 = N, ``task.bayes_samples`` RML samples (methods/bayes.py).
+
+    The result's model is the posterior mean (the smooth L2 model at that beta); it adds
+    ``posterior_std``, ``prob_body`` (the share of samples above ``bayes``'s threshold: a
+    quarter of the mean's 98th percentile in the core unless ``bayes_threshold``),
+    ``prior_std`` and ``samples`` (float32, on the active cells).
+    """
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from ..methods.bayes import LinearGaussian, body_threshold, prior_terms
+    from ..methods.directives import IterationCollector
+    from simpeg import inverse_problem, inversion
+
+    if mesh is None:
+        mesh = _build_mesh(task)
+    l2 = replace(task, regularization_type="l2")
+    p = _single_problem(l2, mesh)
+    G = getattr(p.sim, "G", None)
+    if G is None:
+        raise ValueError("The Bayesian inversion needs a gravity or magnetic task (an explicit "
+                         "sensitivity matrix)")
+    if _uses_sensitivity_weights(l2, "l2"):
+        # the weights a smooth L2 run would set, from the same directive
+        directive = _sensitivity_directive(l2)
+        inv_prob = inverse_problem.BaseInvProblem(p.dmis, p.reg, p.opt)
+        inversion.BaseInversion(inv_prob, directiveList=[directive])
+        inv_prob.model = p.m0
+        directive.initialize()
+    terms = prior_terms(p.reg, p.m0)
+    m_ref = np.asarray(getattr(p.reg, "reference_model", None) if getattr(p.reg, "reference_model", None)
+                       is not None else np.zeros(len(p.m0)), dtype=float)
+    d, sigma = np.asarray(task.observed_data, dtype=float), np.asarray(task.data_std, dtype=float)
+    n_data, n_cells = len(d), len(p.m0)
+    callback = IterationCollector.on_iteration
+
+    def report(step, i, n, extra=None):
+        if callback is not None:
+            callback(SimpleNamespace(iteration=i, phi_d=None, beta=None,
+                                     extra={"max_iter": n, "step": step, **(extra or {})}))
+
+    print(f"[Bayes] {n_data} data x {n_cells} cells: factorizing the prior's precision, "
+          f"then {n_data} solves")
+    post = LinearGaussian(np.asarray(G), d, sigma, terms, m_ref=m_ref,
+                          progress=lambda a, n: report("prior solves", a, n))
+    # beta: the largest evidence (type-II maximum likelihood, the Bayesian choice; default)
+    # or chi^2 = N as the deterministic runs choose it
+    # beta: for chi^2 = N with the errors as given (default; the automatic errors are the ones
+    # the Block-8 cross-validation supported), or with the errors' scale s by the largest
+    # evidence ("evidence"; type-II maximum likelihood).  The evidence assumes independent
+    # errors, which a grid's interpolated values are not: on the Block-8 window it put them
+    # at x0.33 and fitted the data to chi^2/N 0.014.  Both are recorded.
+    rule = str(getattr(task, "bayes_beta", "discrepancy") or "discrepancy")
+    beta_chi2 = post.beta_for(float(n_data))
+    beta_ev, noise2_ev = post.evidence_beta_noise()
+    beta, noise2 = (beta_chi2, 1.0) if rule == "discrepancy" else (beta_ev, noise2_ev)
+    mean = post.mean(beta * noise2)
+    chi2 = float(np.sum(((np.asarray(G) @ mean - d) / sigma) ** 2))
+    print(f"[Bayes] beta {beta:.4g}, error scale {math.sqrt(noise2):.3g} ({rule}; chi^2 = N: beta "
+          f"{beta_chi2:.4g}): chi^2/N {chi2 / n_data:.3f} with the errors given, "
+          f"{chi2 / n_data / noise2:.3f} with the scaled ones; timing {post.timing}")
+    n = int(getattr(task, "bayes_samples", 30) or 30)
+    samples, prior = post.samples(beta, n, seed=int(getattr(task, "bayes_seed", 0) or 0),
+                                  progress=lambda k, n: report("samples", k, n), noise2=noise2)
+    # a body: above a quarter of the mean's 98th percentile under the stations, weighted by
+    # cell volume (an octree's many small cells near the surface would raise it otherwise)
+    dmesh = mesh.to_discretize()
+    act = np.ones(dmesh.n_cells, bool) if task.active_cells is None else np.asarray(task.active_cells, bool)
+    cc, vol = dmesh.cell_centers[act], dmesh.cell_volumes[act]
+    st = np.asarray(task.station_locations, dtype=float)
+    under = ((cc[:, 0] >= st[:, 0].min()) & (cc[:, 0] <= st[:, 0].max())
+             & (cc[:, 1] >= st[:, 1].min()) & (cc[:, 1] <= st[:, 1].max()))
+    thr = getattr(task, "bayes_threshold", None)
+    thr = float(thr) if thr is not None else body_threshold(mean, under, weights=vol)
+    prob = (samples >= thr).mean(axis=0)
+    std = samples.std(axis=0, ddof=1)
+    prior_std = prior.std(axis=0, ddof=1)
+    iterations = [{"iteration": 0, "phi_d": chi2, "phi_m": None, "phi_total": None, "beta": beta,
+                   "model_min": float(mean.min()), "model_max": float(mean.max()),
+                   "model_mean": float(mean.mean())}]
+    return {
+        "task_id": task.task_id, "method": task.method_type, "regularization": "bayesian_L2",
+        "converged": abs(chi2 / n_data / noise2 - 1.0) <= 0.1 if rule == "discrepancy" else True,
+        "n_iterations": 1, "iterations": iterations,
+        "recovered_model": mean, "predicted": np.asarray(G) @ mean, "norms": list(task.norms),
+        "posterior_std": std, "prob_body": prob, "prior_std": prior_std, "samples": samples,
+        "bayes_spectrum": {"lam": post.lam, "c": post._coefficients(post.d, post.m_ref)},
+        "bayes": {"prior": "smooth L2 (Gaussian), reference model 0", "beta": beta, "beta_rule": rule,
+                  "error_scale": math.sqrt(noise2), "beta_evidence": beta_ev,
+                  "error_scale_evidence": math.sqrt(noise2_ev), "beta_discrepancy": beta_chi2,
+                  "chi2_per_datum_scaled": chi2 / n_data / noise2,
+                  "chi2_per_datum": chi2 / n_data, "n_samples": n, "threshold": thr,
+                  "threshold_rule": "given" if getattr(task, "bayes_threshold", None) is not None
+                  else "a quarter of the mean's 98th percentile",
+                  "std_median": float(np.median(std)), "variance_reduction_median":
+                  float(np.median(1.0 - (std / np.maximum(prior_std, 1e-30)) ** 2)),
+                  "timing_s": {k: round(v, 1) for k, v in post.timing.items()}},
+    }
 
 
 def magnetization_directions(M: np.ndarray, share: float = 0.1) -> dict:
@@ -1483,6 +1592,7 @@ _MANUAL_KEYS = (
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
     "depth_weighting", "depth_weighting_exponent",
+    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta",
     *GROUP_LASSO_KEYS,
 )
 # Warn when more than this share of the recovered anomaly lies in padding cells
@@ -1576,6 +1686,7 @@ _REG_PARAM_KEYS = (
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
     "depth_weighting", "depth_weighting_exponent",
+    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta",
     *GROUP_LASSO_KEYS,
 )
 
@@ -3094,7 +3205,8 @@ def result_metadata_json(result: dict) -> str:
     meta = {k: v for k, v in result.items()
             if k not in ("recovered_model", "recovered_models", "active_cells", "data",
                          "joint_data", "predicted", "topography_grid", "reference_model",
-                         "magnetization_vector")}
+                         "magnetization_vector", "posterior_std", "prob_body", "prior_std",
+                         "samples", "bayes_spectrum")}
     return json.dumps(_jsonable(meta), indent=2, default=str)
 
 
@@ -3229,6 +3341,16 @@ def pack_result(result: dict, output_path: str) -> str:
             buf = io.BytesIO()
             np.save(buf, np.asarray(result["magnetization_vector"], dtype=float))
             zf.writestr("magnetization_vector.npy", buf.getvalue())
+
+        if result.get("bayes_spectrum"):   # the whitened data in the eigenbasis (evidence)
+            buf = io.BytesIO()
+            np.savez(buf, **{k: np.asarray(v, dtype=float) for k, v in result["bayes_spectrum"].items()})
+            zf.writestr("bayes_spectrum.npz", buf.getvalue())
+        for key in ("posterior_std", "prob_body", "prior_std", "samples"):   # Bayesian runs
+            if result.get(key) is not None:
+                buf = io.BytesIO()
+                np.save(buf, np.asarray(result[key], dtype=np.float32))
+                zf.writestr(f"{key}.npy", buf.getvalue())
 
         if result.get("topography_grid"):
             # the ground over the survey (x, y axes and z on their grid), for the 3D view

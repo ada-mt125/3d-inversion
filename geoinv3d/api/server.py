@@ -1429,148 +1429,107 @@ def job_section(job_id: str, kind: str = "line", ref: str = "ground",
     """A slice of a job's model sampled from its own mesh: ``kind`` "line" (A x0, y0 to
     B x1, y1; ``ref`` "ground": depth below the ground, "elev": elevation), "plan" (``level``
     metres below the ground, or an elevation with ``ref`` "elev") or "strike" (the default
-    profile across the strike of the strongest bodies)."""
+    profile across the strike of the strongest bodies).  ``field``: "model", and for a
+    Bayesian posterior "std" (posterior standard deviation) or "probability" (of a body; a
+    line then carries the 10/50/90 % depths of the bodies' top and base)."""
     if ref not in ("ground", "elev"):
         raise HTTPException(status_code=400, detail="ref: ground or elev")
     model = _result_model(job_id)
     try:
-        if field == "agreement":   # the job's robustness runs: where they agree
-            from ..viz.sections import agreement_slice
-            _, _, models = _robust_models(job_id)
-            if len(models) < 2:
-                raise HTTPException(status_code=409, detail="Fewer than two robustness runs have finished")
-            if kind == "plan":
-                return JSONResponse(agreement_slice(model, models, "plan", level=level, ref=ref))
-            return JSONResponse(agreement_slice(model, models, "line", x0=x0, y0=y0, x1=x1, y1=y1,
-                                                ref=ref, depth_max=depth_max))
+        if field not in model.fields:
+            raise HTTPException(status_code=409, detail=f"This run has no {field} (fields: {sorted(model.fields)})")
         if kind == "strike":
             return JSONResponse(model.strike_profile(level))
         if kind == "plan":
             if level is None:
                 raise ValueError("a plan slice needs its level")
-            return JSONResponse(model.plan(level, ref))
+            return JSONResponse(model.plan(level, ref, field=field))
         if kind == "line":
             if None in (x0, y0, x1, y1):
                 raise ValueError("a line needs x0, y0, x1, y1")
-            return JSONResponse(model.line(x0, y0, x1, y1, ref, depth_max))
+            return JSONResponse(model.line(x0, y0, x1, y1, ref, depth_max, field=field))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     raise HTTPException(status_code=400, detail="kind: line, plan or strike")
 
 
-# ── Robustness: the same data inverted with several standard settings, and where the
-# models agree (viz/sections.py: agreement, ensemble_summary) ──
-# The regularizations users choose between, and depth weightings weaker and stronger than
-# the default: what the data cannot decide comes out as disagreement.
-ROBUSTNESS_VARIANTS = [
-    ("L1–L2, α 0.8", {"regularization_type": "l1l2", "l1_ratio": 0.8, "l1l2_solver": "irls",
-                      "depth_weighting": "sensitivity"}),
-    ("Lp 0,1,1,1", {"regularization_type": "sparse", "norms": [0, 1, 1, 1], "depth_weighting": "sensitivity"}),
-    ("Lp 0,2,2,2", {"regularization_type": "sparse", "norms": [0, 2, 2, 2], "depth_weighting": "sensitivity"}),
-    ("smooth L2", {"regularization_type": "l2", "depth_weighting": "sensitivity"}),
-    ("smooth L2, depth weighting β 1.5", {"regularization_type": "l2", "depth_weighting": "depth",
-                                          "depth_weighting_exponent": 1.5}),
-    ("smooth L2, depth weighting β 3", {"regularization_type": "l2", "depth_weighting": "depth",
-                                        "depth_weighting_exponent": 3.0}),
-]
-ROBUSTNESS_MAX_DATA = 6000      # above this, the variants thin the data to twice their spacing
+# ── The Bayesian posterior of a run (worker.run_bayesian_inversion): one job on the run's
+# inputs, the smooth L2 regularization as the Gaussian prior, RML samples ──
+BAYES_MAX_DATA = 6000       # above this the posterior run thins the data to twice their spacing
+BAYES_SAMPLES = 30
 
 
-def _robustness_members(job_id: str) -> list[dict]:
-    return [_refresh(j["job_id"]) for j in get_store().all() if j.get("robustness_of") == job_id]
+def _bayes_children(job_id: str) -> list[dict]:
+    return [_refresh(j["job_id"]) for j in get_store().all() if j.get("bayes_of") == job_id]
 
 
-@app.post("/api/inversion/{job_id}/robustness")
-async def start_robustness(job_id: str, body: dict = Body(default={})):
-    """Invert a finished job's data again with ROBUSTNESS_VARIANTS (one job each, a group),
-    all with automatic errors and, for more than ROBUSTNESS_MAX_DATA data, thinned to twice
-    their spacing, on this computer unless ``backend`` says "aws"."""
+@app.post("/api/inversion/{job_id}/bayes")
+async def start_bayes(job_id: str, body: dict = Body(default={})):
+    """Start the Bayesian posterior of a finished single gravity or (induced) magnetic job:
+    its inputs, regularization_type "bayes" with its depth weighting, automatic errors,
+    ``samples`` RML samples (default BAYES_SAMPLES), the data thinned to twice their spacing
+    above BAYES_MAX_DATA; on this computer unless ``backend`` says "aws"."""
     record, folder, base, _ = _job_inputs(job_id)
     if _refresh(job_id).get("display_status") != "SUCCEEDED":
         raise HTTPException(status_code=409, detail="The job has not finished")
-    if _robustness_members(job_id):
-        raise HTTPException(status_code=409, detail="A robustness check of this job exists already")
     base = {k: v for k, v in base.items() if k not in ("task_id", "group", "preview_of")}
     if base.get("inversion_mode") == "joint" or len(base.get("datasets") or []) != 1:
-        raise HTTPException(status_code=400, detail="The robustness check is for single gravity or magnetic inversions")
+        raise HTTPException(status_code=400, detail="The Bayesian run is for single gravity or magnetic inversions")
     ds = dict(base["datasets"][0])
     if ds.get("type") not in ("gravity", "magnetic"):
-        raise HTTPException(status_code=400, detail="The robustness check is for gravity or magnetic data")
-    mvi = (ds.get("method_kwargs") or {}).get("magnetization") == "vector"
+        raise HTTPException(status_code=400, detail="The Bayesian run is for gravity or magnetic data")
+    if (ds.get("method_kwargs") or {}).get("magnetization") == "vector":
+        raise HTTPException(status_code=400, detail="The Bayesian run assumes induced magnetization "
+                                                    "(linear): start it from an induced run, not an MVI one")
     summary = record.get("summary") or {}
     ds_change = {"noise_pct": "auto", "noise_floor": "auto"}
-    if not ds.get("decimate_spacing_m") and (summary.get("n_data") or 0) > ROBUSTNESS_MAX_DATA:
+    n_data = summary.get("n_data") or 0
+    if not ds.get("decimate_spacing_m") and n_data > BAYES_MAX_DATA:
         spacing = [d.get("spacing_m") for d in ((_result_model(job_id).meta.get("mesh_design") or {})
                                                  .get("data_spacing") or []) if d.get("spacing_m")]
         if spacing:
             ds_change["decimate_spacing_m"] = round(2 * min(spacing), 3)
+            n_data = n_data / 4.0
+    # G and P^-1 G^T, float32: refuse what this computer cannot hold
+    n_cells = summary.get("n_active_cells") or 0
+    need_gb = 16.0 * n_data * n_cells / 1e9 + 2.0   # measured: 12.2 GB for 4,489 x 141,759
     backend = body.get("backend") or "local"
-    instance_type = body.get("instance_type") or "c5.2xlarge"
-    label = f"Robustness of {record.get('note') or job_id}"[:200]
-    started = []
-    for name, changes in ROBUSTNESS_VARIANTS:
-        if mvi and changes["regularization_type"] == "l1l2":
-            continue                               # MVI takes Lp norms or L2
-        ch = {**changes, "param_mode": "manual", "beta_selection": "auto",
-              "datasets": [ds_change], "group": {"id": f"rob-{record['task_id']}", "label": label,
-                                                 "variant": name}}
-        params = merge_params(base, {k: v for k, v in ch.items() if k != "group"})
-        params["group"] = ch["group"]
-        started.append(_launch(
-            uuid.uuid4().hex[:12], sorted((folder / "data").iterdir()), params,
-            method=record.get("method") or params.get("method_type"),
-            mesh_type=params.get("mesh_type") or record.get("mesh_type") or "tensor",
-            instance_type=instance_type, note=f"{name} · robustness of {record.get('note') or job_id}"[:300],
-            workspace_id=record.get("workspace_id") or "", backend=backend,
-            extra={"parent_job": job_id, "robustness_of": job_id, "changes": changes}))
-    return JSONResponse({"ok": True, "jobs": [j["job_id"] for j in started], "group_label": label,
-                         "thinned_to_m": ds_change.get("decimate_spacing_m")})
+    if backend == "local":
+        ram = get_local_backend().resources().get("memory_gb") or 16
+        if need_gb > 0.7 * ram:
+            raise HTTPException(status_code=400, detail=(
+                f"The posterior needs ≈ {need_gb:.0f} GB ({int(n_data)} data × {n_cells} cells, twice), "
+                f"more than this computer holds ({ram} GB): thin the data or use coarser cells"))
+    dw = base.get("depth_weighting") if base.get("depth_weighting") in ("sensitivity", "depth") else "sensitivity"
+    changes = {"regularization_type": "bayes", "param_mode": "manual", "depth_weighting": dw,
+               "bayes_samples": int(body.get("samples") or BAYES_SAMPLES), "datasets": [ds_change]}
+    params = merge_params(base, changes)
+    for key in ("l1_ratio", "l1l2_solver", "l1l2_weighting", "lambda_decades", "norms"):
+        params.pop(key, None)
+    job = _launch(uuid.uuid4().hex[:12], sorted((folder / "data").iterdir()), params,
+                  method=record.get("method") or params.get("method_type"),
+                  mesh_type=params.get("mesh_type") or record.get("mesh_type") or "tensor",
+                  instance_type=body.get("instance_type") or "c5.2xlarge",
+                  note=f"Bayesian posterior of {record.get('note') or job_id}"[:300],
+                  workspace_id=record.get("workspace_id") or "", backend=backend,
+                  extra={"parent_job": job_id, "bayes_of": job_id, "changes": changes})
+    return JSONResponse({**job, "thinned_to_m": ds_change.get("decimate_spacing_m"),
+                         "memory_gb": round(need_gb, 1)})
 
 
-_ROBUST_CACHE: "OrderedDict[str, dict]" = OrderedDict()
-
-
-def _robust_base(job_id: str) -> str:
-    """The job a robustness check is of: the job itself, or for one of the check's runs
-    the job it checks (so that each of them shows the agreement too)."""
-    record = get_store().get(job_id) or {}
-    return record.get("robustness_of") or job_id
-
-
-def _robust_models(job_id: str):
-    members = _robustness_members(_robust_base(job_id))
-    done = [m for m in members if m.get("display_status") == "SUCCEEDED"]
-    return members, done, [_result_model(m["job_id"]) for m in done]
-
-
-@app.get("/api/inversion/{job_id}/robustness")
-def robustness(job_id: str, grid: bool = False):
-    """A job's robustness check: its runs and, once two have finished, where their models
-    agree (``summary``), and with ``grid`` the agreement on the job's 3D grid."""
-    if not get_store().get(job_id):
+@app.get("/api/inversion/{job_id}/bayes")
+def bayes_status(job_id: str):
+    """A run's Bayesian posterior jobs (the newest first), and for a posterior job itself its
+    summary (beta, chi^2, samples, threshold)."""
+    record = get_store().get(job_id)
+    if not record:
         raise HTTPException(status_code=404, detail="Unknown job")
-    members, done, models = _robust_models(job_id)
-    base_job = _robust_base(job_id)
-    took = [(m["stopped"] - m["started"]) / 60000.0 for m in done if m.get("started") and m.get("stopped")]
-    out = {"job_id": job_id, "of_job": base_job, "n_runs": len(members), "n_done": len(done),
-           "group_label": members[0].get("group_label") if members else None,
-           "minutes_per_run": round(float(np.median(took)), 2) if took else None,
-           "runs": [{"job_id": m["job_id"], "variant": m.get("variant"), "status": m.get("display_status"),
-                     "chi2_per_datum": ((m.get("summary") or {}).get("convergence") or {}).get("chi2_per_datum")}
-                    for m in members]}
-    if len(models) >= 2:
-        from ..viz.sections import agreement_grid, ensemble_summary
-        key = job_id + "|" + ",".join(m["job_id"] for m in done) + ("|grid" if grid else "")
-        if key not in _ROBUST_CACHE:
-            base = _result_model(job_id)      # this job's grid and window, whichever run it is
-            res = {"summary": ensemble_summary(base, models)}
-            res["summary"]["variants"] = [m.get("variant") for m in done]
-            if grid:
-                res["grid"] = agreement_grid(base.meta, models)
-            _ROBUST_CACHE[key] = res
-            while len(_ROBUST_CACHE) > 8:
-                _ROBUST_CACHE.popitem(last=False)
-        out.update(_ROBUST_CACHE[key])
+    kids = sorted(_bayes_children(job_id), key=lambda j: j.get("submitted_at") or 0, reverse=True)
+    out = {"job_id": job_id, "posterior_of": record.get("bayes_of"),
+           "runs": [{"job_id": j["job_id"], "status": j.get("display_status"), "progress": j.get("progress"),
+                     "started": j.get("started")} for j in kids]}
+    if record.get("bayes_of") and _refresh(job_id).get("display_status") == "SUCCEEDED":
+        out["bayes"] = _result_model(job_id).meta.get("bayes")
     return JSONResponse(out)
 
 

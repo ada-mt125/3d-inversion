@@ -1783,3 +1783,33 @@ of the workflow too, and only the checked run's node had the agreement. `robustn
 (`_robust_base`) and compute the agreement on the requested run's own grid; the node says
 "this run is one of the check of …". When the agreement is unavailable the 3D panel says
 why (no check of this run; fewer than two runs finished; not a run of the server).
+
+## 2026-10-05 — A Bayesian posterior instead of the robustness check
+
+The user found the robustness check (six chosen settings) unconvincing and asked for a
+Bayesian inversion. Removed the check (its routes, agreement code and page parts); the jobs it
+made stay as ordinary jobs.
+
+`methods/bayes.py`: magnetic (induced) and gravity data are linear, so with Gaussian errors
+and the smooth L2 regularization as a Gaussian prior, N(m_ref, (β P)⁻¹) with
+P = Σ a_i B_iᵀB_i (SimPEG's terms with their depth / sensitivity weights), the posterior is
+exact in data space: Q = P⁻¹Gᵀ (one SuperLU factorization, N solves), the eigenvalues of
+Wd G Q Wd, then the mean for any β, χ²(β) and the evidence log p(d | β, s²) in closed form,
+and RML samples (data + an error draw, reference + a prior draw) at two products each.
+Checked against the normal equations (float32: 1e-4), the exact posterior covariance (MC
+std / exact 1.00), the Gaussian density (evidence) and a known error scale (s 0.5 found).
+
+`worker.run_bayesian_inversion` (`regularization_type: "bayes"`, `bayes_samples`,
+`bayes_beta` "discrepancy" | "evidence", `bayes_threshold`): mean, posterior std, prior
+std, the probability of a body (above a quarter of the mean's 98th percentile under the
+stations, volume-weighted), the samples; `POST /api/inversion/{id}/bayes` starts it from a
+finished run (auto errors, thinning to 2× above 6,000 data, refused when G and Q would not
+fit: 16 bytes per entry + 2 GB, measured 12.2 GB for 4,489 × 141,759).
+
+On the Block-8 5 km window (75 m data, 40 m cells, 259 s): β for χ² = N 1.3e-3; the
+evidence would take β 1e-4 and the errors ×0.33, fitting the gridded data to χ²/N 0.014 —
+it assumes independent errors, which a grid's interpolated values are not — so χ² = N is
+the default and the evidence is reported. Either way: the variance reduction is 0.4-10 %
+per cell (the data do not fix single cells); along the profile across the strike the
+bodies' top is at 6 / 19-44 / 70-130 m (10/50/90 %), their base anywhere from about 0.5 km
+to below the core (2.5 km).

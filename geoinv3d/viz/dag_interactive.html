@@ -598,7 +598,7 @@ svg#dag:active{cursor:grabbing;}
         </div>
         <div style="font-size:10px;line-height:1.4;color:#57677a;">Across the strike of the strongest bodies to start with. ✎ Draw, then click A and B on the depth slice (<a href="#" id="m3d-prof-reset" style="color:#8b97a6;">back across the strike</a>).</div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Colour slices by
-          <select id="m3d-secfield" class="m3d-cmp-sel" disabled><option value="model">the model</option><option value="agreement">agreement of the robustness runs</option></select></label>
+          <select id="m3d-secfield" class="m3d-cmp-sel" disabled><option value="model">the model (posterior mean)</option><option value="std">posterior standard deviation</option><option value="probability">probability of a body</option></select></label>
         <div id="m3d-secfield-note" style="font-size:10px;line-height:1.4;color:#57677a;"></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Vertical axis
           <select id="m3d-secref" class="m3d-cmp-sel"><option value="ground">depth below the ground</option><option value="elev">elevation</option></select></label>
@@ -1845,62 +1845,70 @@ function selectNode(id) {
     if(more)h+=`<button class="btn-rerun" data-rerun="${escH(n.job.id)}" data-more="${2*c.max_iter}">↻ Run again with ${2*c.max_iter} iterations…</button>`;
   }
   if(n.job&&n.job.id&&window.GEOINV3D_API&&n.output&&n.output.model_3d)
-    h+=`<div class="rob-box" id="rob-box" data-rob="${escH(n.job.id)}"></div>`;
+    h+=`<div class="rob-box" id="bayes-box" data-job="${escH(n.job.id)}"></div>`;
   if(n.job&&n.job.id&&window.GEOINV3D_API)
     h+=`<button class="btn-rerun btn-delete" data-del-run="${escH(n.job.id)}" title="Delete this run, its result and its files on this computer">🗑 Delete this run</button>`;
 
   sbBody.innerHTML=h;
-  if($v('rob-box'))robFill(n);
+  if($v('bayes-box'))bayesFill(n);
 }
 
-// ── Robustness: the run's data inverted with standard settings (POST/GET
-// /api/inversion/{id}/robustness), and where the models agree ──
-let robTimer=null;
-async function robFill(n){
-  const box=$v('rob-box'); if(!box||box.dataset.rob!==n.job.id)return;
-  clearTimeout(robTimer);
-  let d=null; try{const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(n.job.id)}/robustness`); if(r.ok)d=await r.json();}catch(e){}
-  if(!d||$v('rob-box')!==box)return;
-  if(!d.n_runs){
-    box.innerHTML=`<button class="btn-rerun" data-rob-start="${escH(n.job.id)}" title="The same data inverted with four regularizations and two depth weightings, on this computer; where their models agree is what the data decide">🧪 Check robustness</button>`+
-      `<div class="rob-note">Inverts the same data with 6 standard settings (L1–L2; Lp 0,1,1,1 and 0,2,2,2; smooth L2 with three depth weightings), automatic errors, on this computer one after another, and shows where the models agree.</div>`;
+// ── The Bayesian posterior of a run (POST/GET /api/inversion/{id}/bayes): one job, the
+// smooth L2 regularization as a Gaussian prior, RML samples ──
+let bayesTimer=null;
+async function bayesFill(n){
+  const box=$v('bayes-box'); if(!box||box.dataset.job!==n.job.id)return;
+  clearTimeout(bayesTimer);
+  let d=null; try{const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(n.job.id)}/bayes`); if(r.ok)d=await r.json();}catch(e){}
+  if(!d||$v('bayes-box')!==box)return;
+  if(d.bayes){   // this run is a posterior
+    const b=d.bayes;
+    box.innerHTML=`<div class="rob-h">Bayesian posterior${d.posterior_of?` of ${escH(d.posterior_of)}`:''}</div>`+
+      `<div class="rob-sum">${b.n_samples} samples (RML) · prior: ${escH(b.prior)} · `+
+      (b.beta_rule==='discrepancy'?`β ${(+b.beta).toPrecision(3)} for χ²/N ${(+b.chi2_per_datum).toFixed(2)}`
+        :`β ${(+b.beta).toPrecision(3)} and the errors ×${(+b.error_scale).toFixed(2)} by the largest evidence (χ²/N ${(+b.chi2_per_datum_scaled).toFixed(2)} with them)`)+
+      (b.beta_rule==='discrepancy'&&b.error_scale_evidence?` <span class="rob-en">(the evidence would take β ${(+b.beta_evidence).toPrecision(2)} and the errors ×${(+b.error_scale_evidence).toFixed(2)}; it assumes independent errors, which a grid's are not)</span>`:'')+`<br>`+
+      `A body: above ${fmtN(b.threshold)} (${escH(b.threshold_rule)}). Posterior std, median ${fmtN(b.std_median)}; `+
+      `the data reduce the prior's variance by ${Math.round(100*b.variance_reduction_median)} % in the median cell.</div>`+
+      `<button class="btn-rerun" data-bayes-3d="${n.id}">Open the probability of a body in 3D</button>`;
     return;
   }
-  const s=d.summary, pct=v=>Math.round(100*v)+' %';
-  const left=d.runs.filter(r=>r.status!=='SUCCEEDED'&&r.status!=='FAILED').length;
-  const busy=left?`<div class="rob-busy">⏳ ${left} run${left>1?'s':''} to go, one after another on this computer`+
-    (d.minutes_per_run?` · about ${Math.max(1,Math.round(left*d.minutes_per_run))} min left`:'')+` (Jobs page: “${escH(d.group_label||'Robustness')}”)</div>`:'';
-  const of=d.of_job&&d.of_job!==n.job.id?` <span class="rob-en">(this run is one of the check of ${escH(d.of_job)})</span>`:'';
-  let h=`<div class="rob-h">Robustness: ${d.n_done} of ${d.n_runs} runs finished${of}</div>${busy}<div class="rob-runs">`+
-    d.runs.map(r=>`<div>${r.status==='SUCCEEDED'?'✓':r.status==='FAILED'?'✗':'…'} ${escH(r.variant||r.job_id)}${r.chi2_per_datum!=null?` <span class="rob-en">χ²/N ${(+r.chi2_per_datum).toFixed(2)}</span>`:''}</div>`).join('')+'</div>';
-  if(s){
-    const md=s.moment_depth_m.filter(v=>v!=null);
-    h+=`<div class="rob-sum">A body in ≥ 80 % of the runs: `+s.depths.map(x=>`${pct(x.robust_share)} of the area ${Math.round(x.depth_m)} m deep`).join(' · ')+
-      `.<br>Columns with a robust body in the top km: <b>${pct(s.robust_columns_share)}</b>. The runs put their bodies' centre at <b>${Math.round(Math.min(...md))}–${Math.round(Math.max(...md))} m</b> below the ground`+
-      (Math.max(...md)>1.6*Math.min(...md)?': the depth is the settings’, not the data’s.':'.')+`</div>`+
-      `<button class="btn-rerun" data-rob-3d="${n.id}">Show the agreement in 3D</button>`;
+  const run=(d.runs||[])[0];
+  if(!run||run.status==='FAILED'){
+    box.innerHTML=(run?`<div class="up-err" style="font-size:11px">The last posterior run failed: see its log on the Jobs page.</div>`:'')+
+      `<button class="btn-rerun" data-bayes-start="${escH(n.job.id)}" title="The same data, the smooth L2 regularization as a Gaussian prior, posterior samples: the probability of a body and the uncertainty in each cell">🎲 Bayesian uncertainty</button>`+
+      `<div class="rob-note">One job on this computer: the same data with the smooth L2 regularization as a Gaussian prior (this run's depth weighting, reference 0), automatic errors, the prior's strength β for χ² = N (the evidence's choice of β and of the errors' scale is reported too), and 30 posterior samples (randomized maximum likelihood). It gives each cell's probability of a body and posterior standard deviation, and on a profile the 10–90 % depths of the bodies' top and base.</div>`;
+    return;
   }
-  box.innerHTML=h;
-  if(d.n_done<d.n_runs&&d.runs.some(r=>r.status!=='FAILED'&&r.status!=='SUCCEEDED'))
-    robTimer=setTimeout(()=>{if(selNode===n)robFill(n);},15000);
+  if(run.status==='SUCCEEDED'){
+    box.innerHTML=`<div class="rob-h">Bayesian posterior: ready</div><button class="btn-rerun" data-bayes-open="${escH(run.job_id)}">Open the posterior run</button>`;
+    return;
+  }
+  const p=run.progress||{}, step=p.step||'', i=p.iteration, m=p.max_iter;
+  const what=step==='samples'?`sample ${i||0} of ${m||'?'}`:step==='prior solves'?`prior solves ${i||0} of ${m||'?'}`:(p.stage||run.status||'').toString().toLowerCase();
+  box.innerHTML=`<div class="rob-h">Bayesian posterior: running</div><div class="rob-busy">⏳ ${escH(what)} (Jobs page: “Bayesian posterior of …”)</div>`;
+  bayesTimer=setTimeout(()=>{if(selNode===n)bayesFill(n);},8000);
 }
-async function robStart(id,btn){
-  if(!confirm('Run the robustness check?\n\nThe same data are inverted with 6 standard settings on this computer, one after another (each about as long as a preview of this run; thinned data when there are more than 6,000). They join this workspace as a group.'))return;
+async function bayesStart(id,btn){
+  if(!confirm('Compute the Bayesian posterior of this run?\n\nOne job on this computer: the same data, the smooth L2 regularization as a Gaussian prior, 30 posterior samples. Thinned data when there are more than 6,000; minutes to some tens of minutes for a window like this.'))return;
   btn.disabled=true; btn.textContent='⏳ Starting…';
   try{
-    const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(id)}/robustness`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(id)}/bayes`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
     const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.detail||('HTTP '+r.status));
-    toast(`🧪 ${d.jobs.length} robustness runs started`+(d.thinned_to_m?` (data thinned to ${d.thinned_to_m} m)`:''),6000);
+    toast(`🎲 Posterior run started`+(d.thinned_to_m?` (data thinned to ${d.thinned_to_m} m)`:'')+` · ≈ ${d.memory_gb} GB`,6000);
     if(window.GeoUpload)GeoUpload.jobStarted();
   }catch(err){toast(`<span class="up-err">⚠ ${escH(err.message)}</span>`);}
   const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===id);
-  if(n)robFill(n);
+  if(n)bayesFill(n);
 }
 
 sbBody.addEventListener('click',e=>{
-  const rs=e.target.closest('[data-rob-start]'); if(rs){robStart(rs.dataset.robStart,rs);return;}
-  const r3=e.target.closest('[data-rob-3d]');
-  if(r3){viewResults(+r3.dataset.rob3d); switchTab('model3d'); return;}
+  const bs=e.target.closest('[data-bayes-start]'); if(bs){bayesStart(bs.dataset.bayesStart,bs);return;}
+  const b3=e.target.closest('[data-bayes-3d]');
+  if(b3){viewResults(+b3.dataset.bayes3d); switchTab('model3d'); if($v('m3d-secfield'))$v('m3d-secfield').dataset.want='probability'; return;}
+  const bo=e.target.closest('[data-bayes-open]');
+  if(bo){const nn=W&&W.nodes.find(nd=>nd.job&&nd.job.id===bo.dataset.bayesOpen);
+    if(nn){selectNode(nn.id);} else {toast('The posterior run joins the workflow at the next refresh'); if(typeof WS!=='undefined'&&WS.id){WS.key='';wsRefresh();}} return;}
   const del=e.target.closest('[data-del-run]');
   if(del){const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===del.dataset.delRun); deleteJob(del.dataset.delRun,n?n.name:''); return;}
   const b=e.target.closest('[data-rerun]'); if(!b)return;
@@ -2339,8 +2347,8 @@ let m3dData=null, m3dGrid=null, m3dIso=null, m3dReady=false, m3dDragMode='turnta
 // Another run drawn with this one (Compare with): {node, m3, label, unit, grid}; its own
 // grid (meshes and windows may differ), its own colour map and range
 let m3dOther=null;
-// The robustness runs of the shown run: {job, m3 (the agreement on this run's grid), summary,
-// grid}; drawn as the robust bodies (in at least 80 % of the runs)
+// A Bayesian posterior's probability of a body on the shown run's grid ({m3, grid}): the
+// cells with P >= 0.8 drawn in gold
 let m3dRob=null;
 const M3D_CAM={eye:{x:1.25,y:-1.25,z:0.75},center:{x:0,y:0,z:0},up:{x:0,y:0,z:1}};
 const M3D_TRUE_CSCALE=[[0,'#1a5276'],[0.5,'#2980b9'],[1,'#85c1e9']];
@@ -2442,7 +2450,7 @@ function m3dSpecs(){
   }
   if(m3dRob&&$v('m3d-chk-rob')?.checked){
     const o=m3dRob.grid||(m3dRob.grid=m3dBuildGrid(m3dRob.m3));
-    shells.push({trace:{type:'isosurface',x:o.x,y:o.y,z:o.z,value:o.rec,name:'Robust bodies',caps:M3D_NO_CAPS,
+    shells.push({trace:{type:'isosurface',x:o.x,y:o.y,z:o.z,value:o.rec,name:'P(body) ≥ 0.8',caps:M3D_NO_CAPS,
       isomin:0.8,isomax:0.8,surface:{count:1,fill:0.6,pattern:'all'}},
       color:()=>[244,197,66], alpha:()=>0.45*(+$v('m3d-opacity').value/100)});
   }
@@ -2780,27 +2788,22 @@ function init3D(n) {
       if(!(p&&p.a)||SEC.job!==(n.job&&n.job.id))return;
       SEC.strike=p; if(!(SEC.profile&&SEC.profile.user)){SEC.profile=p;updateSectionRow();schedule3D();}});
   $v('m3d-prof-reset').onclick=e=>{e.preventDefault(); SEC.profile=SEC.strike; updateSectionRow(); schedule3D();};
-  m3dRob=null; $v('m3d-secfield').value='model'; $v('m3d-secfield').disabled=true;
-  const fieldNote=t=>{$v('m3d-secfield').title=t; $v('m3d-secfield-note').textContent=t;};
-  fieldNote(SEC.job?'Agreement: looking for a robustness check of this run…':'Agreement: only for runs of the GeoInv3D server');
-  if(SEC.job)fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(SEC.job)}/robustness?grid=1`)
-    .then(r=>r.ok?r.json():null).catch(()=>null).then(d=>{
-      if(SEC.job!==(n.job&&n.job.id))return;
-      if(!d||!d.n_runs){fieldNote('Agreement: after a robustness check of this run (its node in the Workflow: 🧪 Check robustness)');return;}
-      if(!d.grid){fieldNote(`Agreement: ${d.n_done} of ${d.n_runs} robustness runs finished; it needs two`);return;}
-      fieldNote('');
-      m3dRob={job:SEC.job,m3:{...m3,values:d.grid.values,true_values:null,true_other:false},summary:d.summary,grid:null};
-      const lab=document.createElement('label');
-      lab.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0';
-      lab.innerHTML=`<input type="checkbox" id="m3d-chk-rob" checked style="accent-color:#f4c542;"> Robust bodies (in ≥ 80 % of ${d.summary.n_runs} runs)`;
-      $v('m3d-layers').insertBefore(lab,$v('m3d-layers').querySelector('.m3d-cmp'));
-      $v('m3d-chk-rob').onchange=()=>schedule3D(true);
-      $v('m3d-secfield').disabled=false; $v('m3d-secfield').title='';
-      const md=d.summary.moment_depth_m.filter(v=>v!=null);
-      $v('m3d-stats').innerHTML+=`<br>Robustness (${d.summary.n_runs} runs): bodies' centre ${Math.round(Math.min(...md))}–${Math.round(Math.max(...md))} m below the ground; `+
-        `robust in ${Math.round(100*d.summary.robust_columns_share)} % of the columns`;
-      schedule3D(true);
-    });
+  // a Bayesian posterior: its standard deviation and probability of a body, for the slices,
+  // and the cells probably in a body (P >= 0.8) in 3D
+  m3dRob=null; const fsel=$v('m3d-secfield'), want=fsel.dataset.want; delete fsel.dataset.want;
+  fsel.value='model'; fsel.disabled=true;
+  const fieldNote=t=>{fsel.title=t; $v('m3d-secfield-note').textContent=t;};
+  if(m3.prob_values){
+    m3dRob={m3:{...m3,values:m3.prob_values,true_values:null,true_other:false},grid:null};
+    const lab=document.createElement('label');
+    lab.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0';
+    lab.innerHTML='<input type="checkbox" id="m3d-chk-rob" checked style="accent-color:#f4c542;"> Probably a body (P ≥ 0.8)';
+    $v('m3d-layers').insertBefore(lab,$v('m3d-layers').querySelector('.m3d-cmp'));
+    $v('m3d-chk-rob').onchange=()=>schedule3D(true);
+  }
+  if(SEC.job&&m3.prob_values){fsel.disabled=false; fieldNote(''); if(want)fsel.value=want;}
+  else fieldNote(m3.prob_values?'The posterior’s fields need the GeoInv3D server':
+    'Posterior std and probability: for a Bayesian posterior of this run (its node in the Workflow: 🎲 Bayesian uncertainty)');
   $v('m3d-secfield').onchange=()=>updateSectionRow();
   $v('m3d-zslice-disp').textContent=zsliceLabel();
   $v('m3d-ewslice').max=m3.ny-1;
@@ -3007,7 +3010,7 @@ function secLine(mode){
 }
 function secParams(mode,field){
   const ref=secRef(), f=field||($v('m3d-secfield')&&!$v('m3d-secfield').disabled?$v('m3d-secfield').value:'model');
-  const extra=f==='agreement'?{field:'agreement'}:{};
+  const extra=f&&f!=='model'?{field:f}:{};
   if(mode==='z')return {kind:'plan',level:secPlanLevel().toFixed(1),ref,...extra};
   const L=secLine(mode); if(!L)return null;
   return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref,...extra};
@@ -3224,6 +3227,20 @@ function drawSection2D(mode){
       }
     }
   }
+  // the bodies' top and base in the posterior samples: 50 % solid, 10 % and 90 % dashed
+  if(!plan&&d.field==='probability'&&d.depths&&d.depths.top_rows){
+    const line=(rows,dash)=>{
+      ctx.setLineDash(dash); ctx.beginPath(); let on=false;
+      rows.forEach((r,i)=>{if(r==null){on=false;return;} const X=toX(d.h[i]), Y=toY(d.v[r]); on?ctx.lineTo(X,Y):ctx.moveTo(X,Y); on=true;});
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    ctx.lineWidth=1.3;
+    for(const [rows,col] of [[d.depths.top_rows,'#ffffff'],[d.depths.base_rows,'#e0e0e0']]){
+      ctx.strokeStyle=col; line(rows['50'],[]); line(rows['10'],[4,3]); line(rows['90'],[4,3]);
+    }
+    ctx.font='9px sans-serif'; ctx.fillStyle='#e7ecf2'; ctx.textAlign='left';
+    ctx.fillText('— top and base of the bodies in the samples: 50 % (dashed: 10 and 90 %)',pad.l+4,pad.t+ph-5);
+  }
   const box={l:pad.l,t:pad.t,w:pw,h:ph};
   // map layers: in plan on the depth slice; where they cross a section, along its top
   if(plan)mlDrawPlan(ctx,toX,toY,box);
@@ -3276,7 +3293,7 @@ function drawSection2D(mode){
     :mode==='ew'?`E–W, N ${(d.a[1]/1000).toFixed(2)} km`:mode==='ns'?`N–S, E ${(d.a[0]/1000).toFixed(2)} km`
     :`Profile A–B${SEC.profile&&SEC.profile.strike_deg!=null&&!SEC.profile.user?` across the strike (${Math.round(SEC.profile.strike_deg)}°)`:''}`;
   ctx.fillStyle={z:'#64B5F6',ew:'#81C784',ns:'#FFB74D',prof:'#ef6f6c'}[mode];ctx.font='bold 10px sans-serif';
-  ctx.fillText(title+(d.field==='agreement'?` · share of the ${d.n_runs} runs with a body`:'')+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
+  ctx.fillText(title+(d.field==='probability'?' · probability of a body':d.field==='std'?' · posterior std':'')+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
   // the colour bar, on the right
   const bx=pad.l+pw+12, by=pad.t, bw=9, bh=Math.max(30,ph);
   for(let k=0;k<bh;k++){const t=1-k/bh, v=d.signed?(-L+2*L*t):t*(r1>0?r1:L), [r,g,b]=col(v);
