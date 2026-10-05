@@ -2169,3 +2169,15 @@ inversion alone scores below 0.5 and +0.00 where it scores 0.7 or more; the cube
 below 0.4 at 2 settings with the holes against 14 without; the intrusion's dip stays too steep in
 most settings (median 64° → 61°). Published privately as an artifact
 (https://claude.ai/artifact/SrqZzEDy5cYpgkdJEJQAfW).
+
+## 2026-10-05 — Magnetics: Lp defaults p = (1,1,1,1) at length scale 3
+
+From the Lp ablation (`examples/output/synthetic_ablation_lp`): a single magnetic inversion with Lp
+(sparse) regularization now defaults to p = (1,1,1,1) and α_x = α_y = α_z = 3 (length scales),
+`worker.MAG_LP_NORMS` / `MAG_LP_LENGTH`, beside its depth weighting β 1.5. On the synthetic model
+that setting scores 0.74 without a prior and 0.76 with the boreholes; the former default, p =
+(0,2,2,1) at 1, scored 0.31. The worker applies it in the automatic mode and whenever the job leaves
+the norms or the length scales out; the page shows it for a single magnetic inversion with Lp (a
+new norm preset, "Robust compact"), until the user changes the norms or α, and a restored setup
+keeps its own. Gravity, DC/MT and joint inversions, and the other regularizations, keep p =
+(0,2,2,1) and α 1: they were not tested. The report says so and was republished (version 2).

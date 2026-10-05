@@ -727,6 +727,12 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
 # effect on the data, so a broad anomaly becomes a big deep block (Block 8: 8-22 km³ below
 # 1 km with every norm); a small beta makes deep cells dearer while the mesh keeps them.
 MAG_DEPTH_BETA = 1.5
+# ... and, for its Lp (sparse) regularization, these norms and length scales (alpha_x/y/z):
+# the most robust of 40 settings in the synthetic Lp study (examples/output/synthetic_ablation_lp),
+# with and without prior knowledge; the former default, p = (0, 2, 2, 1) at length scale 1,
+# was among the weakest there
+MAG_LP_NORMS = (1.0, 1.0, 1.0, 1.0)
+MAG_LP_LENGTH = 3.0
 
 BAYES_COMPACT_NORMS = (0.0, 1.0, 1.0, 1.0)   # the compact prior: Lp norms of the most probable model
 BAYES_MAG_UPPER = 1.0      # SI: the compact prior's susceptibility cap unless an upper bound is given
@@ -3044,6 +3050,13 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             and "depth_weighting" not in task_kwargs:
         task_kwargs["depth_weighting"] = "depth"
         task_kwargs.setdefault("depth_weighting_exponent", MAG_DEPTH_BETA)
+    # ... and its Lp regularization: the norms and length scales of MAG_LP_*, unless the job
+    # sets them
+    if mode != "joint" and canonical_method(datasets[0].method) == "magnetics" \
+            and params.get("regularization_type", "sparse") == "sparse":
+        task_kwargs.setdefault("norms", MAG_LP_NORMS)
+        if not any(k in task_kwargs for k in ("alpha_x", "alpha_y", "alpha_z")):
+            task_kwargs.update(alpha_x=MAG_LP_LENGTH, alpha_y=MAG_LP_LENGTH, alpha_z=MAG_LP_LENGTH)
     tensor_fields = {}
     if mesh_type == "tensor":
         tensor_fields = dict(hx=np.asarray(mesh.hx), hy=np.asarray(mesh.hy),

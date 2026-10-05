@@ -35,7 +35,8 @@ NORMS = {"n0000": "(0,0,0,0)", "n0111": "(0,1,1,1)", "n0221": "(0,2,2,1)", "n022
 BETAS = {"b10": "1", "b15": "1.5", "b20": "2", "b30": "3"}
 LENGTHS = {"L1": "1", "L3": "3"}
 SETTINGS = [f"{n}_{b}_{ell}" for n in NORMS for b in BETAS for ell in LENGTHS]
-GUI = "n0221_b15_L1"            # the page's default: p = (0,2,2,1), α 1, β 1.5
+GUI = "n0221_b15_L1"            # the page's former default: p = (0,2,2,1), α 1, β 1.5
+NEW = "n1111_b15_L3"            # its default for magnetic data since this study (worker.MAG_LP_*)
 ROBUST = "n1111_b20_L3"
 
 
@@ -229,7 +230,7 @@ def body(fig):
 <section class="summary" aria-labelledby="sum">
   <h2 id="sum">Key findings</h2>
   <ul>
-    <li><b>The regularization settings matter as much as any prior.</b> With no prior, the 40 settings score from {min(a_scores):.2f} to {max(a_scores):.2f} (median {GS['A']['median']:.2f}) on the same data, all fitting it equally well. The smoothness length scale matters most (L = 3 averages {E['A']['length']['L3']:.2f}, L = 1 {E['A']['length']['L1']:.2f}); the norms (1,1,1,1) are the most robust ({E['A']['norms']['n1111']:.2f} on average); depth weighting β = 3 is worse. GeoInv3D's current default Lp setting scores {score('A', GUI):.2f}.</li>
+    <li><b>The regularization settings matter as much as any prior.</b> With no prior, the 40 settings score from {min(a_scores):.2f} to {max(a_scores):.2f} (median {GS['A']['median']:.2f}) on the same data, all fitting it equally well. The smoothness length scale matters most (L = 3 averages {E['A']['length']['L3']:.2f}, L = 1 {E['A']['length']['L1']:.2f}); the norms (1,1,1,1) are the most robust ({E['A']['norms']['n1111']:.2f} on average); depth weighting β = 3 is worse. GeoInv3D's former default Lp setting scored {score('A', GUI):.2f}; it now uses p = (1,1,1,1) at L = 3 for magnetic data, which scores {score('A', NEW):.2f} without a prior and {score('C', NEW):.2f} with the holes.</li>
     <li><b>Well tuned, the magnetic data alone recover both bodies.</b> The best setting without a prior ({label(sa)}) scores {a['score']:.2f}: the cube's magnetization is centred at {a['cube_depth']:.0f} m (true {TM['cube_depth']:.0f} m), the intrusion dips {a['dip']:.0f}° (true {TM['dip']:.0f}°) and holds {a['k_dyke']:.2f} SI on average (true 1 SI).</li>
     <li><b>Boreholes are the prior that helps, and they help most where the inversion is weakest.</b>
       <ul>
@@ -239,7 +240,7 @@ def body(fig):
         <li>The holes' effect reaches about 250 m, and a test hole {v['nearest_hole_m']:.0f} m from any of them sees the intrusion's susceptibility recovered ({v['C']:.2f} SI against {v['A']:.2f} without; true 1).</li>
       </ul></li>
     <li><b>An interpreted model about 100 m out does not help, and hurts more the harder it is enforced.</b> As a reference model at weight 1, 10 and 100 it scores at best {R[BEST['Bw1']]['score']:.2f}, {R[BEST['Bw10']]['score']:.2f} and {R[BEST['Bw100']]['score']:.2f} (no prior: {a['score']:.2f}), and beats no prior at the same setting {GS['Bw1']['better_than_A']}, {GS['Bw10']['better_than_A']} and {GS['Bw100']['better_than_A']} times out of 40. It leaves magnetization where it was drawn wrongly ({median('Bw1', 'k_wrong'):.2f}–{median('Bw100', 'k_wrong'):.2f} SI against {median('A', 'k_wrong'):.2f}) at the same data fit, so the misfit gives no warning.</li>
-    <li><b>Recommendations:</b> use a smoother length scale (L = 3) or the norms (1,1,1,1) by default; bring boreholes in with a radius of influence; give interpreted bodies a weight of 1 at most and always compare with the inversion without them.</li>
+    <li><b>Recommendations:</b> use a smoother length scale (L = 3) and the norms (1,1,1,1), now GeoInv3D's default for magnetic data; bring boreholes in with a radius of influence; give interpreted bodies a weight of 1 at most and always compare with the inversion without them.</li>
   </ul>
 </section>
 
@@ -297,7 +298,7 @@ def body(fig):
   <li><b>The norms (1,1,1,1) average highest in every group</b> ({E['A']['norms']['n1111']:.2f} without a prior) and depend least on the other settings. (0,0,0,0) varies more, but gives the best result with the holes; (0,2,2,1) and (0,2,2,2) average lowest in most groups.</li>
   <li><b>Depth weighting between β = 1 and 2 changes little</b>; β = 3 puts the bodies too deep and lowers the score without a prior ({E['A']['beta']['b30']:.2f} on average against {E['A']['beta']['b15']:.2f} at β = 1.5), with the reference model at weight 1 and with the holes. When the reference model is weighted 10 or 100 it dominates, and β matters little.</li>
 </ul>
-<p>The default Lp setting of GeoInv3D's page, p = (0,2,2,1) with α 1 (L = 1) and β = 1.5, scores {score('A', GUI):.2f} without a prior: one of the weaker settings here.</p>
+<p>GeoInv3D's former default Lp setting, p = (0,2,2,1) with α 1 (L = 1) and β = 1.5, scored {score('A', GUI):.2f} without a prior, one of the weaker settings here. Following this study, a single magnetic inversion now defaults to p = (1,1,1,1) at L = 3 with β = 1.5 ({score('A', NEW):.2f} without a prior, {score('C', NEW):.2f} with the holes); the other methods keep the former default, as they were not tested.</p>
 </div>
 {fig('tuning', "The score of every inversion: rows are the norms, columns the depth weighting β and the length scale L; * not converged within the iteration limit; red: the best of each group.")}
 <p class="note">Table 4. The scores of each group over the 40 settings</p>
@@ -331,7 +332,7 @@ def body(fig):
 <p class="note">Table 7. The spread of each measure over the 40 settings, without (A) and with the holes (C)</p>
 {table_robust()}
 {fig('c_measures', "The measures of all 40 settings without (A) and with the holes (C); dashed: the true model measured the same way. Depth axes point down.")}
-{fig('c_sections', "The same seven settings without (left) and with the holes (right): the holes' best, a blocky setting, the best without a prior, β = 3, GeoInv3D's default, a setting that fails without a prior, and the setting where the holes lose most. Black outlines: the true bodies; thick black: the holes' magnetic intervals.")}
+{fig('c_sections', "The same seven settings without (left) and with the holes (right): the holes' best, a blocky setting, the best without a prior, β = 3, GeoInv3D's former default, a setting that fails without a prior, and the setting where the holes lose most. Black outlines: the true bodies; thick black: the holes' magnetic intervals.")}
 <div class="prose">
 <p><b>How far the holes reach.</b> Comparing each setting with and without the holes (Figure {fig.ref('boreholes')}a): at the holes' best setting the model changes by about {max(dec[:3]):.2f} SI within 150 m of a hole, {dec[3]:.2f} SI at 150–250 m, {dec[4]:.3f} SI at 250–500 m and nothing beyond: the 150 m radius carries, through the regularization, to about 250 m. A test hole {v['nearest_hole_m']:.0f} m from the nearest hole, not given to the inversion, crosses the intrusion at {v['hit_m'][0]:.0f}–{v['hit_m'][1]:.0f} m. There the mean susceptibility is {v['C']:.2f} SI with the holes and {v['A']:.2f} SI without (true 1), and the intrusion's top and base are close to the truth only with the holes (Figure {fig.ref('boreholes')}d). The holes and their 150 m reach take in {100 * BH['cells_within']['150'] / BH['core_cells']:.1f} % of the cells of the area.</p>
 <p><b>A caveat.</b> Where the holes lose ({short(worst)} and its neighbours), a likely cause is that the background intervals (0 SI) also reach 150 m: H3 and H5 run through background just above the intrusion, which may hold down its top. This was not checked setting by setting; a smaller radius for the background intervals would avoid it.</p>
@@ -355,7 +356,7 @@ def body(fig):
 <div class="prose">
 <ol class="steps">
   <li><b>The data fit cannot choose the settings or test a prior.</b> All {len(R)} inversions have χ²/N {min(chi):.2f}–{max(chi):.2f}; their scores run from {min(x['score'] for x in R.values()):.2f} to {max(x['score'] for x in R.values()):.2f}.</li>
-  <li><b>Tune the Lp settings; it matters as much as the prior.</b> For compact, stubby bodies like these, L = 3, the norms (1,1,1,1) and β 1.5–2 are the most robust: {label(ROBUST)} scores {score('A', ROBUST):.2f} without a prior and {score('C', ROBUST):.2f} with the holes. GeoInv3D's default (p = (0,2,2,1), L = 1) scores {score('A', GUI):.2f} here and should change, after a check on the field data.</li>
+  <li><b>Tune the Lp settings; it matters as much as the prior.</b> For compact, stubby bodies like these, L = 3, the norms (1,1,1,1) and β 1.5–2 are the most robust: {label(ROBUST)} scores {score('A', ROBUST):.2f} without a prior and {score('C', ROBUST):.2f} with the holes. GeoInv3D's former default (p = (0,2,2,1), L = 1) scored {score('A', GUI):.2f} here; single magnetic inversions now default to p = (1,1,1,1) at L = 3, which should still be checked on field data.</li>
   <li><b>Bring boreholes in, with a radius of influence.</b> They were the only prior that helped at most settings, most of all at the settings where the inversion alone fails. Give the background intervals a smaller radius than the magnetic ones, and let the page's borehole import set <code>radius_m</code> (now only in a JSON spec).</li>
   <li><b>Weight interpreted bodies lightly.</b> Where their position, dip or susceptibility is uncertain, a weight of 1 at most, and always compare with the inversion without them: a structure that appears only with the prior is not a result.</li>
   <li><b>On field data, choose settings with the holes.</b> The best settings found here need the true model and do not carry over directly. The patterns may: a smoother L, the norms (1,1,1,1), β at most 2. Leaving one hole out at a time and checking how well the inversion predicts it is a test that needs no true model.</li>

@@ -352,7 +352,7 @@ def fig_boreholes(models, N, traces, setting):
 # settings shown side by side for A and C: C's best, others across the grid, A's best, the page's
 # default and C's worst against A
 C_ROWS = [("n0000_b20_L3", "C's best"), ("n0111_b15_L3", ""), ("n1111_b15_L1", "A's best"),
-          ("n1111_b30_L1", "β = 3"), ("n0221_b15_L1", "the page's default"), ("n0222_b15_L1", "A's near-worst"),
+          ("n1111_b30_L1", "β = 3"), ("n0221_b15_L1", "the former default"), ("n0222_b15_L1", "A's near-worst"),
           ("n0221_b20_L3", "C's worst against A")]
 ROBUST = ["score", "overlap_cube", "overlap_dyke", "cube_depth", "dyke_base", "dip", "k_dyke", "k_cube"]
 

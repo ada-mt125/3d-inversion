@@ -955,3 +955,27 @@ class TestMagneticDefaults:
     def test_gravity_keeps_sensitivity(self, grav_grid_dir, capture):
         run_data_pipeline(_single("gravity", ["grav.grd"], **SMALL_MESH), str(grav_grid_dir))
         assert capture["task"].depth_weighting == "sensitivity"
+
+    def test_magnetic_lp_norms_and_length_scales(self, tmp_path, capture):
+        """Lp: p = MAG_LP_NORMS at length scales MAG_LP_LENGTH for magnetics, in the automatic
+        mode and when the job leaves them out; the job's own values win."""
+        from geoinv3d.cloud.worker import MAG_LP_LENGTH, MAG_LP_NORMS
+        from tests.test_data_pipeline import INDUCING
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+        mag = {"dataset": {"method_kwargs": {"inducing_field": INDUCING}}, **SMALL_MESH}
+        for mode in ("auto", "manual"):
+            run_data_pipeline(_single("magnetics", ["m.csv"], param_mode=mode, regularization_type="sparse", **mag),
+                              str(tmp_path))
+            t = capture["task"]
+            assert tuple(t.norms) == MAG_LP_NORMS and (t.alpha_x, t.alpha_y, t.alpha_z) == (MAG_LP_LENGTH,) * 3
+        run_data_pipeline(_single("magnetics", ["m.csv"], param_mode="manual", regularization_type="sparse",
+                                  norms=[0, 2, 2, 1], alpha_x=1, alpha_y=1, alpha_z=1, **mag), str(tmp_path))
+        t = capture["task"]
+        assert tuple(t.norms) == (0, 2, 2, 1) and t.alpha_x == 1
+
+    def test_gravity_lp_keeps_its_defaults(self, grav_grid_dir, capture):
+        run_data_pipeline(_single("gravity", ["grav.grd"], regularization_type="sparse", **SMALL_MESH),
+                          str(grav_grid_dir))
+        t = capture["task"]
+        assert tuple(t.norms) == (0, 2, 2, 1) and t.alpha_x == 1
