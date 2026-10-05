@@ -999,8 +999,22 @@ svg#dag:active{cursor:grabbing;}
                     <option value="l1l2">L1–L2 elastic net (Utsugi 2019)</option>
                     <option value="mgs">Focusing: minimum gradient support (MGS)</option>
                     <option value="tv">Total variation (TV)</option>
+                    <option value="bayes">Bayesian: posterior samples (uncertainty, probability of a body)</option>
                   </select>
                 </div>
+              </div>
+
+              <div id="up-bayes-params" class="not-gl" hidden>
+                <div class="up-row up-4">
+                  <div class="up-col"><label class="up-lbl" for="up-bayes-prior">Prior</label>
+                    <select id="up-bayes-prior" class="up-in">
+                      <option value="compact">Compact bodies (Lp 0,1,1,1; magnetics 0–1 SI)</option>
+                      <option value="smooth">Smooth (L2, Gaussian)</option>
+                    </select></div>
+                  <div class="up-col"><label class="up-lbl" for="up-bayes-n">Samples</label><input id="up-bayes-n" type="number" class="up-in" min="5" step="1" value="30"></div>
+                  <div class="up-col"><label class="up-lbl" for="up-bayes-thr">A body: above</label><input id="up-bayes-thr" type="number" class="up-in" min="0" step="any" placeholder="auto (half the 98th %)"></div>
+                </div>
+                <div class="up-note">One job: the most probable model and samples of the posterior around it (randomized maximum likelihood). <b>Compact</b>: the bodies are compact and positive — the Lp model (magnetics: 0 to 1 SI unless you set an upper bound), and the spread of models like it (a Laplace approximation); sharp, for targets. <b>Smooth</b>: the smooth L2 regularization as a Gaussian prior — exact, and as wide as the data alone allow (deep, smeared bodies). The probability of a body is the share of samples above the threshold, which the 3D view can change afterwards. Gravity or induced magnetic data, single inversions; memory ≈ 16 bytes × data × cells, so thin the data to a few thousand.</div>
               </div>
 
               <div id="up-l1l2-params" class="not-gl" hidden>
@@ -1417,9 +1431,9 @@ function cfgLines(n) {
   if (t === 'JointInversionNode')
     return [(p.method_types||[]).join('+'), 'iter='+p.max_iter];
   if (t === 'BayesianPosteriorNode') {
-    const b=p.bayes||{};
-    return [`smooth L2 prior · β ${b.beta!=null?(+b.beta).toPrecision(2):'?'} · χ²/N ${b.chi2_per_datum!=null?(+b.chi2_per_datum).toFixed(2):'?'}`,
-            `P(body), posterior std · variance −${b.variance_reduction_median!=null?Math.round(100*b.variance_reduction_median):'?'} %`];
+    const b=p.bayes||{}, kind=b.prior_kind||(/compact/i.test(b.prior||'')?'compact':'smooth');   // runs before the compact prior: smooth
+    return [`${kind==='smooth'?'smooth L2':'compact'} prior · χ²/N ${b.chi2_per_datum!=null?(+b.chi2_per_datum).toFixed(2):'?'} · a body > ${b.threshold!=null?fmtN(+(+b.threshold).toPrecision(2)):'?'}`,
+            `P(body), posterior std · variance cut ${b.variance_reduction_median!=null?Math.round(100*b.variance_reduction_median):'?'} %`];
   }
   return [];
 }
@@ -1877,8 +1891,8 @@ function selectNode(id) {
   if($v('bayes-box'))bayesFill(n);
 }
 
-// ── The Bayesian posterior of a run (POST/GET /api/inversion/{id}/bayes): one job, the
-// smooth L2 regularization as a Gaussian prior, RML samples ──
+// ── The Bayesian posterior of a run (POST/GET /api/inversion/{id}/bayes): one job, a
+// compact (or smooth) prior, RML samples ──
 let bayesTimer=null;
 async function bayesFill(n){
   const box=$v('bayes-box'); if(!box||box.dataset.job!==n.job.id)return;
@@ -1889,19 +1903,19 @@ async function bayesFill(n){
     const b=d.bayes;
     box.innerHTML=`<div class="rob-h">Bayesian posterior${d.posterior_of?` of ${escH(d.posterior_of)}`:''}</div>`+
       `<div class="rob-sum">${b.n_samples} samples (RML) · prior: ${escH(b.prior)} · `+
-      (b.beta_rule==='discrepancy'?`β ${(+b.beta).toPrecision(3)} for χ²/N ${(+b.chi2_per_datum).toFixed(2)}`
+      (b.beta_rule==='discrepancy'?`β ${(+b.beta).toPrecision(3)}, the model's χ²/N ${(+b.chi2_per_datum).toFixed(2)}`
         :`β ${(+b.beta).toPrecision(3)} and the errors ×${(+b.error_scale).toFixed(2)} by the largest evidence (χ²/N ${(+b.chi2_per_datum_scaled).toFixed(2)} with them)`)+
       (b.beta_rule==='discrepancy'&&b.error_scale_evidence?` <span class="rob-en">(the evidence would take β ${(+b.beta_evidence).toPrecision(2)} and the errors ×${(+b.error_scale_evidence).toFixed(2)}; it assumes independent errors, which a grid's are not)</span>`:'')+`<br>`+
       `A body: above ${fmtN(b.threshold)} (${escH(b.threshold_rule)}). Posterior std, median ${fmtN(b.std_median)}; `+
       `the data reduce the prior's variance by ${Math.round(100*b.variance_reduction_median)} % in the median cell.</div>`+
-      `<button class="btn-rerun" data-bayes-3d="${n.id}">Open the probability of a body in 3D</button>`;
+      `<button class="btn-rerun" data-bayes-view="${n.id}">Open the probability of a body in 3D</button>`;
     return;
   }
   const run=(d.runs||[])[0];
   if(!run||run.status==='FAILED'){
     box.innerHTML=(run?`<div class="up-err" style="font-size:11px">The last posterior run failed: see its log on the Jobs page.</div>`:'')+
-      `<button class="btn-rerun" data-bayes-start="${escH(n.job.id)}" title="The same data, the smooth L2 regularization as a Gaussian prior, posterior samples: the probability of a body and the uncertainty in each cell">🎲 Bayesian uncertainty</button>`+
-      `<div class="rob-note">One job on this computer: the same data with the smooth L2 regularization as a Gaussian prior (this run's depth weighting, reference 0), automatic errors, the prior's strength β for χ² = N (the evidence's choice of β and of the errors' scale is reported too), and 30 posterior samples (randomized maximum likelihood). It gives each cell's probability of a body and posterior standard deviation, and on a profile the 10–90 % depths of the bodies' top and base.</div>`;
+      `<button class="btn-rerun" data-bayes-start="${escH(n.job.id)}" title="The same data, a compact-body prior, posterior samples: the probability of a body and the uncertainty in each cell">🎲 Bayesian uncertainty</button>`+
+      `<div class="rob-note">One job on this computer, on the same data (automatic errors): the most probable compact model (Lp 0,1,1,1; magnetics 0 to 1 SI unless the run has an upper bound) and 30 samples of the models like it (randomized maximum likelihood around it). It gives each cell's probability of a body and posterior standard deviation, and on a profile the 10–90 % depths of the bodies' top and base. (A smooth prior, or other settings: Upload → Regularization → Bayesian.)</div>`;
     return;
   }
   if(run.status==='SUCCEEDED'){
@@ -1911,10 +1925,10 @@ async function bayesFill(n){
   const p=run.progress||{}, step=p.step||'', i=p.iteration, m=p.max_iter;
   const what=step==='samples'?`sample ${i||0} of ${m||'?'}`:step==='prior solves'?`prior solves ${i||0} of ${m||'?'}`:(p.stage||run.status||'').toString().toLowerCase();
   box.innerHTML=`<div class="rob-h">Bayesian posterior: running</div><div class="rob-busy">⏳ ${escH(what)} (Jobs page: “Bayesian posterior of …”)</div>`;
-  bayesTimer=setTimeout(()=>{if(selNode===n)bayesFill(n);},8000);
+  bayesTimer=setTimeout(()=>{if(selNode===n.id)bayesFill(n);},8000);
 }
 async function bayesStart(id,btn){
-  if(!confirm('Compute the Bayesian posterior of this run?\n\nOne job on this computer: the same data, the smooth L2 regularization as a Gaussian prior, 30 posterior samples. Thinned data when there are more than 6,000; minutes to some tens of minutes for a window like this.'))return;
+  if(!confirm('Compute the Bayesian posterior of this run?\n\nOne job on this computer: the same data, the most probable compact model (Lp 0,1,1,1; for magnetics 0 to 1 SI unless the run has an upper bound) and 30 posterior samples around it. Thinned data when there are more than 6,000; minutes to some tens of minutes for a window like this.'))return;
   btn.disabled=true; btn.textContent='⏳ Starting…';
   try{
     const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(id)}/bayes`,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1929,8 +1943,8 @@ async function bayesStart(id,btn){
 
 sbBody.addEventListener('click',e=>{
   const bs=e.target.closest('[data-bayes-start]'); if(bs){bayesStart(bs.dataset.bayesStart,bs);return;}
-  const b3=e.target.closest('[data-bayes-3d]');
-  if(b3){viewResults(+b3.dataset.bayes3d); switchTab('model3d'); if($v('m3d-secfield'))$v('m3d-secfield').dataset.want='probability'; return;}
+  const b3=e.target.closest('[data-bayes-view]');
+  if(b3){if($v('m3d-secfield'))$v('m3d-secfield').dataset.want='probability'; viewResults(+b3.dataset.bayesView); switchTab('model3d'); return;}
   const bo=e.target.closest('[data-bayes-open]');
   if(bo){const nn=W&&W.nodes.find(nd=>nd.job&&nd.job.id===bo.dataset.bayesOpen);
     if(nn){selectNode(nn.id);} else {toast('The posterior run joins the workflow at the next refresh'); if(typeof WS!=='undefined'&&WS.id){WS.key='';wsRefresh();}} return;}
@@ -2382,7 +2396,12 @@ const $v=id=>document.getElementById(id);
 // The colour range of the recovered model.  A true model or a reference of the same property
 // shares it; an overlay of another property (true_other: e.g. susceptibility over density)
 // has its own units and keeps its own range.
-function m3dRange(m,vals){return modelRange(m.true_other?[vals||m.values]:[vals||m.values,m.true_values||[]]);}
+// The colour range: the model's 1st-99th percentile when the server gives it (as its slices;
+// beyond it the colours saturate), else its extremes; with a true model on the same scale, both.
+function m3dRange(m,vals){
+  if(!vals&&m.range&&!(m.true_values&&!m.true_other))return modelRange([m.range]);
+  return modelRange(m.true_other?[vals||m.values]:[vals||m.values,m.true_values||[]]);
+}
 
 function m3dCenters(E){const c=[];for(let i=0;i<E.length-1;i++)c.push((E[i]+E[i+1])/2);return c;}
 
@@ -2815,16 +2834,31 @@ function init3D(n) {
   $v('m3d-prof-reset').onclick=e=>{e.preventDefault(); SEC.profile=SEC.strike; updateSectionRow(); schedule3D();};
   // a Bayesian posterior: its standard deviation and probability of a body, for the slices,
   // and the cells probably in a body (P >= 0.8) in 3D
-  m3dRob=null; const fsel=$v('m3d-secfield'), want=fsel.dataset.want; delete fsel.dataset.want;
+  m3dRob=null; SEC.threshold=null; const fsel=$v('m3d-secfield'), want=fsel.dataset.want; delete fsel.dataset.want;
   fsel.value='model'; fsel.disabled=true;
   const fieldNote=t=>{fsel.title=t; $v('m3d-secfield-note').textContent=t;};
   if(m3.prob_values){
-    m3dRob={m3:{...m3,values:m3.prob_values,true_values:null,true_other:false},grid:null};
-    const lab=document.createElement('label');
-    lab.style.cssText='display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;padding:2px 0';
-    lab.innerHTML='<input type="checkbox" id="m3d-chk-rob" checked style="accent-color:#f4c542;"> Probably a body (P ≥ 0.8)';
+    m3dRob={m3:{...m3,values:m3.prob_values,true_values:null,true_other:false,range:[0,1]},grid:null};
+    const b=(n.params||{}).bayes||{}, unit=(n.output.final_model||{}).unit||'';
+    SEC.threshold=b.threshold!=null?+b.threshold:null;
+    const lab=document.createElement('div');
+    lab.style.cssText='display:flex;flex-direction:column;gap:3px;font-size:11px;color:#8b97a6;padding:2px 0';
+    lab.innerHTML='<label style="display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="m3d-chk-rob" checked style="accent-color:#f4c542;"> Probably a body (P ≥ 0.8)</label>'+
+      `<label style="display:flex;align-items:center;gap:5px" title="A body: above this value in a posterior sample; the probability is the share of samples above it">a body: above `+
+      `<input type="number" id="m3d-thr" step="any" min="0" class="m3d-cmp-sel" style="width:70px" value="${SEC.threshold!=null?+(+SEC.threshold).toPrecision(3):''}"> ${escH(unit)}</label>`;
     $v('m3d-layers').insertBefore(lab,$v('m3d-layers').querySelector('.m3d-cmp'));
     $v('m3d-chk-rob').onchange=()=>schedule3D(true);
+    let thrTimer=null;
+    $v('m3d-thr').oninput=()=>{clearTimeout(thrTimer); thrTimer=setTimeout(async()=>{
+      const t=parseFloat($v('m3d-thr').value); if(!(t>0)||!SEC.job)return;
+      try{
+        const r=await fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(SEC.job)}/probability?threshold=${t}`);
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const d=await r.json();
+        SEC.threshold=t; m3dRob={m3:{...m3,values:d.values,true_values:null,true_other:false,range:[0,1]},grid:null};
+        schedule3D(true); updateSectionRow();
+      }catch(err){toast(`<span class="up-err">⚠ ${escH(err.message)}</span>`);}
+    },350);};
   }
   if(SEC.job&&m3.prob_values){fsel.disabled=false; fieldNote(''); if(want)fsel.value=want;}
   else fieldNote(m3.prob_values?'The posterior’s fields need the GeoInv3D server':
@@ -3015,7 +3049,7 @@ function turbo(t){
   t=Math.max(0,Math.min(1,t)); const f=t*(TURBO_RGB.length-1), i=Math.min(TURBO_RGB.length-2,Math.floor(f)), w=f-i;
   return TURBO_RGB[i].map((c,k)=>Math.round(c+(TURBO_RGB[i+1][k]-c)*w));
 }
-const SEC={job:null, cache:new Map(), wait:new Set(), timers:{}, profile:null, drag:null};
+const SEC={job:null, cache:new Map(), wait:new Set(), timers:{}, profile:null, drag:null, threshold:null};
 const SEC_CANVAS={z:'m3d-z-canvas',ew:'m3d-ew-canvas',ns:'m3d-ns-canvas',prof:'m3d-prof-canvas'};
 const secRef=()=>$v('m3d-secref')?$v('m3d-secref').value:'ground';
 function secTop(m){const ze=m.z_edges;return Math.max(ze[0],ze[m.nz]);}
@@ -3035,7 +3069,7 @@ function secLine(mode){
 }
 function secParams(mode,field){
   const ref=secRef(), f=field||($v('m3d-secfield')&&!$v('m3d-secfield').disabled?$v('m3d-secfield').value:'model');
-  const extra=f&&f!=='model'?{field:f}:{};
+  const extra=f&&f!=='model'?{field:f,...(f==='probability'&&SEC.threshold!=null?{threshold:String(SEC.threshold)}:{})}:{};
   if(mode==='z')return {kind:'plan',level:secPlanLevel().toFixed(1),ref,...extra};
   const L=secLine(mode); if(!L)return null;
   return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref,...extra};
@@ -3238,7 +3272,7 @@ function drawSection2D(mode){
   if(m3dOther){
     const ov=secOtherValues(d,mode);
     if(ov){
-      const o=m3dOther.m3, [omin,omax]=modelRange([o.values]), thr=Math.max(Math.abs(omin),Math.abs(omax))*(+$v('m3d-thresh').value)/100;
+      const o=m3dOther.m3, [omin,omax]=m3dRange(o), thr=Math.max(Math.abs(omin),Math.abs(omax))*(+$v('m3d-thresh').value)/100;
       const S=ov.map(r=>r.map(q=>q==null?0:q>=thr?1:q<=-thr?-1:0));
       const xe=i=>toX(hMin+i*dh), ye=k=>toY(vA+k*dv);
       ctx.lineWidth=1.6;
@@ -3318,7 +3352,7 @@ function drawSection2D(mode){
     :mode==='ew'?`E–W, N ${(d.a[1]/1000).toFixed(2)} km`:mode==='ns'?`N–S, E ${(d.a[0]/1000).toFixed(2)} km`
     :`Profile A–B${SEC.profile&&SEC.profile.strike_deg!=null&&!SEC.profile.user?` across the strike (${Math.round(SEC.profile.strike_deg)}°)`:''}`;
   ctx.fillStyle={z:'#64B5F6',ew:'#81C784',ns:'#FFB74D',prof:'#ef6f6c'}[mode];ctx.font='bold 10px sans-serif';
-  ctx.fillText(title+(d.field==='probability'?' · probability of a body':d.field==='std'?' · posterior std':'')+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
+  ctx.fillText(title+(d.field==='probability'?` · P(above ${d.threshold!=null?fmtN(+(+d.threshold).toPrecision(3)):'the threshold'})`:d.field==='std'?' · posterior std':'')+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
   // the colour bar, on the right
   const bx=pad.l+pw+12, by=pad.t, bw=9, bh=Math.max(30,ph);
   for(let k=0;k<bh;k++){const t=1-k/bh, v=d.signed?(-L+2*L*t):t*(r1>0?r1:L), [r,g,b]=col(v);
@@ -5115,6 +5149,7 @@ window.GeoPreview=GeoPreview;
     if(!manual)return;
     const rt=p.regularization_type;
     setv('up-reg-type',rt==='sparse'?'lp':rt==='l2'?(p.norms?'lp':'l2'):rt,notes); fire('up-reg-type');
+    if(rt==='bayes'){setv('up-bayes-prior',p.bayes_prior||'compact'); setv('up-bayes-n',p.bayes_samples??30); setv('up-bayes-thr',p.bayes_threshold??'');}
     if(Array.isArray(p.norms)){
       const v=p.norms.join(',');
       setv('up-norm-preset',[...$u('up-norm-preset').options].some(o=>o.value===v)?v:'custom'); fire('up-norm-preset');
@@ -6165,8 +6200,9 @@ window.GeoPreview=GeoPreview;
     $u('up-l1l2-params').hidden=rt!=='l1l2';
     $u('up-focus-params').hidden=rt!=='mgs'&&rt!=='tv';
     $u('up-l2-params').hidden=rt!=='l2';
-    $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, L2, MGS, TV
+    $u('up-lp-params').hidden=rt==='l1l2';       // α weights: lp, L2, MGS, TV, Bayesian
     $u('up-norm-block').hidden=rt!=='lp';        // norms: lp only
+    $u('up-bayes-params').hidden=rt!=='bayes';
     if(rt==='mgs'||rt==='tv')$u('up-focus-scale').placeholder=rt==='mgs'?'default 1':'default 0.1';
   });
   $u('up-gl-weighting').addEventListener('change',()=>{
@@ -7735,7 +7771,9 @@ window.GeoPreview=GeoPreview;
     }
     // CDA: float32 G + float64 copy + ~1.5 GB (active-set solves, Python); peak 14.3 GB
     // measured for 1.04e9 entries, estimated here 13.9 GB.  SimPEG: G ×1.5 + 0.5 GB.
-    const gb=cda?entries*12/1e9+1.5:entries*6/1e9+0.5;
+    // Bayesian: G and P^-1 G^T (16 bytes per entry, measured 12.2 GB for 4,489 x 141,759)
+    const bayes=p.regularization_type==='bayes';
+    const gb=bayes?entries*16/1e9+2:cda?entries*12/1e9+1.5:entries*6/1e9+0.5;
     return {N,M,comp,entries,cda,gb,inst:$u('upload-instance').value};
   }
   function renderSizeCheck(jobs){
@@ -7895,7 +7933,17 @@ window.GeoPreview=GeoPreview;
     if(lo!==undefined&&hi!==undefined&&lo>=hi)throw new Error('Lower bound must be less than upper bound');
     const rt=$u('up-reg-type').value;
     let regMethod;
-    if(rt==='l1l2'){
+    if(rt==='bayes'){
+      regMethod={regularization_type:'bayes',bayes_prior:$u('up-bayes-prior').value,
+        bayes_samples:num('up-bayes-n','number of samples',{min:5,integer:true}),
+        alpha_s:num('up-alpha-s','α_s',{min:0}),alpha_x:num('up-alpha-x','α_x',{min:0}),
+        alpha_y:num('up-alpha-y','α_y',{min:0}),alpha_z:num('up-alpha-z','α_z',{min:0}),
+        depth_weighting:$u('up-dw').value};
+      if(regMethod.depth_weighting==='depth')
+        regMethod.depth_weighting_exponent=num('up-dw-exp','depth weighting exponent β',{min:0});
+      const thr=num('up-bayes-thr','body threshold',{min:0,optional:true});
+      if(thr!==undefined)regMethod.bayes_threshold=thr;
+    }else if(rt==='l1l2'){
       regMethod={regularization_type:'l1l2',l1_ratio:num('up-l1-ratio','mixing ratio α',{min:0}),
         l1l2_solver:$u('up-l1l2-solver').value,l1l2_weighting:$u('up-l1l2-weighting').value,
         lambda_decades:num('up-lambda-decades','λ range',{min:0.5})};
@@ -7996,6 +8044,12 @@ window.GeoPreview=GeoPreview;
     const regularization_type=reg.regularization_type, mesh={...meshParams(),...areaParams(),...(crsKnown?{crs:crsKnown}:{})};
     if(s.mode==='joint'&&$u('up-magnetic-mag').value==='vector'&&s.types.some(t=>t.key==='magnetic'))
       throw new Error('The magnetization-vector inversion (MVI) is for single magnetic inversions; set Magnetization to Induced for a joint inversion');
+    if(reg.regularization_type==='bayes'){
+      if(s.mode==='joint')throw new Error('The Bayesian posterior is for a single inversion: choose one dataset, or another regularization');
+      if(s.types.some(t=>!['gravity','magnetic'].includes(t.key)))throw new Error('The Bayesian posterior is for gravity or magnetic data');
+      if(s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag').value==='vector')
+        throw new Error('The Bayesian posterior assumes induced magnetization (linear): set Magnetization to Induced');
+    }
     if(s.mode!=='joint'&&s.types.some(t=>t.key==='magnetic')&&$u('up-magnetic-mag').value==='vector'){
       if(!['sparse','l2'].includes(reg.regularization_type))throw new Error('The magnetization-vector inversion takes the Lp-norm (sparse) or smooth L2 regularization');
       if(reg.beta_selection&&!['auto','discrepancy'].includes(reg.beta_selection))throw new Error('The magnetization-vector inversion chooses β by χ² = N');

@@ -33,7 +33,7 @@ def _round(a, digits=4):
 
 class ResultModel:
     def __init__(self, meta):
-        from .result_workflow import result_mesh
+        from .result_workflow import result_mesh, robust_range
         self.meta = meta
         self.mesh = mesh = result_mesh(meta)
         active = meta.get("_active")
@@ -50,14 +50,14 @@ class ResultModel:
             self.fields["probability"] = self._on_mesh(meta["_prob_body"])
         self.samples = meta.get("_samples")
         self.threshold = (meta.get("bayes") or {}).get("threshold")
+        self._probs = {}
         used = meta["mesh_design"]["used"]
         self.h, self.dz = float(used["core_cell_m"]), float(used["core_cell_z_m"])
         self.depth_core = float(used["depth_core_m"])
         ex = meta.get("cell_centers_x", [0, 0]) + meta.get("cell_centers_y", [0, 0])
         self.extent = [float(v) for v in ex]          # the stations' extent
         finite = full[np.isfinite(full)]
-        lo, hi = (np.percentile(finite, [1, 99]) if finite.size else (0.0, 1.0))
-        self.range = [float(lo), float(hi)]
+        self.range = robust_range(finite)          # the 3D view's too
         self.signed = bool(finite.size and finite.min() < -1e-9 * max(1.0, abs(finite.max())))
         topo = meta.get("_topography")
         if topo is not None and np.size(topo.get("z", [])) > 1:
@@ -86,9 +86,21 @@ class ResultModel:
         inside = np.all((pts >= self._lo) & (pts <= self._hi), axis=1)
         return inside, (self._cells(pts[inside]) if inside.any() else np.zeros(0, int))
 
-    def sample(self, pts, field: str = "model") -> np.ndarray:
+    def probability(self, threshold=None) -> np.ndarray:
+        """The share of the posterior samples above ``threshold`` (default the run's), on
+        every cell."""
+        if threshold is None or self.samples is None:
+            return self.fields["probability"]
+        key = round(float(threshold), 9)
+        if key not in self._probs:
+            if len(self._probs) > 8:
+                self._probs.clear()
+            self._probs[key] = self._on_mesh((np.asarray(self.samples) >= key).mean(axis=0))
+        return self._probs[key]
+
+    def sample(self, pts, field: str = "model", threshold=None) -> np.ndarray:
         """A field at (n, 3) points; NaN outside the mesh or above the ground."""
-        values = self.fields[field]
+        values = self.probability(threshold) if field == "probability" else self.fields[field]
         out = np.full(len(pts), np.nan)
         inside, cells = self.cells_at(pts)
         if inside.any():
@@ -105,11 +117,12 @@ class ResultModel:
         return {**self.info(), "range": [0.0, float(np.percentile(v, 99)) if v.size else 1.0],
                 "signed": False, "field": field}
 
-    def body_depths(self, pts_shape, pts) -> dict:
+    def body_depths(self, pts_shape, pts, threshold=None) -> dict:
         """From the posterior samples, along a section's columns: the share of samples with a
         body there, and the 10/50/90 % of the first and last rows (top and base) where they
         have one (None where under a tenth of them do)."""
-        if self.samples is None or self.threshold is None:
+        thr = self.threshold if threshold is None else float(threshold)
+        if self.samples is None or thr is None:
             return {}
         nv, nh = pts_shape
         inside, cells = self.cells_at(pts)
@@ -125,7 +138,7 @@ class ResultModel:
         for smp in np.asarray(self.samples):
             v = np.full(len(pts), np.nan)
             v[ok] = smp[idx[ok]]
-            body = (v >= self.threshold).reshape(nv, nh)
+            body = (v >= thr).reshape(nv, nh)
             anyb = body.any(axis=0)
             first = np.where(anyb, body.argmax(axis=0), -1)
             last = np.where(anyb, nv - 1 - body[::-1].argmax(axis=0), -1)
@@ -157,7 +170,8 @@ class ResultModel:
         return np.arange(top_offset + step / 2.0, depth_max, step)
 
     # ── a vertical section along a line ──
-    def line(self, x0, y0, x1, y1, ref: str = "ground", depth_max=None, field: str = "model") -> dict:
+    def line(self, x0, y0, x1, y1, ref: str = "ground", depth_max=None, field: str = "model",
+             threshold=None) -> dict:
         """Along A (x0, y0) to B (x1, y1): ``ref`` "ground" gives depth below the ground on
         the vertical axis (the ground at 0), "elev" elevation (cells above the ground None)."""
         length = math.hypot(x1 - x0, y1 - y0)
@@ -178,18 +192,20 @@ class ResultModel:
             z = np.broadcast_to(v[:, None], (len(v), len(s)))
         X, Y = np.broadcast_to(x, z.shape), np.broadcast_to(y, z.shape)
         pts = np.column_stack([X.ravel(), Y.ravel(), np.ravel(z)])
-        vals = self.sample(pts, field).reshape(z.shape)
+        vals = self.sample(pts, field, threshold).reshape(z.shape)
         if ref != "ground":
             vals[z > ground[None, :]] = np.nan      # the air
         out = {"kind": "line", "ref": ref, "a": [x0, y0], "b": [x1, y1], "length": length,
                "h": [float(t) for t in s], "v": [float(t) for t in v], "ground": [float(t) for t in ground],
                "values": _round(vals, 3 if field == "probability" else 4), **self._field_info(field)}
         if field == "probability":
-            out["depths"] = self.body_depths(z.shape, pts)
+            out["depths"] = self.body_depths(z.shape, pts, threshold)
+            out["threshold"] = self.threshold if threshold is None else float(threshold)
         return out
 
     # ── a depth slice ──
-    def plan(self, level: float, ref: str = "ground", extent=None, field: str = "model") -> dict:
+    def plan(self, level: float, ref: str = "ground", extent=None, field: str = "model",
+             threshold=None) -> dict:
         """A horizontal slice over the stations' extent: ``level`` metres below the ground
         (``ref`` "ground") or an elevation (``ref`` "elev")."""
         W, E, S, N = extent or self.extent
@@ -197,7 +213,7 @@ class ResultModel:
         xs, ys = np.arange(W + step / 2.0, E, step), np.arange(S + step / 2.0, N, step)
         X, Y = np.meshgrid(xs, ys)
         z = self.ground(X, Y) - level if ref == "ground" else np.full(X.shape, float(level))
-        vals = self.sample(np.column_stack([X.ravel(), Y.ravel(), z.ravel()]), field).reshape(X.shape)
+        vals = self.sample(np.column_stack([X.ravel(), Y.ravel(), z.ravel()]), field, threshold).reshape(X.shape)
         return {"kind": "plan", "ref": ref, "level": float(level), "x": [float(t) for t in xs],
                 "y": [float(t) for t in ys], "values": _round(vals, 3 if field == "probability" else 4),
                 **self._field_info(field)}

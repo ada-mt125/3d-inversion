@@ -184,6 +184,8 @@ class TestComparisons:
                            "x1": 0, "y1": 0})
         assert bad.status_code == 400
         assert finished.get("/api/inversion/nope/section", params={"kind": "strike"}).status_code == 404
+        # the probability at another threshold: only for a posterior (its samples)
+        assert finished.get("/api/inversion/i-a/probability", params={"threshold": 0.1}).status_code == 409
 
     def test_compare_jobs_in_one_workflow(self, finished):
         wf = finished.get("/api/workflow", params={"ids": "i-a,i-b"}).json()

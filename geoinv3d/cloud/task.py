@@ -76,6 +76,7 @@ class InversionTask:
     bayes_seed: int = 0
     bayes_threshold: Optional[float] = None
     bayes_beta: str = "discrepancy"     # chi^2 = N, or "evidence" (beta and the errors' scale)
+    bayes_prior: str = "compact"        # or "smooth" (the smooth L2 Gaussian)
     lambda_decades: float = 4.0
     lambda_step: float = 0.1
 
@@ -269,6 +270,7 @@ class InversionTask:
             "bayes_seed": self.bayes_seed,
             "bayes_threshold": self.bayes_threshold,
             "bayes_beta": self.bayes_beta,
+            "bayes_prior": self.bayes_prior,
             "lambda_decades": self.lambda_decades,
             "lambda_step": self.lambda_step,
             "beta_selection": self.beta_selection,
@@ -419,6 +421,7 @@ def unpack_task(archive_path: str) -> InversionTask:
             bayes_seed=int(meta.get("bayes_seed", 0)),
             bayes_threshold=meta.get("bayes_threshold"),
             bayes_beta=meta.get("bayes_beta", "discrepancy"),
+            bayes_prior=meta.get("bayes_prior", "compact"),
             lambda_decades=meta.get("lambda_decades", 4.0),
             lambda_step=meta.get("lambda_step", 0.1),
             beta_selection=meta.get("beta_selection", "auto"),

@@ -1444,7 +1444,8 @@ def _result_model(job_id: str):
 @app.get("/api/inversion/{job_id}/section")
 def job_section(job_id: str, kind: str = "line", ref: str = "ground",
                 x0: float = None, y0: float = None, x1: float = None, y1: float = None,
-                level: float = None, depth_max: float = None, field: str = "model"):
+                level: float = None, depth_max: float = None, field: str = "model",
+                threshold: float = None):
     """A slice of a job's model sampled from its own mesh: ``kind`` "line" (A x0, y0 to
     B x1, y1; ``ref`` "ground": depth below the ground, "elev": elevation), "plan" (``level``
     metres below the ground, or an elevation with ``ref`` "elev") or "strike" (the default
@@ -1462,11 +1463,11 @@ def job_section(job_id: str, kind: str = "line", ref: str = "ground",
         if kind == "plan":
             if level is None:
                 raise ValueError("a plan slice needs its level")
-            return JSONResponse(model.plan(level, ref, field=field))
+            return JSONResponse(model.plan(level, ref, field=field, threshold=threshold))
         if kind == "line":
             if None in (x0, y0, x1, y1):
                 raise ValueError("a line needs x0, y0, x1, y1")
-            return JSONResponse(model.line(x0, y0, x1, y1, ref, depth_max, field=field))
+            return JSONResponse(model.line(x0, y0, x1, y1, ref, depth_max, field=field, threshold=threshold))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     raise HTTPException(status_code=400, detail="kind: line, plan or strike")
@@ -1534,6 +1535,21 @@ async def start_bayes(job_id: str, body: dict = Body(default={})):
                   extra={"parent_job": job_id, "bayes_of": job_id, "changes": changes})
     return JSONResponse({**job, "thinned_to_m": ds_change.get("decimate_spacing_m"),
                          "memory_gb": round(need_gb, 1)})
+
+
+@app.get("/api/inversion/{job_id}/probability")
+def job_probability(job_id: str, threshold: float):
+    """A posterior's probability of a body above ``threshold`` on its 3D grid (the viewer's
+    order, as model_3d), from its samples."""
+    from ..viz.result_workflow import ViewerGrid
+    model = _result_model(job_id)
+    if model.samples is None:
+        raise HTTPException(status_code=409, detail="This run has no posterior samples")
+    grid = ViewerGrid(model.meta, model.mesh)
+    prob = np.nan_to_num(model.probability(threshold), nan=0.0)
+    vals = grid.values(prob)
+    return JSONResponse({"threshold": threshold, "nx": grid.shape[0], "ny": grid.shape[1], "nz": grid.shape[2],
+                         "values": [round(float(v), 3) for v in vals]})
 
 
 @app.get("/api/inversion/{job_id}/bayes")

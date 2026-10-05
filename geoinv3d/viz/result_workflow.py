@@ -299,6 +299,18 @@ def full_model(meta, mesh) -> np.ndarray:
     return m
 
 
+def robust_range(values) -> list:
+    """The 1st to 99th percentile of a model's (active) values: the colour range of its
+    slices (sections.ResultModel) and of its 3D view, so a few extreme cells (an Lp p = 0
+    model's can be 1000 times the rest) neither set the scale nor hide the others."""
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    if not v.size:
+        return [0.0, 1.0]
+    lo, hi = np.percentile(v, [1, 99])
+    return [float(lo), float(hi)]
+
+
 MAX_VIEWER_CELLS = 600_000   # voxels of the 3D tab: Plotly's isosurfaces crawl beyond
 
 
@@ -601,7 +613,8 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             "final_model": {"prop": prop, "unit": model_unit, "n_cells": int(len(run["_model"])),
                             "min": float(run["_model"].min()), "max": float(run["_model"].max()),
                             "mean": float(run["_model"].mean())},
-            "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4)},
+            "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4),
+                         "range": robust_range(run["_model"])},
         }
         if run.get("_prob_body") is not None:   # a Bayesian posterior: the probability of a body
             prob_full = full_model({**run, "_model": run["_prob_body"]}, mesh)
@@ -698,7 +711,7 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                               f"Bayesian posterior · {b.get('n_samples', '?')} samples",
                               node_id=next(extra_ids), own_mesh=True, node_type="BayesianPosteriorNode")
         node["params"]["bayes"] = {k: b.get(k) for k in (
-            "prior", "beta", "beta_rule", "chi2_per_datum", "n_samples", "threshold", "std_median",
+            "prior", "prior_kind", "bounds", "beta", "beta_rule", "chi2_per_datum", "n_samples", "threshold", "std_median",
             "variance_reduction_median", "beta_evidence", "error_scale_evidence")}
         node["params"]["posterior_of"] = run["_posterior_of"]
     nodes.sort(key=lambda n: n["id"])

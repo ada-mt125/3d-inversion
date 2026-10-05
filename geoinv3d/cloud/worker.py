@@ -722,15 +722,67 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     return run_smooth_inversion(task, mesh)
 
 
-def run_bayesian_inversion(task: InversionTask, mesh=None) -> dict:
-    """The linear-Gaussian posterior of a gravity or (induced) magnetic task: the smooth L2
-    regularization as the prior (with the task's depth or sensitivity weighting), beta for
-    chi^2 = N, ``task.bayes_samples`` RML samples (methods/bayes.py).
+BAYES_COMPACT_NORMS = (0.0, 1.0, 1.0, 1.0)   # the compact prior: Lp norms of the most probable model
+BAYES_MAG_UPPER = 1.0      # SI: the compact prior's susceptibility cap unless an upper bound is given
+# The Laplace approximation's IRLS eps, at least this share of the body threshold (per cell
+# size for the gradients): with eps -> 0 a p = 0 weight is ~(m_max / eps)^2 larger in the
+# empty cells than in the bodies, which then cannot grow or move at all in the samples.
+BAYES_EPS_SHARE = float(os.environ.get("GEOINV3D_BAYES_EPS_SHARE", "0.25"))
 
-    The result's model is the posterior mean (the smooth L2 model at that beta); it adds
-    ``posterior_std``, ``prob_body`` (the share of samples above ``bayes``'s threshold: a
-    quarter of the mean's 98th percentile in the core unless ``bayes_threshold``),
-    ``prior_std`` and ``samples`` (float32, on the active cells).
+
+def _under_stations(task, mesh):
+    """The active cells under the stations' extent, and the active cells' volumes."""
+    dmesh = mesh.to_discretize()
+    act = np.ones(dmesh.n_cells, bool) if task.active_cells is None else np.asarray(task.active_cells, bool)
+    cc, vol = dmesh.cell_centers[act], dmesh.cell_volumes[act]
+    st = np.asarray(task.station_locations, dtype=float)
+    under = ((cc[:, 0] >= st[:, 0].min()) & (cc[:, 0] <= st[:, 0].max())
+             & (cc[:, 1] >= st[:, 1].min()) & (cc[:, 1] <= st[:, 1].max()))
+    return under, vol
+
+
+def _temper_irls(reg, mode, task, mesh):
+    """Floor the IRLS eps of the sparse terms at BAYES_EPS_SHARE of the mode's body threshold
+    (divided by the core cell size for the gradients) and recompute their weights at the
+    mode.  Returns the floors, {smallness, gradient}, or None when there is nothing to do."""
+    from simpeg.regularization import Sparse
+    from simpeg.regularization.sparse import SparseSmallness
+
+    from ..methods.bayes import body_threshold
+    if BAYES_EPS_SHARE <= 0:
+        return None
+    under, vol = _under_stations(task, mesh)
+    thr = body_threshold(mode, under, weights=vol)
+    if not np.isfinite(thr) or thr <= 0:
+        return None
+    h = float(min(np.asarray(mesh.to_discretize().h_gridded).min(axis=0)))
+    floors = {"smallness": BAYES_EPS_SHARE * thr, "gradient": BAYES_EPS_SHARE * thr / max(h, 1e-9)}
+    regs = [reg] if isinstance(reg, Sparse) else [r for r in getattr(reg, "objfcts", []) if isinstance(r, Sparse)]
+    for r in regs:
+        for f in r.objfcts:
+            key = "smallness" if isinstance(f, SparseSmallness) else "gradient"
+            f.irls_threshold = max(float(f.irls_threshold), floors[key])
+        r.update_weights(mode)
+    return floors
+
+
+def run_bayesian_inversion(task: InversionTask, mesh=None) -> dict:
+    """The posterior of a gravity or (induced) magnetic task (methods/bayes.py), with one
+    of two priors (``task.bayes_prior``):
+
+    * "compact" (default): the sources are compact bodies.  The most probable model is the
+      Lp inversion (norms BAYES_COMPACT_NORMS, susceptibility >= 0 unless bounds are given),
+      and the samples are the Gaussian (Laplace) approximation around it, from its last
+      IRLS weights, cut at the bounds.  The spread is that of models like it: where the
+      bodies are, how strong, how far they reach given that they are compact.
+    * "smooth": the smooth L2 regularization as a Gaussian prior; the posterior is exact
+      (linear-Gaussian) and wide, its mean the smooth L2 model.
+
+    beta: chi^2 = N with the errors given (``bayes_beta`` "evidence": beta and an error
+    scale by the largest evidence, smooth prior).  ``task.bayes_samples`` RML samples.  The
+    model is the mode (compact) or mean (smooth); the result adds ``posterior_std``,
+    ``prob_body`` (the share of samples above the threshold: ``bayes_threshold``, else half
+    the model's 98th percentile under the stations, by volume), ``prior_std``, ``samples``.
     """
     from dataclasses import replace
     from types import SimpleNamespace
@@ -741,84 +793,116 @@ def run_bayesian_inversion(task: InversionTask, mesh=None) -> dict:
 
     if mesh is None:
         mesh = _build_mesh(task)
-    l2 = replace(task, regularization_type="l2")
-    p = _single_problem(l2, mesh)
-    G = getattr(p.sim, "G", None)
-    if G is None:
-        raise ValueError("The Bayesian inversion needs a gravity or magnetic task (an explicit "
-                         "sensitivity matrix)")
-    if _uses_sensitivity_weights(l2, "l2"):
-        # the weights a smooth L2 run would set, from the same directive
-        directive = _sensitivity_directive(l2)
-        inv_prob = inverse_problem.BaseInvProblem(p.dmis, p.reg, p.opt)
-        inversion.BaseInversion(inv_prob, directiveList=[directive])
-        inv_prob.model = p.m0
-        directive.initialize()
-    terms = prior_terms(p.reg, p.m0)
-    m_ref = np.asarray(getattr(p.reg, "reference_model", None) if getattr(p.reg, "reference_model", None)
-                       is not None else np.zeros(len(p.m0)), dtype=float)
-    d, sigma = np.asarray(task.observed_data, dtype=float), np.asarray(task.data_std, dtype=float)
-    n_data, n_cells = len(d), len(p.m0)
+    prior_kind = str(getattr(task, "bayes_prior", "compact") or "compact")
+    if prior_kind not in ("compact", "smooth"):
+        raise ValueError(f"Unknown bayes_prior '{prior_kind}' (expected 'compact' or 'smooth')")
+    magnetic = canonical_method(task.method_type) == "magnetics"
+    lo = task.bounds_lower if task.bounds_lower is not None else (0.0 if magnetic else None)
+    hi = task.bounds_upper
+    if prior_kind == "compact" and magnetic and hi is None:
+        hi = BAYES_MAG_UPPER   # unbounded, p = 0 packs the anomaly into a few cells of 10+ SI
     callback = IterationCollector.on_iteration
+    map_result = None
 
     def report(step, i, n, extra=None):
         if callback is not None:
             callback(SimpleNamespace(iteration=i, phi_d=None, beta=None,
                                      extra={"max_iter": n, "step": step, **(extra or {})}))
 
-    print(f"[Bayes] {n_data} data x {n_cells} cells: factorizing the prior's precision, "
-          f"then {n_data} solves")
+    if prior_kind == "compact":
+        sp_task = replace(task, regularization_type="sparse", norms=BAYES_COMPACT_NORMS,
+                          bounds_lower=lo, bounds_upper=hi, beta_selection="auto")
+        p = _single_problem(sp_task, mesh)
+        print(f"[Bayes] the most probable compact model: Lp {BAYES_COMPACT_NORMS}, bounds [{lo}, {hi}]")
+        map_result, _ = _run_problem(sp_task, p)
+        mode = np.asarray(map_result["recovered_model"], dtype=float)
+        eps_floor = _temper_irls(p.reg, mode, task, mesh)
+        terms = prior_terms(p.reg, mode)          # its last IRLS weights (eps floored)
+    else:
+        l2 = replace(task, regularization_type="l2")
+        p = _single_problem(l2, mesh)
+        if _uses_sensitivity_weights(l2, "l2"):
+            # the weights a smooth L2 run would set, from the same directive
+            directive = _sensitivity_directive(l2)
+            inv_prob = inverse_problem.BaseInvProblem(p.dmis, p.reg, p.opt)
+            inversion.BaseInversion(inv_prob, directiveList=[directive])
+            inv_prob.model = p.m0
+            directive.initialize()
+        terms = prior_terms(p.reg, p.m0)
+        mode = None
+        eps_floor = None
+    G = getattr(p.sim, "G", None)
+    if G is None:
+        raise ValueError("The Bayesian inversion needs a gravity or magnetic task (an explicit "
+                         "sensitivity matrix)")
+    m_ref = np.asarray(getattr(p.reg, "reference_model", None) if getattr(p.reg, "reference_model", None)
+                       is not None else np.zeros(len(p.m0)), dtype=float)
+    d, sigma = np.asarray(task.observed_data, dtype=float), np.asarray(task.data_std, dtype=float)
+    n_data, n_cells = len(d), len(p.m0)
+    print(f"[Bayes] {prior_kind} prior, {n_data} data x {n_cells} cells: factorizing the prior's "
+          f"precision, then {n_data} solves")
     post = LinearGaussian(np.asarray(G), d, sigma, terms, m_ref=m_ref,
                           progress=lambda a, n: report("prior solves", a, n))
-    # beta: the largest evidence (type-II maximum likelihood, the Bayesian choice; default)
-    # or chi^2 = N as the deterministic runs choose it
-    # beta: for chi^2 = N with the errors as given (default; the automatic errors are the ones
-    # the Block-8 cross-validation supported), or with the errors' scale s by the largest
-    # evidence ("evidence"; type-II maximum likelihood).  The evidence assumes independent
-    # errors, which a grid's interpolated values are not: on the Block-8 window it put them
-    # at x0.33 and fitted the data to chi^2/N 0.014.  Both are recorded.
     rule = str(getattr(task, "bayes_beta", "discrepancy") or "discrepancy")
     beta_chi2 = post.beta_for(float(n_data))
     beta_ev, noise2_ev = post.evidence_beta_noise()
-    beta, noise2 = (beta_chi2, 1.0) if rule == "discrepancy" else (beta_ev, noise2_ev)
-    mean = post.mean(beta * noise2)
-    chi2 = float(np.sum(((np.asarray(G) @ mean - d) / sigma) ** 2))
-    print(f"[Bayes] beta {beta:.4g}, error scale {math.sqrt(noise2):.3g} ({rule}; chi^2 = N: beta "
-          f"{beta_chi2:.4g}): chi^2/N {chi2 / n_data:.3f} with the errors given, "
-          f"{chi2 / n_data / noise2:.3f} with the scaled ones; timing {post.timing}")
+    beta, noise2 = (beta_ev, noise2_ev) if (rule == "evidence" and prior_kind == "smooth") else (beta_chi2, 1.0)
     n = int(getattr(task, "bayes_samples", 30) or 30)
-    samples, prior = post.samples(beta, n, seed=int(getattr(task, "bayes_seed", 0) or 0),
-                                  progress=lambda k, n: report("samples", k, n), noise2=noise2)
-    # a body: above a quarter of the mean's 98th percentile under the stations, weighted by
-    # cell volume (an octree's many small cells near the surface would raise it otherwise)
-    dmesh = mesh.to_discretize()
-    act = np.ones(dmesh.n_cells, bool) if task.active_cells is None else np.asarray(task.active_cells, bool)
-    cc, vol = dmesh.cell_centers[act], dmesh.cell_volumes[act]
-    st = np.asarray(task.station_locations, dtype=float)
-    under = ((cc[:, 0] >= st[:, 0].min()) & (cc[:, 0] <= st[:, 0].max())
-             & (cc[:, 1] >= st[:, 1].min()) & (cc[:, 1] <= st[:, 1].max()))
+    seed = int(getattr(task, "bayes_seed", 0) or 0)
+    if prior_kind == "compact":
+        # the Laplace approximation around the mode: its spread, added to it, cut at the bounds
+        delta, prior = post.perturbations(beta, n, seed=seed, noise2=noise2,
+                                          progress=lambda k, n: report("samples", k, n))
+        samples = (mode[None, :] + delta).astype(np.float32)
+        model = mode
+    else:
+        samples, prior = post.samples(beta, n, seed=seed, noise2=noise2,
+                                      progress=lambda k, n: report("samples", k, n))
+        model = post.mean(beta * noise2)
+    # cut at the bounds: per cell where geology constraints give them, else the job's
+    clo = np.asarray(task.cell_lower, dtype=float) if task.cell_lower is not None else lo
+    chi = np.asarray(task.cell_upper, dtype=float) if task.cell_upper is not None else hi
+    if clo is not None or chi is not None:
+        np.clip(samples, -np.inf if clo is None else clo, np.inf if chi is None else chi, out=samples)
+    chi2 = float(np.sum(((np.asarray(G) @ model - d) / sigma) ** 2))
+    print(f"[Bayes] beta {beta:.4g} ({rule}): chi^2/N of the model {chi2 / n_data:.3f}; "
+          f"timing {post.timing}")
+    # a body: above half the model's 98th percentile under the stations, weighted by cell
+    # volume (an octree's many small cells near the surface would raise it otherwise)
+    under, vol = _under_stations(task, mesh)
     thr = getattr(task, "bayes_threshold", None)
-    thr = float(thr) if thr is not None else body_threshold(mean, under, weights=vol)
+    thr = float(thr) if thr is not None else body_threshold(model, under, weights=vol)
     prob = (samples >= thr).mean(axis=0)
     std = samples.std(axis=0, ddof=1)
     prior_std = prior.std(axis=0, ddof=1)
-    iterations = [{"iteration": 0, "phi_d": chi2, "phi_m": None, "phi_total": None, "beta": beta,
-                   "model_min": float(mean.min()), "model_max": float(mean.max()),
-                   "model_mean": float(mean.mean())}]
+    if map_result is not None:
+        iterations = map_result.get("iterations", [])
+    else:
+        iterations = [{"iteration": 0, "phi_d": chi2, "phi_m": None, "phi_total": None, "beta": beta,
+                       "model_min": float(model.min()), "model_max": float(model.max()),
+                       "model_mean": float(model.mean())}]
+    bounds_label = "per cell (geology)" if (task.cell_lower is not None or task.cell_upper is not None) \
+        else f"[{lo}, {hi}]"
+    ref_label = ", the geology reference" if task.reference_model is not None else ""
+    prior_label = (f"compact (Lp {', '.join(f'{v:g}' for v in BAYES_COMPACT_NORMS)}, bounds {bounds_label}{ref_label}): "
+                   "Laplace approximation around the most probable model") if prior_kind == "compact" \
+        else f"smooth L2 (Gaussian), reference {'the geology' if task.reference_model is not None else 'model 0'}"
     return {
         "task_id": task.task_id, "method": task.method_type, "regularization": "bayesian_L2",
-        "converged": abs(chi2 / n_data / noise2 - 1.0) <= 0.1 if rule == "discrepancy" else True,
-        "n_iterations": 1, "iterations": iterations,
-        "recovered_model": mean, "predicted": np.asarray(G) @ mean, "norms": list(task.norms),
+        "converged": True, "n_iterations": len(iterations), "iterations": iterations,
+        "recovered_model": model, "predicted": np.asarray(G) @ model,
+        "norms": list(BAYES_COMPACT_NORMS if prior_kind == "compact" else task.norms),
         "posterior_std": std, "prob_body": prob, "prior_std": prior_std, "samples": samples,
         "bayes_spectrum": {"lam": post.lam, "c": post._coefficients(post.d, post.m_ref)},
-        "bayes": {"prior": "smooth L2 (Gaussian), reference model 0", "beta": beta, "beta_rule": rule,
+        "bayes": {"prior": prior_label, "prior_kind": prior_kind, "bounds": [lo, hi],
+                  "eps_floor": eps_floor if prior_kind == "compact" else None,
+                  "beta": beta, "beta_rule": rule if prior_kind == "smooth" else "discrepancy",
                   "error_scale": math.sqrt(noise2), "beta_evidence": beta_ev,
                   "error_scale_evidence": math.sqrt(noise2_ev), "beta_discrepancy": beta_chi2,
-                  "chi2_per_datum_scaled": chi2 / n_data / noise2,
-                  "chi2_per_datum": chi2 / n_data, "n_samples": n, "threshold": thr,
+                  "chi2_per_datum": chi2 / n_data, "chi2_per_datum_scaled": chi2 / n_data / noise2,
+                  "n_samples": n, "threshold": thr,
                   "threshold_rule": "given" if getattr(task, "bayes_threshold", None) is not None
-                  else "a quarter of the mean's 98th percentile",
+                  else "half the model's 98th percentile",
                   "std_median": float(np.median(std)), "variance_reduction_median":
                   float(np.median(1.0 - (std / np.maximum(prior_std, 1e-30)) ** 2)),
                   "timing_s": {k: round(v, 1) for k, v in post.timing.items()}},
@@ -1592,7 +1676,7 @@ _MANUAL_KEYS = (
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
     "depth_weighting", "depth_weighting_exponent",
-    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta",
+    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta", "bayes_prior",
     *GROUP_LASSO_KEYS,
 )
 # Warn when more than this share of the recovered anomaly lies in padding cells
@@ -1686,7 +1770,7 @@ _REG_PARAM_KEYS = (
     "l1l2_solver", "l1l2_weighting", "lambda_decades", "lambda_step",
     "focusing_percentile", "focusing_scale",
     "depth_weighting", "depth_weighting_exponent",
-    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta",
+    "bayes_samples", "bayes_seed", "bayes_threshold", "bayes_beta", "bayes_prior",
     *GROUP_LASSO_KEYS,
 )
 

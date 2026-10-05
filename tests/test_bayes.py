@@ -58,7 +58,8 @@ def test_the_body_threshold_weighs_by_volume():
     v = np.r_[np.full(98, 0.1), [1.0, 1.0]]          # two strong cells...
     assert body_threshold(v) == pytest.approx(0.25 * 0.1, rel=0.2) or body_threshold(v) > 0
     small_cells = np.r_[np.ones(98), [0.001, 0.001]]   # ...that are tiny: they do not set it
-    assert body_threshold(v, weights=small_cells) == pytest.approx(0.025)
+    assert body_threshold(v, weights=small_cells) == pytest.approx(0.05)        # half of 0.1
+    assert body_threshold(v, weights=small_cells, share=0.25) == pytest.approx(0.025)
 
 
 def test_a_bayesian_run_of_the_pipeline(tmp_path):
@@ -84,6 +85,12 @@ def test_a_bayesian_run_of_the_pipeline(tmp_path):
     W, E, S, N = rm.extent
     line = rm.line(W, (S + N) / 2, E, (S + N) / 2, field="probability")
     assert line["range"] == [0.0, 1.0] and set(line["depths"]) == {"body_share", "top_rows", "base_rows"}
+    # another threshold, from the samples: fewer cells above a higher one
+    thr = b["threshold"]
+    lo, hi = rm.probability(thr), rm.probability(2 * thr)
+    ok = np.isfinite(lo)
+    assert np.all(hi[ok] <= lo[ok]) and np.nanmax(lo) > 0
+    assert rm.line(W, (S + N) / 2, E, (S + N) / 2, field="probability", threshold=2 * thr)["threshold"] == 2 * thr
 
 
 def test_the_evidence_finds_the_errors_scale():
@@ -101,3 +108,46 @@ def test_the_evidence_finds_the_errors_scale():
     beta, noise2 = lg.evidence_beta_noise()
     assert np.sqrt(noise2) == pytest.approx(0.5, rel=0.25)
     assert beta == pytest.approx(0.5, rel=0.6)
+
+
+def test_the_compact_and_the_smooth_prior(tmp_path):
+    """The compact prior's samples spread around the Lp model, cut at the bounds; the smooth
+    prior's are wider and centred on the smooth L2 model."""
+    from geoinv3d.cloud.worker import run_data_pipeline
+    from tests.test_data_pipeline import _single, _station_grid, _synthetic, _write_csv
+    locs = _station_grid(0.0)
+    _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+    out = {}
+    for prior in ("compact", "smooth"):
+        params = _single("gravity", ["g.csv"], param_mode="manual", regularization_type="bayes",
+                         bayes_samples=16, bayes_prior=prior, bounds_lower=0.0,
+                         dataset={"noise_pct": "auto", "noise_floor": "auto"})
+        out[prior] = run_data_pipeline(params, str(tmp_path))
+    c, s = out["compact"], out["smooth"]
+    assert c["bayes"]["prior_kind"] == "compact" and c["norms"] == [0.0, 1.0, 1.0, 1.0]
+    assert c["samples"].min() >= 0.0                             # cut at the lower bound
+    assert np.median(c["posterior_std"]) < np.median(s["posterior_std"])
+    assert c["bayes"]["chi2_per_datum"] == pytest.approx(1.0, abs=0.15)
+
+
+def test_the_compact_prior_caps_susceptibility_and_floors_eps(tmp_path, monkeypatch):
+    """Magnetics: the compact prior's model and samples stay within 0 to BAYES_MAG_UPPER SI
+    when no upper bound is given; the eps floor widens the spread outside the bodies (with
+    eps -> 0 the empty cells could not move at all)."""
+    from geoinv3d.cloud import worker
+    from tests.test_data_pipeline import INDUCING, _single, _station_grid, _synthetic, _write_csv
+    locs = _station_grid(0.0)
+    _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+    params = _single("magnetics", ["m.csv"], param_mode="manual", regularization_type="bayes",
+                     bayes_samples=16, dataset={"noise_pct": "auto", "noise_floor": "auto",
+                                                "method_kwargs": {"inducing_field": INDUCING}})
+    floored = worker.run_data_pipeline(params, str(tmp_path))
+    monkeypatch.setattr(worker, "BAYES_EPS_SHARE", 0.0)
+    bare = worker.run_data_pipeline(params, str(tmp_path))
+    b = floored["bayes"]
+    assert b["bounds"] == [0.0, worker.BAYES_MAG_UPPER] and b["eps_floor"]["smallness"] > 0
+    assert bare["bayes"]["eps_floor"] is None
+    for r in (floored, bare):
+        assert r["samples"].min() >= 0.0 and r["samples"].max() <= worker.BAYES_MAG_UPPER
+    empty = np.asarray(bare["recovered_model"]) < 0.1 * b["threshold"]
+    assert np.median(floored["posterior_std"][empty]) > np.median(bare["posterior_std"][empty])

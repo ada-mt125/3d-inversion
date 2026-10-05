@@ -189,15 +189,19 @@ limit, IRLS limit) and offers the fix. Any finished job can be run again on its 
 with changed settings (iterations, norms, weighting, bounds, mesh, data errors, or all
 parameters as JSON), from its card or from its node in the workflow; the new run joins the
 workspace's workflow next to the old one. A finished gravity or (induced) magnetic run's node offers a **Bayesian posterior**
-(`methods/bayes.py`, `regularization_type: "bayes"`): one job on the same data with the
-smooth L2 regularization as a Gaussian prior (the run's depth weighting, reference 0),
-automatic errors, β for χ² = N (the evidence's choice of β and of an error scale is
-reported too), and 30 randomized-maximum-likelihood samples, all in data space: one sparse
-factorization of the prior's precision and N solves (the 5 km Block-8 window, 4,489 data ×
-141,759 cells: 4.3 min, 12 GB). It adds each cell's posterior standard deviation and
-probability of a body; the 3D view draws the cells with P ≥ 0.8 and colours the slices by
-any of them, and a profile of the probability carries the 10/50/90 % depths of the bodies'
-top and base in the samples.
+(`methods/bayes.py`, `regularization_type: "bayes"`, also Upload → Regularization →
+Bayesian): one job on the same data, automatic errors, β for χ² = N, and 30
+randomized-maximum-likelihood samples, all in data space (one sparse factorization of the
+prior's precision and N solves; the 5 km Block-8 window, 4,489 data × 141,759 cells: about
+5 min, 12 GB). The default prior is **compact** bodies: the most probable model is the
+Lp (0, 1, 1, 1) inversion (magnetics 0 to 1 SI unless an upper bound is given) and the
+samples spread around it (a Laplace approximation from its IRLS weights); the **smooth**
+L2 prior is exact but as wide as the data alone allow. Geology constraints (reference,
+per-cell bounds, weights) enter the prior. It adds each cell's posterior standard
+deviation and probability of a body (above half the model's 98th percentile, or any
+threshold set in the 3D view); the 3D view draws the cells with P ≥ 0.8 and colours the
+slices by any of them, and a profile of the probability carries the 10/50/90 % depths of
+the bodies' top and base in the samples. The posterior is conditional on its prior.
 The depth slice and the sections are sampled from the mesh itself (`GET
 /api/inversion/{id}/section`), in depth below the ground or elevation, with a profile A–B
 across the strike that a drag on the depth slice replaces. In the 3D view, **Compare with** draws another run of the same workflow (the workspace's, or a

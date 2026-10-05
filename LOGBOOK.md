@@ -1830,3 +1830,56 @@ run). The page draws it as a gold dashed card in an "Uncertainty" column after t
 level with its run (tree layout), or below it (layers). A posterior started from a node joins
 the workspace being viewed. `POST /api/workspaces/{id}/jobs` adds existing jobs to a
 workspace (a job may be in several), with their posteriors.
+
+## 2026-10-05 — A compact prior for the Bayesian posterior; the threshold on request; one colour range
+
+The user found the smooth-prior posterior useless for targeting: "P ≥ 0.8" filled the
+subsurface. On the Block-8 window (local-1b0f5945128a) the posterior std (0.23 in bodies,
+0.20 outside) exceeded the body threshold (0.126 SI): over the core volume (under the
+stations, 0-2.5 km) 19.7 % had P ≥ 0.8 and 25.9 % 0.2 < P < 0.8, growing with depth; the
+data reduced the prior variance by 1 % in the median cell. The smooth prior is honest, and
+says the data alone fix little; it is no map of targets.
+
+`bayes_prior` "compact" (the default; "smooth" keeps the old one): the most probable model
+is the Lp (0, 1, 1, 1) inversion, magnetics 0 to `BAYES_MAG_UPPER` = 1 SI unless an upper
+bound is given; the samples are the Gaussian (Laplace) approximation around it from its
+last IRLS weights (`LinearGaussian.perturbations`: RML with zero data and zero reference,
+added to the mode, cut at the bounds, per cell where geology constraints give them), with
+the IRLS eps floored at `BAYES_EPS_SHARE` = 0.25 of the body threshold (per core cell
+size for the gradients): with eps → 0 a p = 0 weight is (m_max / eps)² larger in the
+empty cells, which could not move at all. The body threshold is now half the model's
+volume-weighted 98th percentile (a quarter before), and any other one on request:
+`ResultModel.probability(threshold)` from the samples, `threshold` on `/section`,
+`GET /api/inversion/{id}/probability?threshold=` on the 3D grid, and a box under
+"Probably a body" in the 3D view. Upload → Regularization → "Bayesian" runs one directly
+(prior, samples, threshold; memory 16 bytes × data × cells + 2 GB; single gravity or
+induced magnetic data).
+
+The same window (4,489 data × 141,759 cells, about 5 min, 12 GB), core volume:
+
+| prior | P ≥ 0.8 | 0.2-0.8 | std in bodies / outside | |
+|---|---|---|---|---|
+| smooth (the user's) | 19.7 % | 25.9 % | 0.23 / 0.20 | variance −1 % |
+| compact, no cap | 2.7 % | 0.5 % | 0.74 / 0.05 | bodies at 300-1,200 m, up to 13.7 SI |
+| compact, ≤ 1 SI, no eps floor | 14.6 % | 1.4 % | 0.12 / 0.04 | |
+| compact, ≤ 1 SI, eps floor (default) | 14.6 % | 1.4 % | 0.14 / 0.05 | variance −63 % |
+
+Along the profile across the strike the tops are at 19, 106-131 and 294-394 m (10-90 %).
+Without a cap the positive compact model packs the anomaly into a few cells of 10+ SI deep
+down; capped at 1 SI it needs 15 % of the core volume at the cap, from about 100 m to 2 km.
+Either way the induced, positive model strains: at I 19° (IGRF, F 42,085 nT) an induced
+anomaly is mostly a low, but here the high (+8,845 nT) is twice the low (−4,109 nT, 1.65 km
+east and 0.75 km south of it), which points to remanence (or self-demagnetization in
+high-susceptibility BIF). The user's own runs say the same: L1-L2 needs −9.5 to +6.7 SI,
+Lp (0, 1, 1, 1) with sensitivity weights up to 195 SI. The posterior is conditional on its
+prior; a narrow one is the prior's narrowness as much as the data's.
+
+The 3D view took its colour range from the largest voxel, the slices from the 1st-99th
+percentile: on local-e43be0cd791d (Lp 0, 1, 1, 1; 99 % of the voxels below 0.06 SI, the
+largest 40 SI and 195 SI in the padding) the profile showed every cell above 0.024 SI
+saturated, the 3D view (20 % of 40 SI) only those above 8 SI, so the deep cells the profile
+showed were not drawn. `model_3d.range` (`result_workflow.robust_range`, which the slices
+use too) is now the 3D view's range as well; beyond it the colours saturate. A posterior's
+"Open the probability in 3D" opened the previous result (`data-bayes-3d` is
+`dataset["bayes-3d"]`, not `bayes3d`), and its card's status never refreshed (a node
+compared with an id).

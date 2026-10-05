@@ -19,6 +19,10 @@ s sigma) by the largest evidence, ``log p(d | beta, s^2) = -1/2 sum_i [log(l_i /
 s^2) + c_i^2 / (l_i / beta + s^2)]`` (the mean then depends on beta s^2), and each RML sample (the data plus
 an error drawn from C_d, the reference plus a field drawn from the prior, the mean of that
 problem) costs two products with Q and G.  The samples' spread is the posterior's.
+
+With ``terms`` from an Lp model's last IRLS weights instead (worker.run_bayesian_inversion,
+the "compact" prior), the same machinery gives the Gaussian (Laplace) approximation around
+that model: ``perturbations`` draws its zero-mean spread, which is added to the mode.
 """
 
 from __future__ import annotations
@@ -173,6 +177,25 @@ class LinearGaussian:
             rhs = v if rhs is None else rhs + v
         return self.lu.solve(rhs) / math.sqrt(beta)
 
+    def perturbations(self, beta, n, seed=0, progress=None, noise2=1.0):
+        """``n`` zero-mean draws of the posterior's spread: the mean of the problem with the
+        data an error draw and the reference a prior draw (RML), and the prior draws.  Added
+        to a mode, they sample the Gaussian (Laplace) approximation around it."""
+        rng = np.random.default_rng(seed)
+        M = self.G.shape[1]
+        out = np.empty((n, M), dtype=np.float32)
+        prior = np.empty((n, M), dtype=np.float32)
+        s = math.sqrt(noise2)
+        zero = np.zeros(len(self.d))
+        for k in range(n):
+            x = self.prior_sample(beta, rng)
+            e = s * self.sigma * rng.standard_normal(len(self.d))
+            out[k] = self.mean(beta * noise2, d=zero + e, m_ref=x)
+            prior[k] = x
+            if progress:
+                progress(k=k + 1, n=n)
+        return out, prior
+
     def samples(self, beta, n, seed=0, progress=None, noise2=1.0):
         """``n`` RML samples of the posterior (errors s sigma with s^2 = ``noise2``), and the
         prior draws they started from."""
@@ -191,7 +214,7 @@ class LinearGaussian:
         return out, prior
 
 
-def body_threshold(mean, core=None, share=0.25, weights=None) -> float:
+def body_threshold(mean, core=None, share=0.5, weights=None) -> float:
     """A body: above ``share`` of the 98th percentile of the mean's positive values (in the
     ``core`` cells when given; ``weights``, e.g. cell volumes, weigh the percentile)."""
     v = np.asarray(mean, dtype=float)
