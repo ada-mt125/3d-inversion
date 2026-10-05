@@ -375,6 +375,7 @@ svg#dag:active{cursor:grabbing;}
 .rob-en{color:var(--text3);}
 .rob-note{font-size:10.5px;color:var(--text3);margin-top:4px;}
 .rob-sum{font-size:11px;margin:4px 0;}
+.rob-busy{font-size:11px;color:#f4c542;margin:2px 0 4px;}
 .btn-delete:hover{border-color:#e8837a;color:#e8837a;}
 .up-job-del{margin-left:auto;}
 /* map layers (3D view side panel) */
@@ -590,10 +591,12 @@ svg#dag:active{cursor:grabbing;}
           <input type="range" id="m3d-nsslice" min="0" max="19" value="10" style="flex:1;accent-color:#FFB74D;">
           <span id="m3d-nsslice-disp" style="font-size:10px;color:#FFB74D;min-width:50px;">ix=10</span>
         </div>
-        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;">
-          <input type="checkbox" id="m3d-show-prof" checked style="accent-color:#ef6f6c;"> Profile A–B
-        </label>
-        <div style="font-size:10px;line-height:1.4;color:#57677a;">Across the strike of the strongest bodies; drag on the depth slice to draw another (<a href="#" id="m3d-prof-reset" style="color:#8b97a6;">back across the strike</a>).</div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;flex:1;">
+            <input type="checkbox" id="m3d-show-prof" checked style="accent-color:#ef6f6c;"> Profile A–B</label>
+          <button type="button" id="m3d-prof-draw" title="Click A, then B on the depth slice (or drag from A to B)" style="font-size:11px;padding:3px 8px;background:#1c2530;border:1px solid #ef6f6c;border-radius:4px;color:#ef6f6c;cursor:pointer;">✎ Draw</button>
+        </div>
+        <div style="font-size:10px;line-height:1.4;color:#57677a;">Across the strike of the strongest bodies to start with. ✎ Draw, then click A and B on the depth slice (<a href="#" id="m3d-prof-reset" style="color:#8b97a6;">back across the strike</a>).</div>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Colour slices by
           <select id="m3d-secfield" class="m3d-cmp-sel" disabled title="The agreement needs a robustness check of this run (its node: 🧪 Check robustness)"><option value="model">the model</option><option value="agreement">agreement of the robustness runs</option></select></label>
         <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Vertical axis
@@ -1863,7 +1866,10 @@ async function robFill(n){
     return;
   }
   const s=d.summary, pct=v=>Math.round(100*v)+' %';
-  let h=`<div class="rob-h">Robustness: ${d.n_done} of ${d.n_runs} runs finished</div><div class="rob-runs">`+
+  const left=d.runs.filter(r=>r.status!=='SUCCEEDED'&&r.status!=='FAILED').length;
+  const busy=left?`<div class="rob-busy">⏳ ${left} run${left>1?'s':''} to go, one after another on this computer`+
+    (d.minutes_per_run?` · about ${Math.max(1,Math.round(left*d.minutes_per_run))} min left`:'')+` (Jobs page: “${escH(d.group_label||'Robustness')}”)</div>`:'';
+  let h=`<div class="rob-h">Robustness: ${d.n_done} of ${d.n_runs} runs finished</div>${busy}<div class="rob-runs">`+
     d.runs.map(r=>`<div>${r.status==='SUCCEEDED'?'✓':r.status==='FAILED'?'✗':'…'} ${escH(r.variant||r.job_id)}${r.chi2_per_datum!=null?` <span class="rob-en">χ²/N ${(+r.chi2_per_datum).toFixed(2)}</span>`:''}</div>`).join('')+'</div>';
   if(s){
     const md=s.moment_depth_m.filter(v=>v!=null);
@@ -1874,7 +1880,7 @@ async function robFill(n){
   }
   box.innerHTML=h;
   if(d.n_done<d.n_runs&&d.runs.some(r=>r.status!=='FAILED'&&r.status!=='SUCCEEDED'))
-    robTimer=setTimeout(()=>{if(selNode===n)robFill(n);},20000);
+    robTimer=setTimeout(()=>{if(selNode===n)robFill(n);},15000);
 }
 async function robStart(id,btn){
   if(!confirm('Run the robustness check?\n\nThe same data are inverted with 6 standard settings on this computer, one after another (each about as long as a preview of this run; thinned data when there are more than 6,000). They join this workspace as a group.'))return;
@@ -1885,7 +1891,8 @@ async function robStart(id,btn){
     toast(`🧪 ${d.jobs.length} robustness runs started`+(d.thinned_to_m?` (data thinned to ${d.thinned_to_m} m)`:''),6000);
     if(window.GeoUpload)GeoUpload.jobStarted();
   }catch(err){toast(`<span class="up-err">⚠ ${escH(err.message)}</span>`);}
-  if(selNode)robFill(selNode);
+  const n=W&&W.nodes.find(nd=>nd.job&&nd.job.id===id);
+  if(n)robFill(n);
 }
 
 sbBody.addEventListener('click',e=>{
@@ -3105,14 +3112,33 @@ function secStrikeLocal(m){
     if(px<b.l||px>b.l+b.w||py<b.t||py>b.t+b.h)return null; return [tf.x(px),tf.y(py)];};
   let start=null;
   c.style.cursor='crosshair';
+  const cell=()=>m3dData?Math.abs(m3dData.x_edges[1]-m3dData.x_edges[0]):1;
+  const finish=(a,b)=>{SEC.drawing=false; SEC.drag=null; SEC.profile={a,b,user:true}; $v('m3d-show-prof').checked=true;
+    $v('m3d-prof-draw').textContent='✎ Draw'; updateSectionRow(); schedule3D();};
   c.addEventListener('pointerdown',e=>{const p=at(e); if(!p)return; start=p; c.setPointerCapture(e.pointerId);});
-  c.addEventListener('pointermove',e=>{if(!start)return; const p=at(e); if(!p)return; SEC.drag={a:start,b:p}; drawSection2D('z');});
-  c.addEventListener('pointerup',()=>{
-    if(!start)return; const D=SEC.drag; start=null; SEC.drag=null;
-    const cell=m3dData?Math.abs(m3dData.x_edges[1]-m3dData.x_edges[0]):1;
-    if(D&&Math.hypot(D.b[0]-D.a[0],D.b[1]-D.a[1])>3*cell){
-      SEC.profile={a:D.a,b:D.b,user:true}; $v('m3d-show-prof').checked=true; updateSectionRow(); schedule3D();
-    }else drawSection2D('z');
+  c.addEventListener('pointermove',e=>{
+    const p=at(e); if(!p)return;
+    if(start){SEC.drag={a:start,b:p}; drawSection2D('z');}
+    else if(SEC.drawing&&SEC.drawA){SEC.drag={a:SEC.drawA,b:p}; drawSection2D('z');}   // A set: B follows the pointer
+  });
+  c.addEventListener('pointerup',e=>{
+    if(!start)return; const D=SEC.drag, p=start; start=null;
+    if(D&&Math.hypot(D.b[0]-D.a[0],D.b[1]-D.a[1])>3*cell()){finish(D.a,D.b);return;}   // a drag from A to B
+    SEC.drag=null;
+    if(SEC.drawing){                                 // a click: A, then B
+      if(!SEC.drawA){SEC.drawA=p; drawSection2D('z'); return;}
+      if(Math.hypot(p[0]-SEC.drawA[0],p[1]-SEC.drawA[1])>cell()){const a=SEC.drawA; SEC.drawA=null; finish(a,p); return;}
+    }
+    drawSection2D('z');
+  });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&SEC.drawing){SEC.drawing=false;SEC.drawA=null;SEC.drag=null;$v('m3d-prof-draw').textContent='✎ Draw';drawSection2D('z');}
+  });
+  $v('m3d-prof-draw').addEventListener('click',()=>{
+    SEC.drawing=!SEC.drawing; SEC.drawA=null; SEC.drag=null;
+    $v('m3d-prof-draw').textContent=SEC.drawing?'✕ Cancel':'✎ Draw';
+    if(SEC.drawing&&!$v('m3d-show-zslice').checked){$v('m3d-show-zslice').checked=true;}
+    updateSectionRow(); schedule3D();
   });
 })();
 function secNice(v){const p=10**Math.floor(Math.log10(Math.max(v,1e-12))),f=v/p;return (f<1.5?1:f<3.5?2:f<7.5?5:10)*p;}
@@ -3211,6 +3237,12 @@ function drawSection2D(mode){
       ctx.beginPath();ctx.moveTo(toX(l.a[0]),toY(l.a[1]));ctx.lineTo(toX(l.b[0]),toY(l.b[1]));ctx.stroke();ctx.setLineDash([]);
       if(l===P){ctx.font='bold 11px sans-serif';ctx.fillStyle=c;ctx.textAlign='center';
         ctx.fillText('A',toX(l.a[0]),toY(l.a[1])-5);ctx.fillText('B',toX(l.b[0]),toY(l.b[1])-5);}
+    }
+    if(SEC.drawing){
+      if(SEC.drawA){ctx.fillStyle='#ef6f6c';ctx.beginPath();ctx.arc(toX(SEC.drawA[0]),toY(SEC.drawA[1]),4,0,2*Math.PI);ctx.fill();}
+      const msg=SEC.drawA?'Now click B (Esc to cancel)':'Click A, the start of the profile (Esc to cancel)';
+      ctx.font='bold 11px sans-serif';ctx.textAlign='center';ctx.lineWidth=4;ctx.strokeStyle='rgba(14,19,26,.9)';
+      ctx.strokeText(msg,pad.l+pw/2,pad.t+16);ctx.fillStyle='#ef6f6c';ctx.fillText(msg,pad.l+pw/2,pad.t+16);
     }
     canvas._tf={x:px=>hMin+(px-pad.l)/pw*(hMax-hMin), y:py=>vTop+(py-pad.t)/ph*(vBot-vTop), box};
   }

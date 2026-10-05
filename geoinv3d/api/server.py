@@ -1543,7 +1543,10 @@ def robustness(job_id: str, grid: bool = False):
     if not get_store().get(job_id):
         raise HTTPException(status_code=404, detail="Unknown job")
     members, done, models = _robust_models(job_id)
+    took = [(m["stopped"] - m["started"]) / 60000.0 for m in done if m.get("started") and m.get("stopped")]
     out = {"job_id": job_id, "n_runs": len(members), "n_done": len(done),
+           "group_label": members[0].get("group_label") if members else None,
+           "minutes_per_run": round(float(np.median(took)), 2) if took else None,
            "runs": [{"job_id": m["job_id"], "variant": m.get("variant"), "status": m.get("display_status"),
                      "chi2_per_datum": ((m.get("summary") or {}).get("convergence") or {}).get("chi2_per_datum")}
                     for m in members]}

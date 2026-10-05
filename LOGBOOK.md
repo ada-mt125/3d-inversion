@@ -1764,3 +1764,13 @@ slices it. A body is above 25 % of the run's 98th percentile sampled evenly thro
 times). The node has "🧪 Check robustness" and then the runs and the summary; the 3D view
 draws the robust bodies (gold) and colours slices by the agreement on request. Tested on a
 small run: six runs in about two minutes, all χ²/N 0.98-1.08.
+
+## 2026-10-05 — The robustness check shows its progress; profiles drawn by clicking
+
+The user started a check and saw no change: the runs were queued on this computer (six
+after six, about 1.5 min each at 75 m), but the node kept "Starting…" (it refilled the
+selected node, which could be another). It now refills the run's own node at once and every
+15 s: how many runs are left, about how long (the median of those finished,
+`minutes_per_run`), and the group's name on the Jobs page. The profile A-B has a ✎ Draw
+button: click A, then B on the depth slice (the line follows the pointer; Esc cancels; a drag
+still works), the depth slice saying what to do.
