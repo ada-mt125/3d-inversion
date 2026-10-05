@@ -78,6 +78,19 @@ class TestBuildWorkflow:
         assert m3["nx"] * m3["ny"] * m3["nz"] == len(m3["values"])
         assert m3["nx"] >= 6 and m3["nz"] >= 4
 
+    def test_an_mvi_run_gets_its_own_survey_node(self, tmp_path):
+        """The same data modelled as magnetization vectors: a Survey node (and tree) of its
+        own, named MVI, instead of telling them apart only at the result."""
+        _, z, _ = _run(tmp_path)
+        induced, mvi = load_result(z), load_result(z)
+        mvi["settings"] = {**mvi.get("settings", {}), "magnetization": "vector"}
+        wf = build_workflow([induced, mvi])
+        surveys = [n for n in wf["nodes"] if n["type"] == "SurveyCreateNode"]
+        assert len(surveys) == 2
+        assert [n["name"].startswith("MVI ") for n in surveys] == [False, True]
+        assert surveys[1]["params"]["magnetization"] == "vector (MVI)"
+        assert "magnetization" not in surveys[0]["params"]
+
     def test_runs_on_different_meshes_get_their_own_mesh_node(self, tmp_path):
         (tmp_path / "a").mkdir()
         (tmp_path / "b").mkdir()

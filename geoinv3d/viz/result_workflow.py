@@ -452,11 +452,18 @@ def _mesh_key(run) -> str:
                       sort_keys=True)
 
 
+def is_mvi(run) -> bool:
+    """A magnetization-vector (MVI) run: three components per cell, remanence allowed."""
+    return (run.get("settings") or {}).get("magnetization") == "vector" \
+        or str(run.get("regularization") or "").startswith("mvi")
+
+
 def _data_key(run) -> tuple:
     """Runs on the same data share a Survey node and a tree; a run's ``_study`` label
-    (optional) keeps the runs of different studies of the same data in trees of their own."""
+    (optional) keeps the runs of different studies of the same data in trees of their own,
+    and MVI runs (the data modelled as magnetization vectors) are a tree of their own too."""
     d = run["_data"]
-    return (run.get("_study"), len(d["observed"]), round(float(np.sum(d["locations"][:, :2])), 3),
+    return (run.get("_study"), is_mvi(run), len(d["observed"]), round(float(np.sum(d["locations"][:, :2])), 3),
             round(float(np.sum(d["observed"])), 6))
 
 
@@ -530,8 +537,9 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
             nodes.append({
                 "id": node_id, "type": "SurveyCreateNode",
                 "name": (f"{run['_study']} · " if run.get("_study") else "")
-                + f"{rds['method']} · {len(observed)} stations", "inputs": [],
+                + ("MVI " if is_mvi(run) else "") + f"{rds['method']} · {len(observed)} stations", "inputs": [],
                 "params": {"method": rds["method"], "component": rds.get("component"),
+                           **({"magnetization": "vector (MVI)"} if is_mvi(run) else {}),
                            "files": rds.get("files"), "noise_pct": rds.get("noise_pct"),
                            "noise_floor": rds.get("noise_floor")},
                 "output": {"type": "SurveyData", "n_stations": int(len(observed)),

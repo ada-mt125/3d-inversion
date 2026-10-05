@@ -2004,3 +2004,31 @@ the DEM adds about 15 %): 152,413 cells for 4/4/4, 237,874 for 6/6/6, 319,171 fo
 (40 m cells to 200 m, 80 m to 600 m, 160 m to 1,400 m; 9.1 GB with 4,489 magnetic data),
 444,002 for 10/10/10, 576,233 for 12/12/12. Before the server answers, the page estimates
 2.38 a + 0.57 (b + c) − 5.7 cells per finest column (within 16 % of those counts).
+
+## 2026-10-05 — Block 8 with the rock-sample bounds; MVI as a survey of its own
+
+Runs on the 5 km window (OcTree 40 x 25 m, refinement 8/8/8, sparse 0, 2, 2, 1, sensitivity
+weights; gravity: the 8 NGPM stations in the window, complete Bouguer anomaly, a plane removed,
+0.5 mGal; magnetics as before, 75 m), bounds from measured_by_rock_type.csv (block: density
+2.60-3.40 g/cc, so -0.07 to +0.73 g/cc against the 2.67 reduction density; susceptibility
+0 to 0.0549 SI, the BIF's 95th percentile):
+
+* gravity χ²/N 0.93; magnetics χ²/N 116 and the joint run χ²/N 116 (64 % of the core at the
+  0.0549 cap, the largest anomaly predicted 981 nT of 8,845). A forward check shows why: at
+  0.0549 SI even a 2 x 2 x 2 km block under the survey gives only -775 to +670 nT at 80 m
+  (a 200 m band needs 1.9 SI for +8,845 nT); the hand samples' induced magnetization
+  cannot make these anomalies, so remanence (the MVI cells point at I 58°, D 174°, against
+  the field's I 19°, D -1°) or fresh magnetite at depth (two weathered BIF samples) must.
+* With κ ≤ 3 SI: magnetics χ²/N 0.95, MVI (±3 SI a component, 112.5 m data, 2,025 x
+  306,107 x 3) 0.96, joint 1.01 (gravity 0.97, magnetics 1.01). By volume, 47 % (SI) and
+  75 % (MVI) of the cells above 0.055 SI under the stations were deeper than 1 km.
+* No sources below 1 km (`max_source_depth_m`, the BIF lying in the top kilometre): χ²/N
+  0.94, RMS 129 nT against 126 — the data do not need the deep ones; the strong cells now
+  lie at 266 / 644 / 936 m (10 / 50 / 90 % by volume).
+
+Depths of a model's cells are now given by volume: by count the octree's many small cells
+near the surface made the strong cells look shallow (91 / 236 / 655 m for the same cells).
+
+MVI and induced runs on the same data shared one Survey node and differed only at the
+result. `result_workflow.is_mvi` puts the magnetization in the data key: an MVI run gets a
+Survey node (and tree) of its own, named "MVI magnetics · N stations".
