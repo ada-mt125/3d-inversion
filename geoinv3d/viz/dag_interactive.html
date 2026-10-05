@@ -567,16 +567,11 @@ svg#dag:active{cursor:grabbing;}
           <button id="m3d-mode-rotate" class="m3d-mode active" data-mode="turntable">Rotate</button>
           <button id="m3d-mode-pan" class="m3d-mode" data-mode="pan">Pan</button>
         </div>
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);" title="Shells stay at 20, 40, 60 and 80 % of the base below; the threshold adds the outermost one and hides those below it, so a higher threshold peels the bodies layer by layer">Threshold</div>
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);" title="Shells stay at 20, 40, 60 and 80 % of the colour bar's max; the threshold adds the outermost one and hides those below it, so a higher threshold peels the bodies layer by layer">Threshold (% of the colour bar's max)</div>
         <div style="display:flex;align-items:center;gap:6px;">
           <input type="range" id="m3d-thresh" min="5" max="90" value="20" style="flex:1;accent-color:var(--accent);">
           <span id="m3d-thresh-disp" style="font-size:11px;color:var(--accent);min-width:30px;white-space:nowrap;">20%</span>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text2);">% of
-          <select id="m3d-thrbase" class="m3d-cmp-sel" style="flex:1" title="The colour bar's max: what the slices show is drawn too. The largest value: only the strongest bodies (a few extreme cells then hide all the rest, as before)">
-            <option value="cbar">the colour bar's max (as the slices)</option>
-            <option value="max">the largest value (only the strongest)</option>
-          </select></label>
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text3);">Opacity</div>
         <div style="display:flex;align-items:center;gap:6px;">
           <input type="range" id="m3d-opacity" min="10" max="100" value="100" style="flex:1;accent-color:var(--accent);">
@@ -633,6 +628,7 @@ svg#dag:active{cursor:grabbing;}
           <div id="m3d-cbar2-ticks" style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);"></div>
         </div>
         <div id="m3d-stats" style="font-size:10px;color:var(--text3);"></div>
+        <div id="m3d-extreme" class="up-warn" style="font-size:10px;line-height:1.45;" hidden></div>
         <button id="m3d-reset" style="font-size:11px;padding:6px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer;">&#8635; Reset View</button>
       </div>
     </div>
@@ -2525,19 +2521,10 @@ const M3D_LEVELS=[0.2,0.4,0.6,0.8];   // the fixed shells, shares of the colour 
 // stop there.  Only the display; the model is unchanged.
 let m3dShowDepth=null;
 try{const v=parseFloat(localStorage.getItem('geoinv3d.showDepth')); if(v>0)m3dShowDepth=v;}catch(e){}
-// What the threshold and the fixed shells are shares of: the colour bar's |max| (L, as the
-// slices), or the largest |value| shown (only the strongest bodies; a few extreme cells then
-// hide all the rest, as the 3D view did before it took the slices' colour range)
-let m3dThrBase='cbar';
-try{if(localStorage.getItem('geoinv3d.thrBase')==='max')m3dThrBase='max';}catch(e){}
-function m3dBase(vals,L){
-  if(m3dThrBase!=='max')return L;
-  let mx=0; for(const q of vals){const a=Math.abs(q); if(a>mx)mx=a;} return mx||L;
-}
+// The threshold's value, next to its slider
 function m3dThrText(){
   const pct=+$v('m3d-thresh').value, g=m3dGrid; if(!g)return pct+'%';
-  const B=m3dBase(m3dShown(g,g.rec,'rec'),g.scale.L);
-  return `${pct}% = ${fmtN(+(B*pct/100).toPrecision(2))}`;
+  return `${pct}% = ${fmtN(+(g.scale.L*pct/100).toPrecision(2))}`;
 }
 // A grid's values with those deeper than the display depth set to 0 (kept per grid and depth)
 function m3dShown(g,vals,tag){
@@ -2559,15 +2546,15 @@ function m3dBottom(m){
 // meshes are kept in g.geo under ``tag``.
 function m3dNested(g,vals,L,tag,name,color){
   vals=m3dShown(g,vals,tag);
-  const B=m3dBase(vals,L), thr=B*(+$v('m3d-thresh').value)/100, out=[], D=m3dShowDepth>0?m3dShowDepth:'';
+  const thr=L*(+$v('m3d-thresh').value)/100, out=[], D=m3dShowDepth>0?m3dShowDepth:'';
   for(const sgn of [1,-1]){
     const peak=sgn>0?arrMax(vals):-arrMin(vals);
-    const levels=[thr,...M3D_LEVELS.map(f=>f*B).filter(v=>v>thr+0.06*B)].filter(v=>v>0&&v<peak);
+    const levels=[thr,...M3D_LEVELS.map(f=>f*L).filter(v=>v>thr+0.06*L)].filter(v=>v>0&&v<peak);
     for(const v of levels){
       const iso=sgn*v;
       out.push({trace:{type:'isosurface',x:g.x,y:g.y,z:g.z,value:vals,name,caps:M3D_NO_CAPS,
         isomin:iso,isomax:iso,surface:{count:1,fill:1}},
-        cache:g.geo,key:`${tag}|${D}|${iso.toPrecision(8)}`,color,alpha:q=>m3dAlpha(q,B)});
+        cache:g.geo,key:`${tag}|${D}|${iso.toPrecision(8)}`,color,alpha:q=>m3dAlpha(q,L)});
     }
   }
   return out;
@@ -2969,7 +2956,7 @@ function init3D(n) {
   // threshold, fading in
   const drawCbar=()=>{
     const cctx=$v('m3d-cbar').getContext('2d'), L=sc3.L;
-    const thr=m3dThrBase==='max'?0:L*(+$v('m3d-thresh').value)/100;
+    const thr=L*(+$v('m3d-thresh').value)/100;
     cctx.clearRect(0,0,200,20);
     for(let i=0;i<200;i++){
       const v=vmin+(vmax-vmin)*(i+0.5)/200;
@@ -2993,7 +2980,7 @@ function init3D(n) {
     $v('m3d-cbar2-wrap').style.display=o?'flex':'none';
     if(!o)return;
     const [omin,omax]=o.scale?[o.scale.lo,o.scale.hi]:modelRange([o.vals]), cctx=$v('m3d-cbar2').getContext('2d'), L=Math.max(Math.abs(omin),Math.abs(omax));
-    const thr=m3dThrBase==='max'?0:L*(+$v('m3d-thresh').value)/100;
+    const thr=L*(+$v('m3d-thresh').value)/100;
     cctx.clearRect(0,0,200,20);
     for(let i=0;i<200;i++){
       const v=omin+(omax-omin)*(i+0.5)/200;
@@ -3015,15 +3002,20 @@ function init3D(n) {
       (m3dOther?`<br>Compared (${escH(m3dOther.label)}): ${rng(m3dOther.m3.values)} ${escH(m3dOther.unit)}`:'');
   }
   showStats();
+  // A few cells far above the colour bar (an Lp p = 0 or unbounded run's can reach 1000
+  // times the rest): say so, as the colour bar and the threshold leave them out of the scale
+  {
+    let mx=0; for(const q of m3.values){const a=Math.abs(q); if(a>mx)mx=a;}
+    const ex=$v('m3d-extreme'), ratio=mx/(sc3.L||1);
+    ex.hidden=!(ratio>10);
+    if(!ex.hidden)ex.innerHTML=`⚠ Some cells reach ${fmtN(+mx.toPrecision(3))}, ${Math.round(ratio).toLocaleString('en-US')}× the top of the colour bar: `+
+      `far above the rest of this model, they are drawn in its darkest colour and do not set the scale. `+
+      `Values like these are not rock properties but the regularization's (few cells, deep or in the padding): `+
+      `re-run with an upper bound, or a max source depth (↻ Run again with changes).`;
+  }
 
   const bind=(id,fn)=>{const e=$v(id);if(e){e.oninput=fn;e.onchange=fn;}};
   bind('m3d-thresh',()=>{$v('m3d-thresh-disp').textContent=m3dThrText();drawCbar();drawCbar2();schedule3D(true);});
-  $v('m3d-thrbase').value=m3dThrBase;
-  $v('m3d-thrbase').onchange=()=>{
-    m3dThrBase=$v('m3d-thrbase').value;
-    try{localStorage.setItem('geoinv3d.thrBase',m3dThrBase);}catch(e){}
-    $v('m3d-thresh-disp').textContent=m3dThrText(); drawCbar(); drawCbar2(); schedule3D(true); updateSectionRow();
-  };
   let recolorTimer=null;   // the opacity only changes the alphas: no re-plot
   bind('m3d-opacity',()=>{
     $v('m3d-opacity-disp').textContent=$v('m3d-opacity').value+'%';
@@ -3402,7 +3394,7 @@ function drawSection2D(mode){
   if(m3dOther){
     const ov=secOtherValues(d,mode);
     if(ov){
-      const thr=m3dBase(m3dOther.m3.values,m3dScale(m3dOther.m3).L)*(+$v('m3d-thresh').value)/100;
+      const thr=m3dScale(m3dOther.m3).L*(+$v('m3d-thresh').value)/100;
       const S=ov.map(r=>r.map(q=>q==null?0:q>=thr?1:q<=-thr?-1:0));
       const xe=i=>toX(hMin+i*dh), ye=k=>toY(vA+k*dv);
       ctx.lineWidth=1.6;

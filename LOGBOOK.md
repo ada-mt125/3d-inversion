@@ -1970,3 +1970,21 @@ strongest)", next to the default "% of the colour bar's max (as the slices)": th
 and the fixed shells are then shares of the largest |value| shown (`m3dBase`), the colours
 stay the shared scale (saturated), and the colour bars no longer blank inside a threshold
 beyond them. The threshold's value is shown next to the slider ("20% = 8").
+
+## 2026-10-05 — One threshold again; a note on extreme cells
+
+The user found the two threshold bases (colour bar / largest value) one too many, and wanted
+neither the faint values nor the extreme ones. In their workspace the extreme ones belong to
+one run: node 14, local-e43be0cd791d (MVI, Lp 0, 1, 1, 1, sensitivity weights, no bounds):
+up to 195 on the mesh (92 % of its anomaly in the padding, its own warning) and 40 in the 3D
+grid, 1,672 times the top of its colour bar (its 99th percentile, 0.024). Node 10,
+local-52e170aaf9d2, is an L1-L2 re-run with bounds [0, 3]: nothing above 3, and over 1 % of
+its cells at the cap. Hiding the extreme cells cannot be done by a threshold: on node 14
+the cells above 10 times the colour bar's top are joined to everything shown at the default
+threshold (labelled bodies: 100 % of the shown volume would go), and cutting them alone
+leaves hollows; every other run has none (largest value 1-2.4 times the colour bar's top).
+So the threshold is a share of the colour bar's max again (the select is gone, its value
+shown as "20% = 0.38"), and a run whose largest value is more than 10 times the top of its
+colour bar says so under the colour bar: those cells are drawn in its darkest colour, do
+not set the scale, and point to a re-run with an upper bound (the MVI bounds each
+component) or a max source depth.
