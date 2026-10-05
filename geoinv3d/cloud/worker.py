@@ -2958,9 +2958,16 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
 
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
     if mesh_type == "octree":
+        # layers of the finest cells under the ground, then of 2x and 4x their size
+        levels = [int(v) for v in (params.get("octree_levels") or [4, 4, 4])]
+        if len(levels) < 1 or levels[0] < 1 or any(v < 0 or v > 64 for v in levels):
+            raise ValueError(f"octree_levels must be whole numbers 0-64, the first at least 1, "
+                             f"got {params.get('octree_levels')}")
+        mesh_design["used"]["octree_levels"] = levels
+        print(f"[Pipeline] OcTree refinement under the ground: {levels} layers "
+              f"(finest {core_cell_m:g} x {core_cell_z_m:g} m cells to {levels[0] * core_cell_z_m:g} m)")
         mesh = _build_octree_mesh(
-            extent, surface, core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m,
-            params.get("octree_levels", [4, 4, 4]),
+            extent, surface, core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m, levels,
         )
     elif mesh_type == "tensor":
         mesh = _build_tensor_mesh(

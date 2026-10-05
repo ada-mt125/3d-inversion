@@ -1988,3 +1988,19 @@ shown as "20% = 0.38"), and a run whose largest value is more than 10 times the 
 colour bar says so under the colour bar: those cells are drawn in its darkest colour, do
 not set the scale, and point to a re-run with an upper bound (the MVI bounds each
 component) or a max source depth.
+
+## 2026-10-05 — The OcTree's refinement under the ground, chosen on the page
+
+The OcTree refined only 4 layers of the finest cells under the ground (`refine_surface`
+with `padding_cells_by_level` [4, 4, 4]: on the Block-8 window, 40 x 25 m cells to 100 m,
+80 x 50 m to 300 m, 160 x 100 m to 700 m), which the user found coarse. Upload → Mesh now
+has "Finest-cell layers", "2× cell layers" and "4× cell layers" (OcTree only), the depths
+they reach, the cells counted by the server on the mesh the job builds (`/api/mesh/cells`
+with `octree_levels`) and the job's memory (sensitivities × 1.5 + 0.5 GB) against the
+computer's. `run_data_pipeline` checks them (whole numbers 0-64, the first at least 1) and
+records them in `mesh_design.used`, so runs with different refinement get their own mesh
+node; ↻ Run again with changes takes them too. On the 5 km window at 40 m (flat ground;
+the DEM adds about 15 %): 152,413 cells for 4/4/4, 237,874 for 6/6/6, 319,171 for 8/8/8
+(40 m cells to 200 m, 80 m to 600 m, 160 m to 1,400 m; 9.1 GB with 4,489 magnetic data),
+444,002 for 10/10/10, 576,233 for 12/12/12. Before the server answers, the page estimates
+2.38 a + 0.57 (b + c) − 5.7 cells per finest column (within 16 % of those counts).

@@ -907,3 +907,25 @@ class TestMaxSourceDepth:
         with pytest.raises(ValueError, match="within"):
             run_data_pipeline(_single("gravity", ["grav.grd"], **SMALL_MESH, max_source_depth_m=1.0),
                               str(grav_grid_dir))
+
+
+class TestOctreeLevels:
+    """The OcTree's refinement under the ground: more layers of the finest cells."""
+
+    def test_more_layers_more_fine_cells(self, grav_grid_dir, capture):
+        n = {}
+        for levels in ([4, 4, 4], [8, 8, 8]):
+            params = _single("gravity", ["grav.grd"], mesh_type="octree", core_cell_m=50.0,
+                             core_cell_z_m=25.0, depth_core_m=400.0, pad_distance_m=200.0,
+                             octree_levels=levels)
+            result = run_data_pipeline(params, str(grav_grid_dir))
+            mesh = capture["mesh"].to_discretize()
+            fine = np.isclose(mesh.h_gridded[:, 2], 25.0)
+            n[tuple(levels)] = int(fine.sum())
+            assert result["mesh_design"]["used"]["octree_levels"] == levels
+        assert n[(8, 8, 8)] > 1.5 * n[(4, 4, 4)]
+
+    def test_bad_levels(self, grav_grid_dir):
+        with pytest.raises(ValueError, match="octree_levels"):
+            run_data_pipeline(_single("gravity", ["grav.grd"], mesh_type="octree", octree_levels=[0, 4, 4]),
+                              str(grav_grid_dir))

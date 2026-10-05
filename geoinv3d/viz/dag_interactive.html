@@ -830,6 +830,12 @@ svg#dag:active{cursor:grabbing;}
                 <div class="up-col"><label class="up-lbl" for="up-mesh-depth">Core depth (m)</label><input id="up-mesh-depth" type="number" class="up-in" min="0" step="any" value="3000"></div>
                 <div class="up-col"><label class="up-lbl" for="up-mesh-pad">Padding distance (m)</label><input id="up-mesh-pad" type="number" class="up-in" min="0" step="any" value="2000"></div>
               </div>
+              <div class="up-row up-4" id="up-oct-row">
+                <div class="up-col"><label class="up-lbl" for="up-oct-1" title="OcTree: how many layers of the finest cells lie under the ground (then as many of twice their size, then of four times; coarser below)">Finest-cell layers</label><input id="up-oct-1" type="number" class="up-in" min="1" max="64" step="1" value="4"></div>
+                <div class="up-col"><label class="up-lbl" for="up-oct-2">2× cell layers</label><input id="up-oct-2" type="number" class="up-in" min="0" max="64" step="1" value="4"></div>
+                <div class="up-col"><label class="up-lbl" for="up-oct-3">4× cell layers</label><input id="up-oct-3" type="number" class="up-in" min="0" max="64" step="1" value="4"></div>
+                <div class="up-col"><div class="up-note" id="up-oct-depths" style="margin-top:18px"></div></div>
+              </div>
               <div class="up-row up-4">
                 <div class="up-col"><label class="up-lbl" for="up-max-src" title="Gravity and magnetics: the cells deeper than this below the ground are taken out of the model (like the air), so no source can sit there and the data are fitted by the ones above">Max source depth (m)</label><input id="up-max-src" type="number" class="up-in" min="0" step="any" placeholder="none"></div>
                 <div class="up-col" style="grid-column:span 3"><div class="up-note" style="margin-top:18px">Optional, gravity and magnetics: no sources deeper than this below the ground (when you know, e.g. from geology, that the deep ones are not real). Compare the misfit with and without it: if the data cannot be fitted, the depth is too shallow.</div></div>
@@ -4154,7 +4160,7 @@ const RR_FIELDS=[
     ['depth_weighting_exponent','Depth weighting β','num'],['bounds_lower','Lower bound','num'],['bounds_upper','Upper bound','num']]],
   ['Mesh',[['core_cell_m','Horizontal cell (m)','num'],['core_cell_z_m','Vertical cell (m)','num'],
     ['depth_core_m','Core depth (m)','num'],['pad_distance_m','Padding (m)','num'],
-    ['max_source_depth_m','Max source depth (m)','num']]],
+    ['max_source_depth_m','Max source depth (m)','num'],['octree_levels','OcTree layers (finest, 2×, 4×)','levels']]],
 ];
 function rrGet(p,key){
   if(key.startsWith('ds')){const [,i,k]=key.split(':');const d=(p.datasets||[])[+i];return d?d[k]:undefined;}
@@ -4172,7 +4178,7 @@ function rrSet(p,key,v){
 function rrShow(key,type,v){
   if(v==null)return '';
   if(v==='auto')return 'auto';            // automatic data errors (worker.auto_noise)
-  if(type==='norms')return Array.isArray(v)?v.join(', '):'';
+  if(type==='norms'||type==='levels')return Array.isArray(v)?v.join(', '):'';
   if(type==='pct')return +(v*100).toPrecision(6);
   return v;
 }
@@ -4183,6 +4189,8 @@ function rrRead(type,raw){
   if((type==='pct'||type==='num')&&raw.toLowerCase()==='auto')return 'auto';
   if(type==='norms'){const a=raw.split(/[\s,;]+/).filter(Boolean).map(Number);
     if(a.length!==4||a.some(x=>!(x>=0&&x<=2)))throw new Error('Norms need four numbers between 0 and 2');return a;}
+  if(type==='levels'){const a=raw.split(/[\s,;]+/).filter(Boolean).map(Number);
+    if(a.length!==3||a.some(x=>!(Number.isInteger(x)&&x>=0&&x<=64))||a[0]<1)throw new Error('OcTree layers: three whole numbers (finest ≥ 1), e.g. 8, 8, 8');return a;}
   const v=Number(raw); if(!Number.isFinite(v))throw new Error(`“${raw}” is not a number`);
   if(type==='int'&&!(Number.isInteger(v)&&v>0))throw new Error('Iterations must be whole numbers above 0');
   return type==='pct'?v/100:v;
@@ -4310,11 +4318,15 @@ const GeoMesh=(function(){
   // the finest cells under the surface, then 4 of twice and 4 of four times their size
   // (octree_levels [4, 4, 4]), and coarsens the padding and the deep core.  Counted on 5 km
   // windows that is 9–15 cells per finest column: 167,552 at 37.5 m, 109,424 at 50 m,
-  // 51,264 at 75 m, 38,036 at 100 m.  The server counts the real mesh (/api/mesh/cells).
+  // 51,264 at 75 m, 38,036 at 100 m.  More layers (``levels`` [a, b, c]) refine wider too:
+  // on the 5 km Block-8 window at 40 m, 2.38 a + 0.57 (b + c) − 5.7 cells per finest column
+  // (152,413 cells for 4/4/4, 319,171 for 8/8/8, 576,233 for 12/12/12; within 16 %).  The
+  // server counts the real mesh (/api/mesh/cells).
   const OCTREE_CELLS_PER_COLUMN=12;
-  function octreeCells(ext,h){
+  function octreeCells(ext,h,levels){
     const n=a=>Math.max(MIN_CORE_CELLS,Math.ceil(a/h));
-    return OCTREE_CELLS_PER_COLUMN*n(ext[1]-ext[0])*n(ext[3]-ext[2]);
+    const per=levels&&levels.join(',')!=='4,4,4'?Math.max(6,2.38*levels[0]+0.573*(levels[1]+levels[2])-5.7):OCTREE_CELLS_PER_COLUMN;
+    return per*n(ext[1]-ext[0])*n(ext[3]-ext[2]);
   }
   // octree: budget the cells of an octree instead of the tensor mesh (page only)
   function recommend(ext,spacing,nData,maxCells=MAX_CELLS,maxBytes=8e9,octree=false){
@@ -5231,6 +5243,8 @@ window.GeoPreview=GeoPreview;
     // mesh and area (the window is placed once the files have been read)
     MESH_INPUTS.forEach(([k,id])=>{if(p[k]!=null)$u(id).value=p[k];});
     $u('up-max-src').value=p.max_source_depth_m??'';
+    const lv=Array.isArray(p.octree_levels)&&p.octree_levels.length===3?p.octree_levels:[4,4,4];
+    ['up-oct-1','up-oct-2','up-oct-3'].forEach((id,i)=>{$u(id).value=lv[i];});
     if(MESH_INPUTS.some(([k])=>p[k]!=null))meshEdited=true;
     if(setv('upload-mesh',page.mesh_type||p.mesh_type))fire('upload-mesh');
     pendingAoi=page.aoi||p.aoi||null;
@@ -6886,10 +6900,15 @@ window.GeoPreview=GeoPreview;
       (where==='local'?'a preview, or AWS':'or a bigger instance'));
     if(n>GeoMesh.MAX_CELLS)warn.push(`more than ${fmtInt(GeoMesh.MAX_CELLS)} cells — runs will be slow`);
     if(v.core_cell_m<0.5*analysis.spacing)warn.push('cells much finer than the data spacing add cost but little resolution');
+    $u('up-oct-depths').innerHTML=octree?octDepths(v):'';
+    // the job's memory: SimPEG holds the float32 sensitivities about once and a half, + 0.5 GB
+    const jobGb=g*1.5/1e9+0.5, ramGb=ram/1e9;
     est.innerHTML=(octree?`OcTree: <b>${counted?'':'≈ '}${fmtInt(n)}</b> cells below the ground`+
         `<span class="up-en"> (${counted?'counted on the mesh the job builds':counted===undefined?'estimated; counting the mesh…':'estimated'})</span> · `
       :`Mesh size: <b>${shape.join(' × ')}</b> = <b>${fmtInt(n)}</b> cells · `)+
       `sensitivity matrix ≈ <b>${fmtBytes(g)}</b> for ${fmtInt(analysis.nData)} data${comp>1?' (MVI: 3 components per cell)':''}`+
+      ` · the job needs ≈ <b>${jobGb.toFixed(1)} GB</b> of the ${ramGb.toFixed(0)} GB ${where==='local'?'of this computer':'of '+$u('upload-instance').value}`+
+      (jobGb>0.8*ramGb?' <span class="up-err">— too much</span>':'')+
       (octree?`<br><span class="up-en">OcTree keeps the finest cells only in the top layers; a tensor mesh of these cells would have ${fmtInt(shape[0]*shape[1]*shape[2])}.</span>`:'')+
       (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
       warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
@@ -6903,7 +6922,21 @@ window.GeoPreview=GeoPreview;
       if(k!=='pad_distance_m'&&!(v[k]>0))throw new Error(`The ${label} must be greater than 0`);
     }
     if(v.depth_core_m<v.core_cell_z_m)throw new Error('The core depth must be at least one vertical cell');
+    if($u('upload-mesh').value==='octree')v.octree_levels=octLevels();
     return v;
+  }
+  // OcTree refinement under the ground: layers of the finest cells, then of 2x and 4x
+  function octLevels(){
+    const lv=[['up-oct-1','finest-cell layers',1],['up-oct-2','2× cell layers',0],['up-oct-3','4× cell layers',0]]
+      .map(([id,label,min])=>num(id,label,{min,integer:true}));
+    if(lv.some(n=>n>64))throw new Error('At most 64 layers per cell size');
+    return lv;
+  }
+  function octDepths(v){
+    const [a,b,c]=v.octree_levels||[4,4,4], h=v.core_cell_m, dz=v.core_cell_z_m;
+    const d1=a*dz, d2=d1+b*2*dz, d3=d2+c*4*dz;
+    return `${fmtLen(h)} × ${fmtLen(dz)} cells to <b>${fmtLen(d1)}</b> below the ground`+
+      (b?`, ${fmtLen(2*h)} × ${fmtLen(2*dz)} to <b>${fmtLen(d2)}</b>`:'')+(c?`, ${fmtLen(4*h)} × ${fmtLen(4*dz)} to <b>${fmtLen(d3)}</b>`:'')+'; coarser below';
   }
 
   // Mesh settings sent with every job, with how they were chosen
@@ -6916,6 +6949,9 @@ window.GeoPreview=GeoPreview;
   }
 
   MESH_INPUTS.forEach(([,id])=>$u(id).addEventListener('input',()=>{meshEdited=true;renderMesh();}));
+  ['up-oct-1','up-oct-2','up-oct-3'].forEach(id=>$u(id).addEventListener('input',()=>renderMesh()));
+  const octRow=()=>{$u('up-oct-row').hidden=$u('upload-mesh').value!=='octree';};
+  $u('upload-mesh').addEventListener('change',octRow); octRow();
   $u('upload-instance').addEventListener('change',recommend);
 
   // ── Step 2: area of interest and data density ──
@@ -7560,6 +7596,7 @@ window.GeoPreview=GeoPreview;
       ['Inversion',modeTxt],
       ['Topography',topoFile?`DEM: ${escH(topoFile.name)}`:`Flat at ${escH(p.topography.flat_elevation)} m`],
       ['Mesh',`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
+        (m.octree_levels?` · refined ${m.octree_levels.join('/')} layers`:'')+
         (p.max_source_depth_m?` · <b>no sources below ${fmtLen(p.max_source_depth_m)}</b>`:'')+
         (cells?` · ≈ ${fmtInt(cells)} cells`:'')+(meshEdited?' (edited)':recommended?' (recommended)':'')],
       ['Compute',($u('up-preview').checked?'Preview on this computer first, then ':'')+
@@ -7847,7 +7884,7 @@ window.GeoPreview=GeoPreview;
   // mesh the job would build (flat ground), GeoMesh.octreeCells until it answers
   function meshCells(m){
     const ext=analysis.extent;
-    if($u('upload-mesh').value==='octree')return meshCount(m)||GeoMesh.octreeCells(ext,m.core_cell_m);
+    if($u('upload-mesh').value==='octree')return meshCount(m)||GeoMesh.octreeCells(ext,m.core_cell_m,m.octree_levels);
     return GeoMesh.tensorShape(ext,m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m).reduce((a,b)=>a*b,1);
   }
   // Octree counts by window and mesh settings: a number, null (too large to build), or
@@ -7855,7 +7892,7 @@ window.GeoPreview=GeoPreview;
   const MESH_COUNTS=new Map();
   let meshCountTimer=null;
   function meshCount(m){
-    const key=JSON.stringify([analysis.extent.map(Math.round),m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m]);
+    const key=JSON.stringify([analysis.extent.map(Math.round),m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m,m.octree_levels||null]);
     if(MESH_COUNTS.has(key))return MESH_COUNTS.get(key);
     clearTimeout(meshCountTimer);
     meshCountTimer=setTimeout(async()=>{
@@ -7864,7 +7901,8 @@ window.GeoPreview=GeoPreview;
       try{
         const r=await fetch(apiBase()+'/api/mesh/cells',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({extent:analysis.extent,core_cell_m:m.core_cell_m,core_cell_z_m:m.core_cell_z_m,
-            depth_core_m:m.depth_core_m,pad_distance_m:m.pad_distance_m,mesh_type:'octree'})});
+            depth_core_m:m.depth_core_m,pad_distance_m:m.pad_distance_m,mesh_type:'octree',
+            ...(m.octree_levels?{octree_levels:m.octree_levels}:{})})});
         const d=await r.json();
         MESH_COUNTS.set(key,r.ok&&d.ok&&!d.too_large?d.n_cells:null);
       }catch(err){MESH_COUNTS.set(key,null);}     // no server: keep the estimate
