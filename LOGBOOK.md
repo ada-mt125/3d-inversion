@@ -1724,3 +1724,23 @@ property gives way to it; a true model stays.
 
 Also: /api/workflow refused an unknown id only after _refresh had stored an empty "FAILED"
 record of it; it now looks the id up first.
+
+## 2026-10-05 — Slices at the mesh's resolution, and a profile across the strike
+
+The 3D tab's depth slice and sections were drawn from its grid, coarsened for the browser
+(40 m cells over 5 km: 80 m). `viz/sections.py` samples a result's own mesh at half its
+finest cells (at most 400 samples a side, 300 down): `ResultModel.plan(level, ref)`,
+`.line(a, b, ref)` with ``ref`` "ground" (depth below the ground, the ground at 0) or
+"elev" (cells above the ground blank), and `.strike_profile()`: the principal axis of the
+strongest cells on a depth slice, the profile across it through their centre (the user's
+window: strike 140°, the NW-SE iron-formation belt). `GET /api/inversion/{id}/section`
+serves them (the last six models kept in memory; a 296 × 200 section, 0.6 MB, in 0.01 s).
+
+The page draws every slice with one renderer: an image at the samples' resolution,
+smoothed; turbo from 0 to the 99th percentile for models without negative values, the
+diverging map for signed ones; its own colour bar; equal scales in plan; the ground line on
+elevation sections; map layers (on any line, via a frame); the compared run's outline at
+the same resolution. A new Profile A-B panel follows the strike by default, any line
+dragged on the depth slice replaces it ("back across the strike" restores it), and its
+plane is outlined in 3D. "Vertical axis" switches depth below the ground / elevation. For a
+workflow file the same slices are sampled from the 3D grid.

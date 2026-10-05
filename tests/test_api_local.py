@@ -164,6 +164,27 @@ class TestComparisons:
                        "group_id": "g1", "variant": variant, "regularization_type": "sparse"})
         return client
 
+    def test_sections_at_the_mesh_resolution(self, finished):
+        server._MODELS.clear()
+        strike = finished.get("/api/inversion/i-a/section", params={"kind": "strike"}).json()
+        assert len(strike["a"]) == 2 and 0 <= strike["strike_deg"] < 180
+        (x0, y0), (x1, y1) = strike["a"], strike["b"]
+        line = finished.get("/api/inversion/i-a/section",
+                            params={"kind": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1}).json()
+        n_v, n_h = len(line["values"]), len(line["values"][0])
+        assert (n_v, n_h) == (len(line["v"]), len(line["h"])) and line["ref"] == "ground"
+        assert line["h"][1] - line["h"][0] <= 50.0 + 1e-9          # half the 100 m cells
+        assert any(v is not None for row in line["values"] for v in row)
+        plan = finished.get("/api/inversion/i-a/section", params={"kind": "plan", "level": 150}).json()
+        assert len(plan["values"]) == len(plan["y"]) and len(plan["values"][0]) == len(plan["x"])
+        elev = finished.get("/api/inversion/i-a/section", params={"kind": "line", "ref": "elev",
+                            "x0": x0, "y0": y0, "x1": x1, "y1": y1}).json()
+        assert elev["v"][0] > elev["v"][-1]                          # elevation, top down
+        bad = finished.get("/api/inversion/i-a/section", params={"kind": "line", "x0": 0, "y0": 0,
+                           "x1": 0, "y1": 0})
+        assert bad.status_code == 400
+        assert finished.get("/api/inversion/nope/section", params={"kind": "strike"}).status_code == 404
+
     def test_compare_jobs_in_one_workflow(self, finished):
         wf = finished.get("/api/workflow", params={"ids": "i-a,i-b"}).json()
         inv = [n for n in wf["nodes"] if n["type"] == "RegularizedInversionNode"]

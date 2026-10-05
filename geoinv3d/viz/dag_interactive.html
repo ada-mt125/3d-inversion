@@ -584,6 +584,12 @@ svg#dag:active{cursor:grabbing;}
           <input type="range" id="m3d-nsslice" min="0" max="19" value="10" style="flex:1;accent-color:#FFB74D;">
           <span id="m3d-nsslice-disp" style="font-size:10px;color:#FFB74D;min-width:50px;">ix=10</span>
         </div>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:#8b97a6;cursor:pointer;">
+          <input type="checkbox" id="m3d-show-prof" checked style="accent-color:#ef6f6c;"> Profile A–B
+        </label>
+        <div style="font-size:10px;line-height:1.4;color:#57677a;">Across the strike of the strongest bodies; drag on the depth slice to draw another (<a href="#" id="m3d-prof-reset" style="color:#8b97a6;">back across the strike</a>).</div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b97a6;">Vertical axis
+          <select id="m3d-secref" class="m3d-cmp-sel"><option value="ground">depth below the ground</option><option value="elev">elevation</option></select></label>
         <div style="height:1px;background:#212b37;"></div>
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#57677a;">Colorbar</div>
         <div id="m3d-cbar-label" style="font-size:10px;color:#8b97a6;"></div>
@@ -608,8 +614,11 @@ svg#dag:active{cursor:grabbing;}
       <div id="m3d-sec-ew" style="flex:1;position:relative;overflow:hidden;display:none;border-right:1px solid #2a3644;">
         <canvas id="m3d-ew-canvas" class="fill-canvas"></canvas>
       </div>
-      <div id="m3d-sec-ns" style="flex:1;position:relative;overflow:hidden;display:none;">
+      <div id="m3d-sec-ns" style="flex:1;position:relative;overflow:hidden;display:none;border-right:1px solid #2a3644;">
         <canvas id="m3d-ns-canvas" class="fill-canvas"></canvas>
+      </div>
+      <div id="m3d-sec-prof" style="flex:1.6;position:relative;overflow:hidden;display:none;">
+        <canvas id="m3d-prof-canvas" class="fill-canvas"></canvas>
       </div>
     </div>
   </div>
@@ -2546,7 +2555,10 @@ function m3dSliceTraces(){
   const zv=g.zc[+$v('m3d-zslice').value], yv=g.yc[+$v('m3d-ewslice').value], xv=g.xc[+$v('m3d-nsslice').value];
   const rect=(name,color,visible,x,y,z)=>({type:'scatter3d',mode:'lines',name,visible,x,y,z,
     line:{color,width:5},hovertemplate:name+'<extra></extra>'});
-  return [
+  const P=SEC.profile, zt=Math.max(z0,z1), zb=Math.min(z0,z1);
+  const prof=P?[rect('Profile A–B','#ef6f6c',$v('m3d-show-prof').checked,
+    [P.a[0],P.b[0],P.b[0],P.a[0],P.a[0]],[P.a[1],P.b[1],P.b[1],P.a[1],P.a[1]],[zt,zt,zb,zb,zt])]:[];
+  return [...prof,
     rect('Z = '+Math.round(zv)+' m','#64B5F6',$v('m3d-show-zslice').checked,
       [x0,x1,x1,x0,x0],[y0,y0,y1,y1,y0],[zv,zv,zv,zv,zv]),
     rect('Y = '+Math.round(yv)+' m','#81C784',$v('m3d-show-ew').checked,
@@ -2689,7 +2701,15 @@ function init3D(n) {
     const k=order.find(k=>filled(k)>=0.5);
     $v('m3d-zslice').value=k??order[0];
   }
-  $v('m3d-zslice-disp').textContent='iz='+$v('m3d-zslice').value;
+  // slices at the mesh's resolution for a job of the server; the default profile across the strike
+  SEC.job=n.job&&n.job.id&&window.GEOINV3D_API?n.job.id:null; SEC.cache.clear(); SEC.drag=null;
+  SEC.strike=SEC.profile=secStrikeLocal(m3);
+  if(SEC.job)fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(SEC.job)}/section?kind=strike`)
+    .then(r=>r.ok?r.json():null).catch(()=>null).then(p=>{
+      if(!(p&&p.a)||SEC.job!==(n.job&&n.job.id))return;
+      SEC.strike=p; if(!(SEC.profile&&SEC.profile.user)){SEC.profile=p;updateSectionRow();schedule3D();}});
+  $v('m3d-prof-reset').onclick=e=>{e.preventDefault(); SEC.profile=SEC.strike; updateSectionRow(); schedule3D();};
+  $v('m3d-zslice-disp').textContent=zsliceLabel();
   $v('m3d-ewslice').max=m3.ny-1;
   $v('m3d-ewslice').value=Math.floor(m3.ny/2);
   $v('m3d-nsslice').max=m3.nx-1;
@@ -2755,7 +2775,9 @@ function init3D(n) {
     $v('m3d-opacity-disp').textContent=$v('m3d-opacity').value+'%';
     drawCbar(); drawCbar2(); clearTimeout(recolorTimer); recolorTimer=setTimeout(m3dRecolor,60);
   });
-  bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent='iz='+$v('m3d-zslice').value;updateSectionRow();schedule3D();});
+  bind('m3d-zslice',()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();updateSectionRow();schedule3D();});
+  $v('m3d-show-prof').onchange=()=>{updateSectionRow();schedule3D();};
+  $v('m3d-secref').onchange=()=>{$v('m3d-zslice-disp').textContent=zsliceLabel();updateSectionRow();};
   bind('m3d-ewslice',()=>{$v('m3d-ewslice-disp').textContent='iy='+$v('m3d-ewslice').value;updateSectionRow();schedule3D();});
   bind('m3d-nsslice',()=>{$v('m3d-nsslice-disp').textContent='ix='+$v('m3d-nsslice').value;updateSectionRow();schedule3D();});
   ['m3d-chk-rec','m3d-chk-true'].forEach(id=>{const el=$v(id);if(el)el.onchange=()=>schedule3D(true);});
@@ -2782,6 +2804,7 @@ new ResizeObserver(()=>{
   if($v('m3d-show-zslice').checked)drawSection2D('z');
   if($v('m3d-show-ew').checked)drawSection2D('ew');
   if($v('m3d-show-ns').checked)drawSection2D('ns');
+  if($v('m3d-show-prof').checked)drawSection2D('prof');
 }).observe($v('m3d-section-row'));
 
 // ══════════════════════════════════════════
@@ -2791,9 +2814,10 @@ function updateSectionRow(){
   const showZ=document.getElementById('m3d-show-zslice').checked;
   const showEW=document.getElementById('m3d-show-ew').checked;
   const showNS=document.getElementById('m3d-show-ns').checked;
+  const showP=document.getElementById('m3d-show-prof').checked;
   const row=document.getElementById('m3d-section-row');
   const splitter=document.getElementById('m3d-splitter');
-  const n=(showZ?1:0)+(showEW?1:0)+(showNS?1:0);
+  const n=(showZ?1:0)+(showEW?1:0)+(showNS?1:0)+(showP?1:0);
   if(!n){row.style.display='none';splitter.style.display='none';return;}
   row.style.display='flex';
   splitter.style.display='block';
@@ -2804,10 +2828,12 @@ function updateSectionRow(){
   document.getElementById('m3d-sec-z').style.display=showZ?'block':'none';
   document.getElementById('m3d-sec-ew').style.display=showEW?'block':'none';
   document.getElementById('m3d-sec-ns').style.display=showNS?'block':'none';
+  document.getElementById('m3d-sec-prof').style.display=showP?'block':'none';
   requestAnimationFrame(()=>{
     if(showZ) drawSection2D('z');
     if(showEW) drawSection2D('ew');
     if(showNS) drawSection2D('ns');
+    if(showP) drawSection2D('prof');
   });
 }
 
@@ -2855,175 +2881,289 @@ function m3dSampleAt(m,x,y,z){
   return Number.isFinite(v)?v:null;
 }
 
+// ══════════════════════════════════════════
+// SLICES at the mesh's resolution: the depth slice, the E-W and N-S sections and a profile
+// A-B (across the strike by default; dragged on the depth slice), from
+// GET /api/inversion/{id}/section (viz/sections.py) for a job of the server, else sampled
+// from the 3D grid.  Models without negative values are coloured with turbo from 0 to their
+// 99th percentile, signed ones with the 3D view's diverging map.
+// ══════════════════════════════════════════
+const TURBO_HEX='30123b351e58392a733d358b4040a2424bb54456c74661d6466be34776ee4680f6458afc4294ff3d9efe37a8fa2fb2f428bceb22c5e21ccdd819d5cd18ddc219e3b91fe9af27eea432f2983ff68a4ef97d5dfc6f6dfe627dff568bff4b99fe42a4fc3caffa37b9f635c3f134cdec34d7e535dfdf37e7d739eecf3af4c73af8be39fbb637fdac34fea130fe962bfd8a26fb7e21f8721cf46617f05b12eb500ee5470bdf3f08d83706d02f05c82803be2102b41b01a916019e1001920b01850702';
+const TURBO_RGB=(()=>{const a=[];for(let i=0;i<TURBO_HEX.length;i+=6)a.push([0,2,4].map(k=>parseInt(TURBO_HEX.substr(i+k,2),16)));return a;})();
+function turbo(t){
+  t=Math.max(0,Math.min(1,t)); const f=t*(TURBO_RGB.length-1), i=Math.min(TURBO_RGB.length-2,Math.floor(f)), w=f-i;
+  return TURBO_RGB[i].map((c,k)=>Math.round(c+(TURBO_RGB[i+1][k]-c)*w));
+}
+const SEC={job:null, cache:new Map(), wait:new Set(), timers:{}, profile:null, drag:null};
+const SEC_CANVAS={z:'m3d-z-canvas',ew:'m3d-ew-canvas',ns:'m3d-ns-canvas',prof:'m3d-prof-canvas'};
+const secRef=()=>$v('m3d-secref')?$v('m3d-secref').value:'ground';
+function secTop(m){const ze=m.z_edges;return Math.max(ze[0],ze[m.nz]);}
+// the depth slice's level: metres below the ground, or its elevation
+function secPlanLevel(){
+  const m=m3dData, iz=+$v('m3d-zslice').value, zc=(m.z_edges[iz]+m.z_edges[iz+1])/2;
+  return secRef()==='ground'?Math.max(0,secTop(m)-zc):zc;
+}
+function zsliceLabel(){
+  const l=secPlanLevel(); return secRef()==='ground'?`${Math.round(l)} m deep`:`z ${Math.round(l)} m`;
+}
+function secLine(mode){
+  const m=m3dData, XE=m.x_edges, YE=m.y_edges;
+  if(mode==='ew'){const iy=+$v('m3d-ewslice').value, y=(YE[iy]+YE[iy+1])/2; return {a:[XE[0],y],b:[XE[m.nx],y]};}
+  if(mode==='ns'){const ix=+$v('m3d-nsslice').value, x=(XE[ix]+XE[ix+1])/2; return {a:[x,YE[0]],b:[x,YE[m.ny]]};}
+  return SEC.profile;
+}
+function secParams(mode){
+  const ref=secRef();
+  if(mode==='z')return {kind:'plan',level:secPlanLevel().toFixed(1),ref};
+  const L=secLine(mode); if(!L)return null;
+  return {kind:'line',x0:L.a[0].toFixed(1),y0:L.a[1].toFixed(1),x1:L.b[0].toFixed(1),y1:L.b[1].toFixed(1),ref};
+}
+// A job's slice at its mesh's resolution: the cached one, else asked for after a short pause
+// (slider drags) and drawn when it comes; undefined meanwhile, null when it cannot be had
+function secFetch(job,mode){
+  const p=secParams(mode); if(!job||!p||!window.GEOINV3D_API)return null;
+  const qs=new URLSearchParams(p).toString(), key=job+'|'+qs;
+  if(SEC.cache.has(key))return SEC.cache.get(key);
+  if(!SEC.wait.has(key)){
+    clearTimeout(SEC.timers[job+mode]);
+    SEC.timers[job+mode]=setTimeout(()=>{
+      SEC.wait.add(key);
+      fetch(`${window.GEOINV3D_API}/api/inversion/${encodeURIComponent(job)}/section?${qs}`)
+        .then(r=>r.ok?r.json():null).catch(()=>null).then(d=>{
+          SEC.wait.delete(key); SEC.cache.set(key,d);
+          while(SEC.cache.size>80)SEC.cache.delete(SEC.cache.keys().next().value);
+          if(d&&key===job+'|'+new URLSearchParams(secParams(mode)||{}).toString())drawSection2D(mode);
+        });
+    },140);
+  }
+  return undefined;
+}
+// The ground of a model_3d at (x, y): its terrain (nearest node), else the top of its grid
+function secGround(m){
+  if(m.surface){
+    const s=m.surface, X=s.x, Y=s.y, nx=X.length, ny=Y.length;
+    const ix=x=>Math.max(0,Math.min(nx-1,Math.round((x-X[0])/((X[nx-1]-X[0])||1)*(nx-1))));
+    const iy=y=>Math.max(0,Math.min(ny-1,Math.round((y-Y[0])/((Y[ny-1]-Y[0])||1)*(ny-1))));
+    return (x,y)=>s.z[iy(y)][ix(x)];
+  }
+  const t=secTop(m); return ()=>t;
+}
+// The same slice sampled from a model_3d (the 3D grid): while the server's comes, and for
+// a workflow file
+function secLocal(m,mode){
+  const p=secParams(mode); if(!p)return null;
+  const ref=p.ref, G=secGround(m), [vmin,vmax]=modelRange([m.values]);
+  const cell=Math.min(Math.abs(m.x_edges[1]-m.x_edges[0]),Math.abs(m.y_edges[1]-m.y_edges[0]));
+  const dzc=Math.abs(m.z_edges[1]-m.z_edges[0]);
+  const info={range:[vmin,vmax],signed:vmin<-1e-9*Math.max(1,Math.abs(vmax)),local:true};
+  if(p.kind==='plan'){
+    const x=m3dCenters(m.x_edges), y=m3dCenters(m.y_edges), level=+p.level;
+    const values=y.map(yy=>x.map(xx=>m3dSampleAt(m,xx,yy,ref==='ground'?G(xx,yy)-level:level)));
+    return {kind:'plan',ref,level,x,y,values,...info};
+  }
+  const a=[+p.x0,+p.y0], b=[+p.x1,+p.y1], L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  // at most 400 samples along and 300 down, as the server (cells may be 0 wide on odd grids)
+  const step=Math.max(cell/2||0,L/400,1e-6), h=[]; for(let t=step/2;t<L;t+=step)h.push(t);
+  const P=h.map(t=>[a[0]+(b[0]-a[0])*t/L,a[1]+(b[1]-a[1])*t/L]), ground=P.map(q=>G(q[0],q[1]));
+  const zlo=Math.min(m.z_edges[0],m.z_edges[m.nz]);
+  let v=[], values;
+  if(ref==='ground'){
+    const dmax=secTop(m)-zlo, vs=Math.max(dzc/2||0,dmax/300,1e-6); for(let d=vs/2;d<dmax;d+=vs)v.push(d);
+    values=v.map(d=>P.map((q,i)=>m3dSampleAt(m,q[0],q[1],ground[i]-d)));
+  }else{
+    const vs=Math.max(dzc/2||0,(secTop(m)-zlo)/300,1e-6); for(let z=secTop(m)-vs/2;z>zlo;z-=vs)v.push(z);
+    values=v.map(z=>P.map((q,i)=>z>ground[i]?null:m3dSampleAt(m,q[0],q[1],z)));
+  }
+  return {kind:'line',ref,a,b,length:L,h,v,ground,values,...info};
+}
+// The compared run's values at a slice's samples: its own server slice (nearest sample),
+// else sampled from its 3D grid
+function secOtherValues(d,mode){
+  const o=m3dOther; if(!o)return null;
+  const job=o.node.job&&o.node.job.id;
+  const od=job?secFetch(job,mode):null;
+  const near=(arr,v)=>{let lo=0,hi=arr.length-1; if(!hi)return 0; const asc=arr[hi]>arr[0];
+    while(hi-lo>1){const mid=(lo+hi)>>1; if(asc?arr[mid]<=v:arr[mid]>=v)lo=mid;else hi=mid;}
+    return Math.abs(arr[hi]-v)<Math.abs(arr[lo]-v)?hi:lo;};
+  if(od&&od.kind===d.kind){
+    if(d.kind==='plan')return d.y.map(yy=>{const r=od.values[near(od.y,yy)];return d.x.map(xx=>r[near(od.x,xx)]);});
+    return d.v.map(vv=>{const r=od.values[near(od.v,vv)];return d.h.map(hh=>r[near(od.h,hh)]);});
+  }
+  if(job&&od===undefined)return undefined;          // on its way
+  const m=o.m3, G=secGround(m3dData);
+  if(d.kind==='plan')return d.y.map(yy=>d.x.map(xx=>m3dSampleAt(m,xx,yy,d.ref==='ground'?G(xx,yy)-d.level:d.level)));
+  const L=d.length;
+  return d.v.map(vv=>d.h.map((hh,i)=>{const x=d.a[0]+(d.b[0]-d.a[0])*hh/L, y=d.a[1]+(d.b[1]-d.a[1])*hh/L;
+    return m3dSampleAt(m,x,y,d.ref==='ground'?d.ground[i]-vv:vv);}));
+}
+// The default profile, across the strike of the strongest bodies, from the 3D grid (the
+// server works it out from the mesh when it can)
+function secStrikeLocal(m){
+  const k=+$v('m3d-zslice').value, nxy=m.nx*m.ny, xc=m3dCenters(m.x_edges), yc=m3dCenters(m.y_edges);
+  const a=[];for(let i=0;i<nxy;i++){const v=m.values[k*nxy+i];a.push(Number.isFinite(v)?Math.abs(v):0);}
+  const thr=0.5*[...a].sort((p,q)=>p-q)[Math.floor(0.98*(a.length-1))];
+  let W=0,cx=0,cy=0;
+  a.forEach((w,i)=>{if(w>=thr&&w>0){W+=w;cx+=w*xc[i%m.nx];cy+=w*yc[Math.floor(i/m.nx)];}});
+  const X0=m.x_edges[0],X1=m.x_edges[m.nx],Y0=m.y_edges[0],Y1=m.y_edges[m.ny];
+  let ux=1,uy=0;
+  if(W>0){
+    cx/=W;cy/=W; let sxx=0,syy=0,sxy=0;
+    a.forEach((w,i)=>{if(w>=thr&&w>0){const dx=xc[i%m.nx]-cx,dy=yc[Math.floor(i/m.nx)]-cy;sxx+=w*dx*dx;syy+=w*dy*dy;sxy+=w*dx*dy;}});
+    const th=0.5*Math.atan2(2*sxy,sxx-syy);            // the strike, from east
+    ux=-Math.sin(th); uy=Math.cos(th);                  // across it
+  }else{cx=(X0+X1)/2;cy=(Y0+Y1)/2;}
+  if(ux<0||(ux===0&&uy<0)){ux=-ux;uy=-uy;}
+  const reach=t=>{const l=[];if(Math.abs(ux)>1e-12)l.push(((t*ux>0?X1:X0)-cx)/(t*ux));if(Math.abs(uy)>1e-12)l.push(((t*uy>0?Y1:Y0)-cy)/(t*uy));return Math.max(0,Math.min(...l));};
+  const rp=reach(1), rn=reach(-1);
+  return {a:[cx-rn*ux,cy-rn*uy],b:[cx+rp*ux,cy+rp*uy],strike_deg:((Math.atan2(uy,-ux)*180/Math.PI)%180+180)%180};
+}
+// Drag on the depth slice: a new profile A-B (from where the drag starts to where it ends)
+(function(){
+  const c=document.getElementById('m3d-z-canvas'); if(!c)return;
+  const at=e=>{const r=c.getBoundingClientRect(), tf=c._tf; if(!tf)return null;
+    const px=e.clientX-r.left, py=e.clientY-r.top, b=tf.box;
+    if(px<b.l||px>b.l+b.w||py<b.t||py>b.t+b.h)return null; return [tf.x(px),tf.y(py)];};
+  let start=null;
+  c.style.cursor='crosshair';
+  c.addEventListener('pointerdown',e=>{const p=at(e); if(!p)return; start=p; c.setPointerCapture(e.pointerId);});
+  c.addEventListener('pointermove',e=>{if(!start)return; const p=at(e); if(!p)return; SEC.drag={a:start,b:p}; drawSection2D('z');});
+  c.addEventListener('pointerup',()=>{
+    if(!start)return; const D=SEC.drag; start=null; SEC.drag=null;
+    const cell=m3dData?Math.abs(m3dData.x_edges[1]-m3dData.x_edges[0]):1;
+    if(D&&Math.hypot(D.b[0]-D.a[0],D.b[1]-D.a[1])>3*cell){
+      SEC.profile={a:D.a,b:D.b,user:true}; $v('m3d-show-prof').checked=true; updateSectionRow(); schedule3D();
+    }else drawSection2D('z');
+  });
+})();
+function secNice(v){const p=10**Math.floor(Math.log10(Math.max(v,1e-12))),f=v/p;return (f<1.5?1:f<3.5?2:f<7.5?5:10)*p;}
+
 function drawSection2D(mode){
   if(!m3dData)return;
-  const m=m3dData;
-  const nx=m.nx, ny=m.ny, nz=m.nz;
-  const XE=m.x_edges, YE=m.y_edges, ZE=m.z_edges;
-  const vals=m.values;
-  const [vmin,vmax]=m3dRange(m,vals);
-
-  const canvasId=mode==='z'?'m3d-z-canvas':mode==='ew'?'m3d-ew-canvas':'m3d-ns-canvas';
-  const canvas=document.getElementById(canvasId);
-  if(!canvas)return;
-  const par=canvas.parentElement;
-  const dpr=window.devicePixelRatio||1;
-  const cw=par.clientWidth, ch=par.clientHeight;
+  const canvas=$v(SEC_CANVAS[mode]); if(!canvas)return;
+  const par=canvas.parentElement, dpr=window.devicePixelRatio||1, cw=par.clientWidth, ch=par.clientHeight;
   if(cw<20||ch<20)return;
   canvas.width=cw*dpr; canvas.height=ch*dpr;
-  const ctx=canvas.getContext('2d');
-  ctx.scale(dpr,dpr);
-
+  const ctx=canvas.getContext('2d'); ctx.scale(dpr,dpr);
   ctx.fillStyle='#0e131a'; ctx.fillRect(0,0,cw,ch);
-
-  const pad={t:mode!=='z'&&mlShown().length?34:18,r:16,b:28,l:48};
-  const pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
-  if(pw<10||ph<10)return;
-
-  let nh, nv, hEdges, vEdges, getIdx;
-  if(mode==='z'){
-    const iz=parseInt(document.getElementById('m3d-zslice').value);
-    nh=nx; nv=ny; hEdges=XE; vEdges=YE;
-    getIdx=(ih,iv)=>ih+iv*nx+iz*nx*ny;
-  } else if(mode==='ew'){
-    const iy=parseInt(document.getElementById('m3d-ewslice').value);
-    nh=nx; nv=nz; hEdges=XE; vEdges=ZE;
-    getIdx=(ih,iv)=>ih+iy*nx+iv*nx*ny;
-  } else {
-    const ix=parseInt(document.getElementById('m3d-nsslice').value);
-    nh=ny; nv=nz; hEdges=YE; vEdges=ZE;
-    getIdx=(ih,iv)=>ix+ih*nx+iv*nx*ny;
+  let d=SEC.job?secFetch(SEC.job,mode):null;
+  const fine=!!d;
+  if(!d)d=secLocal(m3dData,mode);
+  if(!d){ctx.fillStyle='#57677a';ctx.font='11px sans-serif';ctx.textAlign='center';
+    ctx.fillText(mode==='prof'?'Drag on the depth slice to draw a profile':'—',cw/2,ch/2);return;}
+  const plan=d.kind==='plan', layers=mlShown().length;
+  const pad={t:(!plan&&layers?32:20),r:46,b:28,l:50};
+  let pw=cw-pad.l-pad.r, ph=ch-pad.t-pad.b;
+  if(pw<20||ph<20)return;
+  const H=plan?d.x:d.h, V=plan?d.y:d.v, nh=H.length, nv=V.length;
+  if(!nh||!nv)return;
+  const dh=nh>1?(H[1]-H[0]):1, dv=nv>1?(V[1]-V[0]):1;
+  let hMin=H[0]-dh/2, hMax=H[nh-1]+dh/2;
+  const vA=V[0]-dv/2, vB=V[nv-1]+dv/2;
+  // plan: equal scales (north up); sections: the depth axis down, elevation up
+  if(plan){
+    const sx=pw/(hMax-hMin), sy=ph/Math.abs(vB-vA), sc=Math.min(sx,sy);
+    const w=(hMax-hMin)*sc, hgt=Math.abs(vB-vA)*sc; pad.l+=(pw-w)/2; pad.t+=(ph-hgt)/2; pw=w; ph=hgt;
   }
-
-  const hMin=hEdges[0], hMax=hEdges[nh];
-  const hRng=hMax-hMin||1;
-  // Larger values at the top: north up in the depth slice, the surface
-  // (largest z) up in the sections, whichever order the edges come in
-  const vHi=Math.max(vEdges[0],vEdges[nv]), vLo=Math.min(vEdges[0],vEdges[nv]), vSpan=(vHi-vLo)||1;
-
-  function toX(v){return pad.l+pw*(v-hMin)/hRng;}
-  function toY(v){return pad.t+ph*(vHi-v)/vSpan;}
-
+  const toX=h=>pad.l+pw*(h-hMin)/(hMax-hMin);
+  const vTop=plan?Math.max(vA,vB):(d.ref==='ground'?Math.min(vA,vB):Math.max(vA,vB));
+  const vBot=plan?Math.min(vA,vB):(d.ref==='ground'?Math.max(vA,vB):Math.min(vA,vB));
+  const toY=v=>pad.t+ph*(v-vTop)/(vBot-vTop);
+  // the image, one pixel per sample, smoothed when scaled up
+  const [r0,r1]=d.range||[0,1], L=Math.max(Math.abs(r0),Math.abs(r1))||1;
+  const col=v=>d.signed?cmap(v,-L,L):turbo(v/(r1>0?r1:L));
+  const off=document.createElement('canvas'); off.width=nh; off.height=nv;
+  const oc=off.getContext('2d'), img=oc.createImageData(nh,nv);
   for(let iv=0;iv<nv;iv++){
+    const row=d.values[iv];
     for(let ih=0;ih<nh;ih++){
-      const idx=getIdx(ih,iv);
-      const v=vals[idx];
-      const[r,g,b]=cmap(v,vmin,vmax);
-      const x1=toX(hEdges[ih]), x2=toX(hEdges[ih+1]);
-      const ya=toY(vEdges[iv]), yb=toY(vEdges[iv+1]);
-      const y1=Math.min(ya,yb), y2=Math.max(ya,yb);
-      ctx.fillStyle=`rgb(${r},${g},${b})`;
-      ctx.fillRect(x1,y1,x2-x1+0.5,y2-y1+0.5);
+      const v=row[ih], q=4*(iv*nh+ih);
+      if(v==null||!Number.isFinite(v)){img.data[q+3]=0;continue;}
+      const [r,g,b]=col(v); img.data[q]=r;img.data[q+1]=g;img.data[q+2]=b;img.data[q+3]=255;
     }
   }
-
-  // Grid lines
-  ctx.strokeStyle='rgba(150,170,190,0.25)'; ctx.lineWidth=1;
-  const nTicksH=Math.min(cw<200?3:5,nh);
-  const nTicksV=Math.min(cw<200?3:4,nv);
-  for(let i=1;i<nTicksV;i++){
-    const v=vLo+vSpan*i/nTicksV;
-    const yp=toY(v);
-    ctx.beginPath(); ctx.moveTo(pad.l,yp); ctx.lineTo(pad.l+pw,yp); ctx.stroke();
+  oc.putImageData(img,0,0);
+  ctx.save(); ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  // the image's rows run from V[0]; flip it when V[0] is at the bottom
+  const yA=toY(vA), yB=toY(vB);
+  if(yA<=yB)ctx.drawImage(off,toX(hMin),yA,pw,yB-yA);
+  else{ctx.translate(0,yA+yB);ctx.scale(1,-1);ctx.drawImage(off,toX(hMin),yB,pw,yA-yB);}
+  ctx.restore();
+  // the ground along an elevation section
+  if(!plan&&d.ref!=='ground'&&d.ground){
+    ctx.strokeStyle='#d8cfb4';ctx.lineWidth=1.4;ctx.beginPath();
+    d.h.forEach((hh,i)=>{const X=toX(hh),Y=toY(d.ground[i]);i?ctx.lineTo(X,Y):ctx.moveTo(X,Y);});ctx.stroke();
   }
-  for(let i=1;i<nTicksH;i++){
-    const v=hMin+hRng*i/nTicksH;
-    const xp=toX(v);
-    ctx.beginPath(); ctx.moveTo(xp,pad.t); ctx.lineTo(xp,pad.t+ph); ctx.stroke();
-  }
-
-  // The compared run: the outline of its bodies (|value| above the threshold) where this
-  // slice cuts them, sampled at this run's cells; green for positive, purple for negative
+  // the compared run: the outline of its bodies where this slice cuts them
   if(m3dOther){
-    const o=m3dOther.m3, L=Math.max(...modelRange([o.values]).map(Math.abs)), thr=L*(+$v('m3d-thresh').value)/100;
-    const iz=+$v('m3d-zslice').value, iy=+$v('m3d-ewslice').value, ix=+$v('m3d-nsslice').value;
-    const zc=(ZE[iz]+ZE[iz+1])/2, yc=(YE[iy]+YE[iy+1])/2, xc=(XE[ix]+XE[ix+1])/2;
-    const at=(ih,iv)=>{
-      const h=(hEdges[ih]+hEdges[ih+1])/2, v=(vEdges[iv]+vEdges[iv+1])/2;
-      const q=mode==='z'?m3dSampleAt(o,h,v,zc):mode==='ew'?m3dSampleAt(o,h,yc,v):m3dSampleAt(o,xc,h,v);
-      return q==null?0:q>=thr?1:q<=-thr?-1:0;
-    };
-    const S=[]; for(let iv=0;iv<nv;iv++){const row=[];for(let ih=0;ih<nh;ih++)row.push(at(ih,iv));S.push(row);}
-    const col=sg=>sg>0?'#5fd38a':'#b388ff';
-    ctx.lineWidth=1.6;
-    const seg=(sg,x1,y1,x2,y2)=>{ctx.strokeStyle=col(sg);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();};
-    for(let iv=0;iv<nv;iv++)for(let ih=0;ih<nh;ih++){
-      const a=S[iv][ih];
-      const r=ih+1<nh?S[iv][ih+1]:0, u=iv+1<nv?S[iv+1][ih]:0;
-      if(a!==r&&(a||r))seg(a||r,toX(hEdges[ih+1]),toY(vEdges[iv]),toX(hEdges[ih+1]),toY(vEdges[iv+1]));
-      if(a!==u&&(a||u))seg(a||u,toX(hEdges[ih]),toY(vEdges[iv+1]),toX(hEdges[ih+1]),toY(vEdges[iv+1]));
-      if(ih===0&&a)seg(a,toX(hEdges[0]),toY(vEdges[iv]),toX(hEdges[0]),toY(vEdges[iv+1]));
-      if(iv===0&&a)seg(a,toX(hEdges[ih]),toY(vEdges[0]),toX(hEdges[ih+1]),toY(vEdges[0]));
+    const ov=secOtherValues(d,mode);
+    if(ov){
+      const o=m3dOther.m3, [omin,omax]=modelRange([o.values]), thr=Math.max(Math.abs(omin),Math.abs(omax))*(+$v('m3d-thresh').value)/100;
+      const S=ov.map(r=>r.map(q=>q==null?0:q>=thr?1:q<=-thr?-1:0));
+      const xe=i=>toX(hMin+i*dh), ye=k=>toY(vA+k*dv);
+      ctx.lineWidth=1.6;
+      const seg=(sg,x1,y1,x2,y2)=>{ctx.strokeStyle=sg>0?'#5fd38a':'#b388ff';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();};
+      for(let k=0;k<nv;k++)for(let i=0;i<nh;i++){
+        const a=S[k][i], r=i+1<nh?S[k][i+1]:0, u=k+1<nv?S[k+1][i]:0;
+        if(a!==r&&(a||r))seg(a||r,xe(i+1),ye(k),xe(i+1),ye(k+1));
+        if(a!==u&&(a||u))seg(a||u,xe(i),ye(k+1),xe(i+1),ye(k+1));
+        if(i===0&&a)seg(a,xe(0),ye(k),xe(0),ye(k+1));
+        if(k===0&&a)seg(a,xe(i),ye(0),xe(i+1),ye(0));
+      }
     }
-    ctx.fillStyle='#9fe3b6'; ctx.font='9px sans-serif'; ctx.textAlign='right';
-    ctx.fillText('outline: '+m3dOther.label.slice(0,48),pad.l+pw-4,pad.t+11); ctx.textAlign='left';
   }
-
-  // Map layers: in plan on the depth slice, where they cross a section along its top
   const box={l:pad.l,t:pad.t,w:pw,h:ph};
-  if(mode==='z')mlDrawPlan(ctx,toX,toY,box);
-  else if(mode==='ew'){const iy=+document.getElementById('m3d-ewslice').value;
-    mlDrawSection(ctx,'ew',(YE[iy]+YE[iy+1])/2,1.5*Math.abs(YE[iy+1]-YE[iy]),toX,pad.t,box);}
-  else{const ix=+document.getElementById('m3d-nsslice').value;
-    mlDrawSection(ctx,'ns',(XE[ix]+XE[ix+1])/2,1.5*Math.abs(XE[ix+1]-XE[ix]),toX,pad.t,box);}
-
-  // Axes border
-  ctx.strokeStyle='#2a3644'; ctx.lineWidth=1;
-  ctx.strokeRect(pad.l,pad.t,pw,ph);
-
-  const tickFont=cw<200?'8px Consolas,monospace':'9px Consolas,monospace';
-  const labelFont=cw<200?'bold 8px sans-serif':'bold 10px sans-serif';
-  ctx.fillStyle='#9aabb8'; ctx.font=tickFont;
-  for(let i=0;i<=nTicksH;i++){
-    const v=hMin+hRng*i/nTicksH;
-    ctx.textAlign='center';
-    ctx.fillText((v/1000).toFixed(0)+'k',toX(v),ch-pad.b+12);
+  // map layers: in plan on the depth slice; where they cross a section, along its top
+  if(plan)mlDrawPlan(ctx,toX,toY,box);
+  else{
+    const a=d.a, b=d.b, len=d.length||Math.hypot(b[0]-a[0],b[1]-a[1]), ux=(b[0]-a[0])/len, uy=(b[1]-a[1])/len;
+    const frame={along:(x,y)=>(x-a[0])*ux+(y-a[1])*uy, across:(x,y)=>-(x-a[0])*uy+(y-a[1])*ux};
+    mlDrawSection(ctx,frame,0,Math.max(1.5*(d.cell_m||dh),dh),toX,pad.t,box);
   }
-  for(let i=0;i<=nTicksV;i++){
-    const v=vLo+vSpan*i/nTicksV;
-    ctx.textAlign='right';
-    const yp=toY(v);
-    ctx.fillText(mode==='z'?(v/1000).toFixed(0)+'k':Math.round(v),pad.l-3,yp+4);
+  // the depth slice shows where the sections and the profile run, and takes a dragged profile
+  if(plan){
+    const lines=[];
+    if($v('m3d-show-ew').checked)lines.push([secLine('ew'),'#81C784']);
+    if($v('m3d-show-ns').checked)lines.push([secLine('ns'),'#FFB74D']);
+    const P=SEC.drag||($v('m3d-show-prof')?.checked?SEC.profile:null);
+    if(P)lines.push([P,'#ef6f6c']);
+    for(const [l,c] of lines){
+      ctx.strokeStyle=c;ctx.lineWidth=1.5;ctx.setLineDash(l===P?[]:[4,3]);
+      ctx.beginPath();ctx.moveTo(toX(l.a[0]),toY(l.a[1]));ctx.lineTo(toX(l.b[0]),toY(l.b[1]));ctx.stroke();ctx.setLineDash([]);
+      if(l===P){ctx.font='bold 11px sans-serif';ctx.fillStyle=c;ctx.textAlign='center';
+        ctx.fillText('A',toX(l.a[0]),toY(l.a[1])-5);ctx.fillText('B',toX(l.b[0]),toY(l.b[1])-5);}
+    }
+    canvas._tf={x:px=>hMin+(px-pad.l)/pw*(hMax-hMin), y:py=>vTop+(py-pad.t)/ph*(vBot-vTop), box};
   }
-
-  ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
-  if(mode==='z'){
-    ctx.fillText('Easting (m)',pad.l+pw/2,ch-2);
-    const iz=parseInt(document.getElementById('m3d-zslice').value);
-    const zv=(ZE[iz]+ZE[iz+1])/2;
-    ctx.fillStyle='#64B5F6'; ctx.font='bold 10px sans-serif';
-    ctx.fillText('Z = '+Math.round(zv)+' m',pad.l+pw/2,12);
-    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
-    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
-    ctx.fillText('Northing (m)',0,0); ctx.restore();
-  } else if(mode==='ew'){
-    ctx.fillText('Easting (m)',pad.l+pw/2,ch-2);
-    const iy=parseInt(document.getElementById('m3d-ewslice').value);
-    const yv=(YE[iy]+YE[iy+1])/2;
-    ctx.fillStyle='#81C784'; ctx.font='bold 10px sans-serif';
-    ctx.fillText('Y = '+Math.round(yv)+' m',pad.l+pw/2,12);
-    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
-    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
-    ctx.fillText('Depth (m)',0,0); ctx.restore();
-  } else {
-    ctx.fillText('Northing (m)',pad.l+pw/2,ch-2);
-    const ix=parseInt(document.getElementById('m3d-nsslice').value);
-    const xv=(XE[ix]+XE[ix+1])/2;
-    ctx.fillStyle='#FFB74D'; ctx.font='bold 10px sans-serif';
-    ctx.fillText('X = '+Math.round(xv)+' m',pad.l+pw/2,12);
-    ctx.save(); ctx.translate(10,pad.t+ph/2); ctx.rotate(-Math.PI/2);
-    ctx.fillStyle='#8b97a6'; ctx.font=labelFont; ctx.textAlign='center';
-    ctx.fillText('Depth (m)',0,0); ctx.restore();
+  ctx.strokeStyle='#2a3644';ctx.lineWidth=1;ctx.strokeRect(pad.l,pad.t,pw,ph);
+  // ticks: km along the horizontal axis (distance from A on a profile), metres down
+  ctx.fillStyle='#9aabb8';ctx.font=cw<240?'8px Consolas,monospace':'9px Consolas,monospace';
+  const hs=secNice((hMax-hMin)/(cw<240?3:5));
+  ctx.textAlign='center';
+  for(let t=Math.ceil(hMin/hs)*hs;t<=hMax+1e-6;t+=hs){
+    // a section's h is the distance from its start: E-W and N-S ones are labelled with the coordinate
+    const c=plan||mode==='prof'?t:mode==='ew'?d.a[0]+t:d.a[1]+t;
+    ctx.fillText((c/1000).toFixed(hs<1000?1:0)+(mode==='prof'?'':'k'),toX(t),pad.t+ph+12);
   }
-
-  // Colorbar (small, right side)
-  const cbw=8, cbx=cw-pad.r-cbw-2, cby=pad.t, cbh=ph;
-  for(let j=0;j<cbh;j++){
-    const v=vmax-(vmax-vmin)*j/cbh;
-    const[r,g,b]=cmap(v,vmin,vmax);
-    ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fillRect(cbx,cby+j,cbw,1);
-  }
-  ctx.strokeStyle='#2a3644'; ctx.lineWidth=0.5; ctx.strokeRect(cbx,cby,cbw,cbh);
+  const vs=secNice(Math.abs(vB-vA)/(ch<200?3:5)); ctx.textAlign='right';
+  for(let t=Math.ceil(Math.min(vA,vB)/vs)*vs;t<=Math.max(vA,vB)+1e-6;t+=vs)
+    ctx.fillText(plan?(t/1000).toFixed(vs<1000?1:0)+'k':String(Math.round(t)),pad.l-3,toY(t)+3);
+  // labels and title
+  ctx.fillStyle='#8b97a6';ctx.font='bold 10px sans-serif';ctx.textAlign='center';
+  const hl=plan?'Easting (m)':mode==='ew'?'Easting (m)':mode==='ns'?'Northing (m)':'Distance from A (km)';
+  ctx.fillText(hl,pad.l+pw/2,ch-3);
+  ctx.save();ctx.translate(11,pad.t+ph/2);ctx.rotate(-Math.PI/2);
+  ctx.fillText(plan?'Northing (m)':d.ref==='ground'?'Depth below the ground (m)':'Elevation (m)',0,0);ctx.restore();
+  const title=plan?(d.ref==='ground'?`${Math.round(d.level)} m below the ground`:`Z = ${Math.round(d.level)} m`)
+    :mode==='ew'?`E–W, N ${(d.a[1]/1000).toFixed(2)} km`:mode==='ns'?`N–S, E ${(d.a[0]/1000).toFixed(2)} km`
+    :`Profile A–B${SEC.profile&&SEC.profile.strike_deg!=null&&!SEC.profile.user?` across the strike (${Math.round(SEC.profile.strike_deg)}°)`:''}`;
+  ctx.fillStyle={z:'#64B5F6',ew:'#81C784',ns:'#FFB74D',prof:'#ef6f6c'}[mode];ctx.font='bold 10px sans-serif';
+  ctx.fillText(title+(fine?'':d.local&&SEC.job?' · loading…':''),pad.l+pw/2,11);
+  // the colour bar, on the right
+  const bx=pad.l+pw+12, by=pad.t, bw=9, bh=Math.max(30,ph);
+  for(let k=0;k<bh;k++){const t=1-k/bh, v=d.signed?(-L+2*L*t):t*(r1>0?r1:L), [r,g,b]=col(v);
+    ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(bx,by+k,bw,1.2);}
+  ctx.fillStyle='#9aabb8';ctx.font='8px Consolas,monospace';ctx.textAlign='left';
+  ctx.fillText(fmtN(d.signed?L:(r1>0?r1:L)),bx-2,by-3);ctx.fillText(fmtN(d.signed?-L:0),bx-2,by+bh+9);
 }
 
 
@@ -3531,7 +3671,9 @@ function mlDrawPlan(ctx,toX,toY,box){
 // within `tol` of it and the lines crossing it, marked along its top edge
 function mlDrawSection(ctx,mode,at,tol,toH,yTop,box){
   const L=mlShown(); if(!L.length)return;
-  const along=(x,y)=>mode==='ew'?x:y, across=(x,y)=>mode==='ew'?y:x;
+  // mode 'ew' / 'ns', or a frame {along, across} for any line (a profile)
+  const along=typeof mode==='object'?mode.along:(x,y)=>mode==='ew'?x:y;
+  const across=typeof mode==='object'?mode.across:(x,y)=>mode==='ew'?y:x;
   ctx.save(); ctx.beginPath(); ctx.rect(box.l,box.t-14,box.w,box.h+14); ctx.clip();
   const tick=(h,color,label)=>{
     const px=toH(h);

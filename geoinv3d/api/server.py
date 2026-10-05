@@ -1396,6 +1396,59 @@ async def delete_job(job_id: str):
     return JSONResponse({"ok": True, "job_id": job_id, "removed": removed, "workspaces": workspaces})
 
 
+# ── Slices of a result at its mesh's resolution (viz/sections.py), for the 3D tab ──
+_MODELS: "OrderedDict[str, object]" = OrderedDict()
+MODELS_KEEP = 6
+
+
+def _result_model(job_id: str):
+    """The ResultModel of a finished job, the last MODELS_KEEP kept in memory."""
+    from ..viz.result_workflow import load_result
+    from ..viz.sections import ResultModel
+    if job_id in _MODELS:
+        _MODELS.move_to_end(job_id)
+        return _MODELS[job_id]
+    record = get_store().get(job_id)
+    if not record or not record.get("task_id"):
+        raise HTTPException(status_code=404, detail="Unknown job")
+    if _refresh(job_id).get("display_status") != "SUCCEEDED":
+        raise HTTPException(status_code=409, detail="The job has no result yet")
+    result_dir = _upload_dir / "results"
+    result_dir.mkdir(exist_ok=True)
+    model = ResultModel(load_result(backend_for(record).fetch_result(record, str(result_dir))))
+    _MODELS[job_id] = model
+    while len(_MODELS) > MODELS_KEEP:
+        _MODELS.popitem(last=False)
+    return model
+
+
+@app.get("/api/inversion/{job_id}/section")
+def job_section(job_id: str, kind: str = "line", ref: str = "ground",
+                x0: float = None, y0: float = None, x1: float = None, y1: float = None,
+                level: float = None, depth_max: float = None):
+    """A slice of a job's model sampled from its own mesh: ``kind`` "line" (A x0, y0 to
+    B x1, y1; ``ref`` "ground": depth below the ground, "elev": elevation), "plan" (``level``
+    metres below the ground, or an elevation with ``ref`` "elev") or "strike" (the default
+    profile across the strike of the strongest bodies)."""
+    if ref not in ("ground", "elev"):
+        raise HTTPException(status_code=400, detail="ref: ground or elev")
+    model = _result_model(job_id)
+    try:
+        if kind == "strike":
+            return JSONResponse(model.strike_profile(level))
+        if kind == "plan":
+            if level is None:
+                raise ValueError("a plan slice needs its level")
+            return JSONResponse(model.plan(level, ref))
+        if kind == "line":
+            if None in (x0, y0, x1, y1):
+                raise ValueError("a line needs x0, y0, x1, y1")
+            return JSONResponse(model.line(x0, y0, x1, y1, ref, depth_max))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    raise HTTPException(status_code=400, detail="kind: line, plan or strike")
+
+
 @app.post("/api/inversion/{job_id}/finish")
 async def finish_job(job_id: str):
     """Stop a running inversion after its current iteration and keep its result.
