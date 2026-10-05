@@ -713,7 +713,8 @@ class TestSmoothL2EndToEnd:
 
     def test_depth_weighting_lifts_the_surface_bias(self, tmp_path):
         run = TestElasticNetEndToEnd._run
-        l2 = run(tmp_path, 0.5, regularization_type="l2")
+        # sensitivity weighting, as SimPEG's (magnetics now default to depth weighting)
+        l2 = run(tmp_path, 0.5, regularization_type="l2", depth_weighting="sensitivity")
         legacy = run(tmp_path, 0.5, regularization_type="smooth")
         assert l2["regularization"] == "smooth_L2"
         assert l2["depth_weighting"] == "sensitivity" and "norms" not in l2
@@ -929,3 +930,28 @@ class TestOctreeLevels:
         with pytest.raises(ValueError, match="octree_levels"):
             run_data_pipeline(_single("gravity", ["grav.grd"], mesh_type="octree", octree_levels=[0, 4, 4]),
                               str(grav_grid_dir))
+
+
+class TestMagneticDefaults:
+    """A single magnetic inversion weighs its cells by depth (β MAG_DEPTH_BETA) unless told
+    otherwise, also in the automatic mode; gravity keeps the sensitivity weights."""
+
+    def test_magnetics_by_depth(self, tmp_path, capture):
+        from geoinv3d.cloud.worker import MAG_DEPTH_BETA
+        from tests.test_data_pipeline import INDUCING
+        locs = _station_grid(0.0)
+        _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+        for mode in ("auto", "manual"):
+            params = _single("magnetics", ["m.csv"], param_mode=mode, **SMALL_MESH,
+                             dataset={"method_kwargs": {"inducing_field": INDUCING}})
+            run_data_pipeline(params, str(tmp_path))
+            t = capture["task"]
+            assert t.depth_weighting == "depth" and t.depth_weighting_exponent == MAG_DEPTH_BETA
+        params = _single("magnetics", ["m.csv"], param_mode="manual", depth_weighting="sensitivity", **SMALL_MESH,
+                         dataset={"method_kwargs": {"inducing_field": INDUCING}})
+        run_data_pipeline(params, str(tmp_path))
+        assert capture["task"].depth_weighting == "sensitivity"      # the job's own choice
+
+    def test_gravity_keeps_sensitivity(self, grav_grid_dir, capture):
+        run_data_pipeline(_single("gravity", ["grav.grd"], **SMALL_MESH), str(grav_grid_dir))
+        assert capture["task"].depth_weighting == "sensitivity"

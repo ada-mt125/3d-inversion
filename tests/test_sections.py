@@ -79,7 +79,11 @@ def test_the_3d_view_and_the_slices_share_one_colour_scale(tmp_path):
     node = next(n for n in build_workflow([meta])["nodes"] if n["type"] == "RegularizedInversionNode")
     m3 = node["output"]["model_3d"]
     assert m3["range"] == pytest.approx(rm.range) and m3["signed"] == rm.signed
-    assert m3["depth_max"] == pytest.approx(rm.depth_core)
+    # both reach the same bottom: -3,000 m, the core's bottom when deeper, never below the mesh
+    assert min(m3["z_edges"]) == pytest.approx(rm.bottom_elev, abs=rm.dz)
+    W, E, S, N = rm.extent
+    line = rm.line(W, (S + N) / 2, E, (S + N) / 2, ref="elev")
+    assert line["v"][-1] == pytest.approx(rm.bottom_elev, abs=rm.dz)
     # a few extreme cells do not set the scale; both signs only when both are there
     v = np.r_[np.linspace(0.0, 1.0, 1000), 500.0]
     assert robust_range(v)[1] < 1.0 and not model_signed(v) and model_signed(np.r_[v, -0.5])

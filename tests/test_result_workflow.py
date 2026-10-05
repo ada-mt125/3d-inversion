@@ -59,9 +59,10 @@ class TestBuildWorkflow:
                          "RegularizedInversionNode"]
         out = wf["nodes"][-1]["output"]
         m3 = out["model_3d"]
-        # the core only: 6 x 6 cells of 100 m over the 600 m survey, 4 layers
-        assert (m3["nx"], m3["ny"], m3["nz"]) == (6, 6, 4)
-        assert len(m3["values"]) == len(m3["true_values"]) == 6 * 6 * 4
+        # 6 x 6 cells of 100 m over the 600 m survey; the 4 core layers and the 3 padding
+        # layers below them (the display goes down to -3,000 m, below this mesh's bottom)
+        assert (m3["nx"], m3["ny"], m3["nz"]) == (6, 6, 7)
+        assert len(m3["values"]) == len(m3["true_values"]) == 6 * 6 * 7
         assert m3["z_edges"][0] > m3["z_edges"][-1]   # top down
         fit = out["data_fit"]
         assert len(fit["observed"]) == len(locs)
@@ -242,8 +243,12 @@ class TestViewerGrid:
         assert mesh.cell_centers[:, 2].max() > 500           # the box reaches far into the air
         active = mesh.cell_centers[:, 2] < 0
         g = ViewerGrid(self._meta(mesh, ext, 100.0, 50.0, 1000.0, active), mesh)
-        assert g.z_edges.max() == pytest.approx(0.0) and g.z_edges.min() == pytest.approx(-1000.0)
-        assert g.factors == (1, 1) and g.shape[2] == 20
+        # from the ground down past the 1 km core, to -3,000 m or the mesh's bottom
+        from geoinv3d.viz.result_workflow import DISPLAY_BOTTOM_ELEV_M
+        bottom = max(DISPLAY_BOTTOM_ELEV_M, float(mesh.nodes[:, 2].min()))
+        assert bottom < -1000.0
+        assert g.z_edges.max() == pytest.approx(0.0) and g.z_edges.min() == pytest.approx(bottom, abs=50.0)
+        assert g.factors == (1, 1) and g.shape[2] == int(np.ceil(-bottom / 50.0 - 1e-9))
 
     def test_a_large_grid_is_coarsened(self, monkeypatch):
         pytest.importorskip("discretize")
@@ -261,7 +266,8 @@ class TestViewerGrid:
         g = rw.ViewerGrid(meta, mesh)
         assert np.prod(g.shape) <= 1000 and g.factors != (1, 1)
         k, kz = g.factors
-        assert g.shape == (int(np.ceil(20 / k)), int(np.ceil(20 / k)), int(np.ceil(10 / kz)))
+        # the 10 core layers and the 3 padding layers below them (above -3,000 m)
+        assert g.shape == (int(np.ceil(20 / k)), int(np.ceil(20 / k)), int(np.ceil(13 / kz)))
         model = np.arange(mesh.n_cells, dtype=float)
         v = g.values(model)
         assert v.size == np.prod(g.shape) and np.isfinite(v).all()

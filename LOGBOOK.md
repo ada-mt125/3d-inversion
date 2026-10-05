@@ -2089,3 +2089,22 @@ weak anomaly is then cheapest as a big deep body. Weaker compensation moves the 
 β 2, β 1, or the L1-L2's S1 weights (the shallowest bodies, χ²/N 0.93). β 1 and β 2
 overfit somewhat (χ²/N 0.72, 0.82). With a 1 km source-depth limit (earlier) the block goes
 by construction at the same fit.
+
+## 2026-10-05 — Magnetics: an order-2 trend and depth weighting β 1.5 by default; the display to -3,000 m
+
+Two runs on the Block-8 window settled the defaults (Lp 0, 2, 2, 1, κ in [0, 3], an order-2
+trend removed, OcTree 8/8/8, no depth limit; the mesh keeps its deep cells, which only cost
+more): depth weighting β 1.5, χ²/N 0.96, deep block 1.37 km³, strong cells (> 0.3 SI) at
+171 / 430 / 849 m; β 1, χ²/N 0.95, 4.29 km³, 75 / 292 / 615 m. So a single magnetic
+inversion now weighs its cells by depth with β = `MAG_DEPTH_BETA` = 1.5, on the page (the
+Weighting field's default for a single magnetic inversion, kept once the user or a restored
+setup sets it) and in the worker (when the job does not say, also in the automatic mode);
+gravity and joint runs keep the sensitivity weights, and a Bayesian posterior of a magnetic
+run without its own weighting starts by depth too. The magnetic data card removes an order-2
+trend surface by default (old setups restore their own "none").
+
+The 3D view and the slices stopped at the core (2.5 km below the lowest ground: -1,932 m
+here). Both now reach `DISPLAY_BOTTOM_ELEV_M` = -3,000 m (or the core's bottom when deeper,
+never below the mesh): `ViewerGrid` samples the padding below a shallow core, and
+`ResultModel.line` goes down to the same elevation (by depth below the ground: to the
+highest ground on the line + 3,000 m, the cells below -3,000 m left blank).

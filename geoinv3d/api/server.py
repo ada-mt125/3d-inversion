@@ -1520,8 +1520,14 @@ async def start_bayes(job_id: str, body: dict = Body(default={})):
             raise HTTPException(status_code=400, detail=(
                 f"The posterior needs ≈ {need_gb:.0f} GB ({int(n_data)} data × {n_cells} cells, twice), "
                 f"more than this computer holds ({ram} GB): thin the data or use coarser cells"))
-    dw = base.get("depth_weighting") if base.get("depth_weighting") in ("sensitivity", "depth") else "sensitivity"
+    # the run's own weighting, else the default (magnetics: depth, worker.MAG_DEPTH_BETA)
+    from ..cloud.worker import MAG_DEPTH_BETA
+    magnetic = ds.get("type") == "magnetic"
+    dw = base.get("depth_weighting") if base.get("depth_weighting") in ("sensitivity", "depth") \
+        else ("depth" if magnetic else "sensitivity")
+    dw_beta = base.get("depth_weighting_exponent") or (MAG_DEPTH_BETA if magnetic else None)
     changes = {"regularization_type": "bayes", "param_mode": "manual", "depth_weighting": dw,
+               **({"depth_weighting_exponent": dw_beta} if dw == "depth" and dw_beta else {}),
                "bayes_samples": int(body.get("samples") or BAYES_SAMPLES), "datasets": [ds_change]}
     params = merge_params(base, changes)
     for key in ("l1_ratio", "l1l2_solver", "l1l2_weighting", "lambda_decades", "norms"):

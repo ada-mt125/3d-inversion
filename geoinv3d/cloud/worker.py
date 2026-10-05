@@ -722,6 +722,12 @@ def run_single_inversion(task: InversionTask, mesh=None) -> dict:
     return run_smooth_inversion(task, mesh)
 
 
+# A single magnetic inversion's cell weighting by default: Li & Oldenburg depth weighting
+# with this beta.  Sensitivity weights make a deep cell as cheap as a shallow one for its
+# effect on the data, so a broad anomaly becomes a big deep block (Block 8: 8-22 km³ below
+# 1 km with every norm); a small beta makes deep cells dearer while the mesh keeps them.
+MAG_DEPTH_BETA = 1.5
+
 BAYES_COMPACT_NORMS = (0.0, 1.0, 1.0, 1.0)   # the compact prior: Lp norms of the most probable model
 BAYES_MAG_UPPER = 1.0      # SI: the compact prior's susceptibility cap unless an upper bound is given
 # The Laplace approximation's IRLS eps, at least this share of the body threshold (per cell
@@ -3032,6 +3038,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     task_kwargs = {k: params[k] for k in _REG_PARAM_KEYS if params.get(k) is not None}
     if params.get("norms") is not None:
         task_kwargs["norms"] = tuple(float(v) for v in params["norms"])
+    # a single magnetic inversion: depth weighting unless the job says otherwise (also in
+    # the automatic mode, which leaves the weighting to the defaults)
+    if mode != "joint" and canonical_method(datasets[0].method) == "magnetics" \
+            and "depth_weighting" not in task_kwargs:
+        task_kwargs["depth_weighting"] = "depth"
+        task_kwargs.setdefault("depth_weighting_exponent", MAG_DEPTH_BETA)
     tensor_fields = {}
     if mesh_type == "tensor":
         tensor_fields = dict(hx=np.asarray(mesh.hx), hy=np.asarray(mesh.hy),

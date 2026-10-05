@@ -138,9 +138,12 @@ def test_the_compact_prior_caps_susceptibility_and_floors_eps(tmp_path, monkeypa
     from tests.test_data_pipeline import INDUCING, _single, _station_grid, _synthetic, _write_csv
     locs = _station_grid(0.0)
     _write_csv(tmp_path / "m.csv", locs, _synthetic("magnetics", locs))
+    # sensitivity weights (not the magnetic default, depth): their IRLS ends with an eps far
+    # below the floor, which is where the floor matters
     params = _single("magnetics", ["m.csv"], param_mode="manual", regularization_type="bayes",
-                     bayes_samples=16, dataset={"noise_pct": "auto", "noise_floor": "auto",
-                                                "method_kwargs": {"inducing_field": INDUCING}})
+                     bayes_samples=16, depth_weighting="sensitivity",
+                     dataset={"noise_pct": "auto", "noise_floor": "auto",
+                              "method_kwargs": {"inducing_field": INDUCING}})
     floored = worker.run_data_pipeline(params, str(tmp_path))
     monkeypatch.setattr(worker, "BAYES_EPS_SHARE", 0.0)
     bare = worker.run_data_pipeline(params, str(tmp_path))

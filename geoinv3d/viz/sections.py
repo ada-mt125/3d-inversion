@@ -33,7 +33,7 @@ def _round(a, digits=4):
 
 class ResultModel:
     def __init__(self, meta):
-        from .result_workflow import model_signed, result_mesh, robust_range
+        from .result_workflow import display_bottom, model_signed, result_mesh, robust_range
         self.meta = meta
         self.mesh = mesh = result_mesh(meta)
         active = meta.get("_active")
@@ -70,6 +70,15 @@ class ResultModel:
             self.ground = lambda x, y: np.full(np.shape(x), flat)
         nodes = mesh.nodes
         self._lo, self._hi = nodes.min(axis=0), nodes.max(axis=0)
+        # the slices reach the 3D view's bottom (result_workflow.display_bottom): from the
+        # lowest ground the core depth down, or the display elevation when that is deeper
+        topo = meta.get("topography") or {}
+        low = topo.get("elevation_min")
+        if low is None:   # results from before it was recorded: the ground over the stations
+            ex = self.extent
+            gx, gy = np.meshgrid(np.linspace(ex[0], ex[1], 21), np.linspace(ex[2], ex[3], 21))
+            low = float(np.min(self.ground(gx, gy)))
+        self.bottom_elev = display_bottom(float(low) - self.depth_core, float(self._lo[2]))
 
     def _on_mesh(self, v):
         full = np.full(self.mesh.n_cells, np.nan)
@@ -173,20 +182,24 @@ class ResultModel:
     def line(self, x0, y0, x1, y1, ref: str = "ground", depth_max=None, field: str = "model",
              threshold=None) -> dict:
         """Along A (x0, y0) to B (x1, y1): ``ref`` "ground" gives depth below the ground on
-        the vertical axis (the ground at 0), "elev" elevation (cells above the ground None)."""
+        the vertical axis (the ground at 0), "elev" elevation (cells above the ground None).
+        Down to ``depth_max`` below the ground when given, else to the display bottom
+        (``bottom_elev``, as the 3D view; deeper cells None)."""
         length = math.hypot(x1 - x0, y1 - y0)
         if not length > 0:
             raise ValueError("The profile needs two different points")
-        depth_max = float(depth_max or self.depth_core)
+        to_bottom = not depth_max
         step = max(self.h / 2.0, length / MAX_SIDE)
         s = np.arange(step / 2.0, length, step)
         x, y = x0 + (x1 - x0) * s / length, y0 + (y1 - y0) * s / length
         ground = self.ground(x, y)
+        depth_max = float(np.max(ground)) - self.bottom_elev if to_bottom else float(depth_max)
         if ref == "ground":
             v = self._depth_axis(depth_max)
             z = ground[None, :] - v[:, None]
         else:
-            top, bottom = float(np.max(ground)), float(np.min(ground)) - depth_max
+            top = float(np.max(ground))
+            bottom = self.bottom_elev if to_bottom else float(np.min(ground)) - depth_max
             vstep = max(self.dz / 2.0, (top - bottom) / MAX_DEPTH_STEPS)
             v = np.arange(top - vstep / 2.0, bottom, -vstep)
             z = np.broadcast_to(v[:, None], (len(v), len(s)))
@@ -195,6 +208,8 @@ class ResultModel:
         vals = self.sample(pts, field, threshold).reshape(z.shape)
         if ref != "ground":
             vals[z > ground[None, :]] = np.nan      # the air
+        if to_bottom:
+            vals[z < self.bottom_elev] = np.nan     # below the display bottom
         out = {"kind": "line", "ref": ref, "a": [x0, y0], "b": [x1, y1], "length": length,
                "h": [float(t) for t in s], "v": [float(t) for t in v], "ground": [float(t) for t in ground],
                "values": _round(vals, 3 if field == "probability" else 4), **self._field_info(field)}

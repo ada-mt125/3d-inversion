@@ -324,6 +324,17 @@ def model_signed(values) -> bool:
     return bool(v.min() < -s and v.max() > s)
 
 
+# The 3D view and the slices reach down to this elevation (m, below sea level), or to the
+# core's bottom when that is deeper, and never below the mesh itself: the padding below a
+# shallow core is shown too (poorly constrained, but part of the model)
+DISPLAY_BOTTOM_ELEV_M = -3000.0
+
+
+def display_bottom(core_bottom: float, mesh_bottom: float) -> float:
+    """The lowest elevation the 3D view and the slices show (see DISPLAY_BOTTOM_ELEV_M)."""
+    return max(min(float(core_bottom), DISPLAY_BOTTOM_ELEV_M), float(mesh_bottom))
+
+
 MAX_VIEWER_CELLS = 600_000   # voxels of the 3D tab: Plotly's isosurfaces crawl beyond
 
 
@@ -391,8 +402,12 @@ class ViewerGrid:
             uniform = np.abs(hz - dz) <= 1e-6 * dz
             n_top = int(np.argmin(uniform[::-1])) if not uniform.all() else nz
             n_z = max(n_core_z, n_top)   # the core plus the relief layers
+            zn = np.asarray(mesh.nodes_z)
+            k0 = max(nz - n_z, 0)
+            bottom = display_bottom(zn[k0], zn[0])      # and below the core, to the display bottom
+            k0 = min(k0, max(int(np.searchsorted(zn, bottom + 1e-6 * dz, side="right")) - 1, 0))
             self.sl = (slice(n_pad, nx - n_pad), slice(n_pad, ny - n_pad),
-                       slice(max(nz - n_z, 0), nz))
+                       slice(k0, nz))
             x_edges = mesh.nodes_x[self.sl[0].start:self.sl[0].stop + 1]
             y_edges = mesh.nodes_y[self.sl[1].start:self.sl[1].stop + 1]
             z_edges = mesh.nodes_z[self.sl[2].start:self.sl[2].stop + 1]
@@ -414,6 +429,7 @@ class ViewerGrid:
             top = float((cc[sel, 2] + 0.5 * hz[sel]).max()) if sel.any() else float(cc[:, 2].max())
             low = (meta.get("topography") or {}).get("elevation_min")
             bottom = (top if low is None else min(float(low), top)) - used["depth_core_m"]
+            bottom = display_bottom(bottom, float(mesh.nodes[:, 2].min()))
             n_z = max(n_core_z, int(np.ceil((top - bottom) / dz - 1e-9)))
             nx = len(np.arange(ext[0], ext[1] + h, h)) - 1
             ny = len(np.arange(ext[2], ext[3] + h, h)) - 1
@@ -635,8 +651,7 @@ def build_workflow(runs: list[dict], true_model=None, true_label: str = "True mo
                             "min": float(run["_model"].min()), "max": float(run["_model"].max()),
                             "mean": float(run["_model"].mean())},
             "model_3d": {**grid.geometry(), "values": _round(grid.values(m_full), 4),
-                         "range": robust_range(run["_model"]), "signed": model_signed(run["_model"]),
-                         "depth_max": ((run.get("mesh_design") or {}).get("used") or {}).get("depth_core_m")},
+                         "range": robust_range(run["_model"]), "signed": model_signed(run["_model"])},
         }
         if run.get("_prob_body") is not None:   # a Bayesian posterior: the probability of a body
             prob_full = full_model({**run, "_model": run["_prob_body"]}, mesh)

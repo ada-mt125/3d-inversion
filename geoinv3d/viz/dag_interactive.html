@@ -1111,7 +1111,7 @@ svg#dag:active{cursor:grabbing;}
                   </select></div>
                 <div class="up-col"><label class="up-lbl">Exponent β</label><input id="up-dw-exp" type="number" class="up-in" step="any" min="0" value="2"></div>
               </div>
-              <div class="up-note">Depth weighting sets the model-norm weight (z + z₀)<sup>−β/2</sup> below the stations: β = 2 is Li &amp; Oldenburg's value for gravity (3 for magnetics), and a smaller β keeps the model shallower. Unlike sensitivity weighting it does not make the padding cells cheap. Not used by L1–L2, whose weighting is set above.</div>
+              <div class="up-note">Depth weighting sets the model-norm weight (z + z₀)<sup>−β/2</sup> below the stations: β = 2 is Li &amp; Oldenburg's value for gravity (3 for magnetics), and a smaller β makes deep cells dearer, so the model stays shallower while the mesh keeps its deep cells. A single magnetic inversion starts with depth weighting and β = <span id="up-mag-beta"></span>: sensitivity weights make deep cells as cheap as shallow ones, and a broad anomaly then becomes a big deep block. Unlike sensitivity weighting it does not make the padding cells cheap. Not used by L1–L2, whose weighting is set above.</div>
               </div>
 
               <div class="up-grp not-gl">Trade-off parameter (β / λ)</div>
@@ -4762,6 +4762,10 @@ window.GeoPreview=GeoPreview;
   const $u=id=>document.getElementById(id);
   const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz';
   const AUTO_FLOOR_SHARE=0.015, AUTO_NOISE_PCT=2;   // automatic errors, as worker.auto_noise
+  // A single magnetic inversion's cell weighting by default: depth, this β (worker.MAG_DEPTH_BETA).
+  // Sensitivity weights make a deep cell as cheap as a shallow one, so a broad anomaly becomes
+  // a big deep block; a small β makes deep cells dearer while the mesh keeps them (LOGBOOK).
+  const MAG_DEPTH_BETA=1.5;
   const UP_TYPES=[
     {key:'gravity',label:'Gravity',en:'density',color:'#FF9800',unit:'mGal',pct:5,floor:0.05,
       opts:[{id:'comp',label:'Component',type:'select',options:[['gz','gz — gravity anomaly'],['gzz','gzz — gravity gradient']]},
@@ -4776,7 +4780,7 @@ window.GeoPreview=GeoPreview;
         {id:'dec',label:'Declination D (°)',type:'number',value:0},
         {id:'mag',label:'Magnetization',type:'select',options:[['induced','Induced — susceptibility'],['vector','Vector — with remanence (MVI)']]},
         {id:'data',label:'Data inverted',type:'select',options:[['tmi','Total field as measured'],['rtp','Reduced to the pole (vertical field)']]},
-        {id:'reg',label:'Regional field',type:'select',options:[['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly2','Trend surface, order 2'],['poly3','Trend surface, order 3'],
+        {id:'reg',label:'Regional field',type:'select',options:[['poly2','Trend surface, order 2'],['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly3','Trend surface, order 3'],
           ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)']]}]},
     {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
       opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]}]},
@@ -5298,6 +5302,7 @@ window.GeoPreview=GeoPreview;
      ['up-precond','use_preconditioner'],['up-l1-ratio','l1_ratio'],['up-l1l2-solver','l1l2_solver'],['up-l1l2-weighting','l1l2_weighting'],
      ['up-lambda-decades','lambda_decades'],['up-focus-pct','focusing_percentile'],['up-focus-scale','focusing_scale']]
       .forEach(([id,k])=>setv(id,p[k],notes));
+    if(p.depth_weighting!=null||p.depth_weighting_exponent!=null)$u('up-dw').dataset.userSet='1';
     ['up-dw','up-beta-sel','up-l1l2-solver'].forEach(fire);
     $u('up-lower').value=p.bounds_lower??''; $u('up-upper').value=p.bounds_upper??'';
   }
@@ -6604,6 +6609,12 @@ window.GeoPreview=GeoPreview;
   function updateMode(){
     renderCoupling();
     const s=selection(), joint=s&&s.mode==='joint', gl=!!(s&&s.gl);
+    // the weighting's default: depth for a single magnetic inversion, sensitivity otherwise,
+    // until the user picks one
+    if(!$u('up-dw').dataset.userSet){
+      const mag=!!s&&s.mode==='single'&&s.types.length===1&&s.types[0].key==='magnetic';
+      $u('up-dw').value=mag?'depth':'sensitivity'; $u('up-dw-exp').value=mag?MAG_DEPTH_BETA:2;
+    }
     const desc={single:'Invert a single data type.',
       separate:'Each data type is inverted independently, with no coupling; results are returned separately.',
       joint:'The selected data are inverted together; a cross-gradient term makes the structural boundaries of the property models agree.'};
@@ -6915,6 +6926,8 @@ window.GeoPreview=GeoPreview;
     renderEstimate();
   }
 
+  ['up-dw','up-dw-exp'].forEach(id=>['input','change'].forEach(ev=>$u(id).addEventListener(ev,e=>{if(e.isTrusted)$u('up-dw').dataset.userSet='1';})));
+  $u('up-mag-beta').textContent=MAG_DEPTH_BETA;
   function readMesh(){
     const v={};
     for(const [k,id,label] of MESH_INPUTS){
