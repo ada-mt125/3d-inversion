@@ -2058,3 +2058,34 @@ data resolve, so whatever the constraint says there is kept. The real data accep
 just as well (χ²/N 0.90-0.93). A constraint should therefore come from evidence (holes,
 mapped units, measured properties) and be tested: with and without, the χ² (here +17 %,
 inside the ±10 % discrepancy tolerance only just) and the residual map along the body.
+
+## 2026-10-05 — The deep block under Block 8: the cell weighting, not the norm
+
+After a shallow magnetic layer the runs kept a large weak block below 1 km. None of the
+magnetic runs had removed a regional field (the page's default is none); the window's data
+hold 31 % of their variance at wavelengths of 5 km and more (66 % above 2.5 km), a plane of
+-3,297 to +2,100 nT. Ten runs, κ in [0, 3], 75 m data, OcTree 8/8/8, no depth limit
+(deep block: cells > 0.027 SI more than 1 km below the stations' ground; strong: > 0.3 SI,
+depths by volume):
+
+| run | χ²/N | deep block km³ | strong at 0-300 m km³ | strong depth 10/50/90 % m | 0-1 km share |
+|---|---|---|---|---|---|
+| Lp 0,2,2,1, sensitivity, no regional | 0.95 | 4.8 | 0.24 | 365/888/1627 | 3 % |
+| the same, plane removed | 0.99 | 8.2 | 0.32 | 309/689/1272 | 4 % |
+| smooth L2, plane removed | 1.02 | 22.4 | 1.04 | 327/1015/1989 | 4 % |
+| L1 (1,1,1,1) | 1.03 | 16.4 | 0.65 | 314/836/1611 | 3 % |
+| MGS | 0.97 | 22.2 | 1.01 | 321/1028/2027 | 3 % |
+| TV | 0.83 | 20.9 | 1.06 | 320/1039/2072 | 3 % |
+| L1-L2 α 0.8 (IRLS, S1 = ‖k_j‖^½) | 0.93 | 2.0 | 1.90 | 63/173/525 | 43 % |
+| Lp, depth weighting β 3 | 1.00 | 15.1 | 0.22 | 473/1072/1822 | 5 % |
+| Lp, depth weighting β 2 | 0.82 | 5.7 | 0.40 | 276/651/1177 | 14 % |
+| Lp, depth weighting β 1 | 0.72 | 1.9 | 0.91 | 96/325/660 | 36 % |
+
+("0-1 km share": of the magnetization, value x volume, under the stations above 1 km; the
+rest lies beside the stations in the padding.) Removing a plane does not take the block
+away. With full sensitivity weighting (and Li-Oldenburg β 3) every norm keeps it: these
+weights make a deep cell as cheap as a shallow one for its effect on the data, and a broad
+weak anomaly is then cheapest as a big deep body. Weaker compensation moves the model up:
+β 2, β 1, or the L1-L2's S1 weights (the shallowest bodies, χ²/N 0.93). β 1 and β 2
+overfit somewhat (χ²/N 0.72, 0.82). With a 1 km source-depth limit (earlier) the block goes
+by construction at the same fit.
