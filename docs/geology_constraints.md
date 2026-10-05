@@ -155,7 +155,12 @@ distance of the mesh.
   `length_field` metres plus `extend_m`. Field names default to the GSI drilling table
   (`bearing`, `cl_inclina`, `length_m`, `rl_collar_`). The unit is `unit`, or from
   `unit_by` {`field`, `values`: {pattern: unit}}. A shapefile, GeoJSON or CSV (`x_field`,
-  `y_field`).
+  `y_field`). Alone, a hole constrains only the cells its trace passes through, and the
+  regularization carries that little further than a cell or two (about 100 m with 50 m
+  cells in `examples/output/synthetic_ablation`). `radius_m` reaches further: a cell whose
+  centre lies a distance d from the nearest point of a trace takes the share 1 − d/radius
+  of that point's unit, so its reference, bounds and weight go linearly from the log's at
+  the hole to the unconstrained ones (or an earlier source's) at the radius.
 - `body`: a `polygon` (vertices in the job's CRS, or longitude/latitude — detected, or
   `"crs": "EPSG:4326"`) or `box` [west, east, south, north], from `top_m` to `bottom_m`
   below the ground (`"elevations": true` for absolute z), optionally dipping (`dip` from

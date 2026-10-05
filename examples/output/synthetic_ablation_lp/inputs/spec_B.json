@@ -1,0 +1,76 @@
+{
+ "name": "B: perturbed reference model, weight 10",
+ "property": "susceptibility",
+ "units": {
+  "cube (prior)": {
+   "value": 0.75,
+   "lower": 0.0,
+   "upper": 3.0,
+   "weight": 10.0
+  },
+  "intrusion (prior)": {
+   "value": 0.5,
+   "lower": 0.0,
+   "upper": 3.0,
+   "weight": 10.0
+  }
+ },
+ "sources": [
+  {
+   "type": "body",
+   "unit": "cube (prior)",
+   "crs": "job",
+   "polygon": [
+    [
+     601230.0,
+     1602290.0
+    ],
+    [
+     601530.0,
+     1602290.0
+    ],
+    [
+     601530.0,
+     1602590.0
+    ],
+    [
+     601230.0,
+     1602590.0
+    ]
+   ],
+   "top_m": 150.0,
+   "bottom_m": 450.0
+  },
+  {
+   "type": "body",
+   "unit": "intrusion (prior)",
+   "crs": "job",
+   "polygon": [
+    [
+     602747.4,
+     1602000.0
+    ],
+    [
+     603052.6,
+     1602000.0
+    ],
+    [
+     603052.6,
+     1603200.0
+    ],
+    [
+     602747.4,
+     1603200.0
+    ]
+   ],
+   "top_m": 150.0,
+   "bottom_m": 650.0,
+   "dip": 55.0,
+   "dip_direction": 90.0
+  }
+ ],
+ "unconstrained": {
+  "lower": 0.0,
+  "upper": 3.0
+ }
+}

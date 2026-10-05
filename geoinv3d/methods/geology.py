@@ -29,7 +29,8 @@ the cells they share):
 
     samples    the cell column under each rock sample, down to ``depth_m``
     boreholes  the cells along each hole's trace (collar, azimuth, inclination, length),
-               the unit from a field of the hole (e.g. its commodity) or given
+               the unit from a field of the hole (e.g. its commodity) or given; with
+               ``radius_m``, also the cells around it, in part (see below)
     body       a polygon (or box) between two depths, optionally dipping: an interpreted body
     map        polygons of a vector file (e.g. a geological map), extruded like a body
     layers     a stack of layers (thicknesses, the last one possibly down to the bottom),
@@ -42,7 +43,11 @@ sampled where an edge crosses it; depths exactly), so layers or bodies thinner t
 cells are mixed into them instead of lost: a cell's reference, bounds and weight are the
 volume averages of what it holds (in log conductivity by default for resistivity, or
 keeping the conductance or the transverse resistance: ``mixing``).  Samples and boreholes
-mark whole cells, as the depth a sample stands for is a guess.
+mark whole cells, as the depth a sample stands for is a guess.  A hole with ``radius_m``
+also reaches the cells around its trace: a cell whose centre is a distance d from the
+nearest point of the trace takes the share 1 - d / radius of that point's unit (none
+beyond the radius), so its reference, bounds and weight go over linearly from the log's
+at the hole to what was there before at the radius.
 
 Coordinates of samples, holes and polygons may be longitude/latitude (they are then
 projected to the job's CRS) or metres in it (``"crs": "job"`` says so; otherwise it is
@@ -549,7 +554,8 @@ def _unit_of(props: dict, spec: dict, names: set) -> str | None:
 
 
 def _borehole_cells(cells: _Cells, spec: dict, data_dir: str, crs, names: set, step: float):
-    """(cell index, unit) pairs along the holes of a shapefile / GeoJSON / CSV."""
+    """(cell index, unit) pairs along the holes of a shapefile / GeoJSON / CSV, the number
+    of holes used and read, and the traces: (n, 3) points with their unit, per hole."""
     from ..io.vector import read_vector
 
     path = os.path.join(data_dir, spec["file"])
@@ -569,7 +575,7 @@ def _borehole_cells(cells: _Cells, spec: dict, data_dir: str, crs, names: set, s
     inc_f = spec.get("inclination_field", "cl_inclina")
     len_f = spec.get("length_field", "length_m")
     extend = float(spec.get("extend_m", 0.0))
-    pairs, used = [], 0
+    pairs, used, traces = [], 0, []
     for f, x, y in zip(feats, xs, ys):
         unit = _unit_of(f["properties"], spec, names)
         if unit is None:
@@ -598,11 +604,33 @@ def _borehole_cells(cells: _Cells, spec: dict, data_dir: str, crs, names: set, s
             continue
         pz = top - s * dz - 1e-6
         idx = cells.containing(px, py, pz)
+        traces.append((np.column_stack([px, py, pz]), unit))
         idx = idx[idx >= 0]
         if idx.size:
             used += 1
             pairs += [(int(i), unit) for i in np.unique(idx)]
-    return pairs, used, len(feats)
+    return pairs, used, len(feats), traces
+
+
+def _borehole_halo(cells: _Cells, traces, pairs, radius: float, names: dict):
+    """(unit index, cells, shares) around the holes: 1 - d / radius of the unit of the
+    nearest trace point (d from the cell's centre), 1 in the cells the traces pass through."""
+    from scipy.spatial import cKDTree
+
+    pts = np.vstack([t for t, _ in traces])
+    unit_of = np.concatenate([np.full(len(t), names[u]) for t, u in traces])
+    centres = np.column_stack([cells.x, cells.y, cells.z])
+    d, j = cKDTree(pts).query(centres, distance_upper_bound=radius)
+    near = np.isfinite(d)
+    share = np.zeros(cells.n)
+    unit = np.full(cells.n, -1)
+    share[near] = 1.0 - d[near] / radius
+    unit[near] = unit_of[j[near]]
+    for i, u in pairs:          # the cells a trace passes through: whole, their unit as logged
+        share[i], unit[i] = 1.0, names[u]
+    keep = share > 0
+    return [(int(k), np.flatnonzero(keep & (unit == k)), share[keep & (unit == k)])
+            for k in np.unique(unit[keep])]
 
 
 # ── Mixing units into cells ────────────────────────────────────────────
@@ -812,10 +840,19 @@ def build_constraints(spec: dict, centres, half_sizes, surface, data_dir: str = 
             parts = whole(pairs)
             info.update(n_features=n_used, depth_m=depth)
         elif kind == "boreholes":
-            pairs, n_used, n_total = _borehole_cells(cells, source, data_dir, crs,
-                                                     set(names) | set(dropped), step)
-            parts = whole([(i, unit) for i, unit in pairs if known(unit, "Borehole")])
+            pairs, n_used, n_total, traces = _borehole_cells(cells, source, data_dir, crs,
+                                                             set(names) | set(dropped), step)
+            pairs = [(i, unit) for i, unit in pairs if known(unit, "Borehole")]
+            radius = float(source.get("radius_m", 0.0))
+            if radius > 0:
+                last = dict(pairs)          # a later hole wins a cell, as without a radius
+                parts = _borehole_halo(cells, [(t, u) for t, u in traces if u in names],
+                                       list(last.items()), radius, names)
+            else:
+                parts = whole(pairs)
             info.update(file=source.get("file"), n_features=n_used, n_holes=n_total)
+            if radius > 0:
+                info["radius_m"] = radius
         elif kind in ("body", "map"):
             if kind == "body":
                 unit = source.get("unit")

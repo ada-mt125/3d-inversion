@@ -2132,3 +2132,32 @@ regularizations × three priors, 18 local runs of 1–2 minutes:
 
 Open: a looser prior (B′: ±50 %, lower weight) and boreholes with a radius of influence (C′); the
 model builder's ±0.005 default amounts to a hard constraint and the page does not say so.
+
+## 2026-10-05 — The ablation again: Lp only, tuned, a soft reference model, boreholes with a reach
+
+`examples/output/synthetic_ablation_lp/` (report `ablation_report.html`, in Chinese) replaces the
+first ablation, which tuned nothing, used a 100 m sheet as its intrusion, pinned its prior with
+the model builder's default range (±0.005 SI) and let its holes reach no further than their trace.
+The intrusion is now 250 m thick, 1.2 km long, 100–600 m deep (45° E, 1 SI); Lp only, 40 settings
+(norms (0,0,0,0) (0,1,1,1) (0,2,2,1) (0,2,2,2) (1,1,1,1) × depth weighting β 1, 1.5, 2, 3 × length
+scale L 1, 3), up to 200 iterations (100 IRLS), in five groups: A none; B the biased prior (~100 m
+off, 50 m deeper, 10° steeper, κ ±50 %) as a reference model only (bounds 0–3 SI) at weight 1, 10,
+100; C five holes held at their logs and reaching 150 m (the new `radius_m` of borehole sources:
+share 1 − d/radius). 200 runs on 10 × c5.4xlarge (`deploy/ec2_sweep.py`, `deploy/sweep_runner.py`):
+1.70 h, ≈ $11.6; 199 converged, χ²/N 0.85–1.12. Ranked by the volume-matched overlap with each body.
+
+- Tuning matters more than the prior: in A the score runs 0.23–0.80 (median 0.58). L = 3 beats L = 1
+  in every group (A 0.66 vs 0.42 on average); (1,1,1,1) is the most robust norm (A 0.72); β 3 is
+  worse. The page's default (p 0,2,2,1, α 1, β 1.5) scores 0.31.
+- A's best (1,1,1,1, β 1.5, L 1): overlap 0.83 / 0.77, cube 242 m (true 262 by the same measure),
+  dip 55° (45°), κ in the intrusion 0.79 SI.
+- The biased reference model at best breaks even and hurts more as its weight grows: best 0.81 /
+  0.70 / 0.53 at weight 1 / 10 / 100, better than A at the same setting 25 / 15 / 10 of 40 times;
+  at weight 100 the prior's cells sit exactly at their reference, as with the pinned prior.
+  Magnetization where the prior is wrong: median 0.38–0.47 SI against A's 0.29, at the same fit.
+- The holes help: best 0.87 (dip 47°, κ 0.89 SI), better than A at 35 of 40 settings; their effect
+  reaches about 250 m (C − A 0.2 SI at 150–250 m, 0.04 at 250–500 m). A hole 224 m from any other,
+  not given to the inversion, sees 0.98 SI in C and 1.16 in A over the intrusion (true 1).
+
+Open: the page's Lp defaults (L 3 or (1,1,1,1)), a smaller radius for background intervals, and
+`radius_m` in the page's borehole import.

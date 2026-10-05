@@ -1,0 +1,3 @@
+# the 200 results (about 440 MB) stay out of the repository: scripts/make_figures.py copies the
+# runs shown in the report to data/best/, and figures/numbers.json keeps the measures of all
+runs/

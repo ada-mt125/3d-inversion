@@ -176,6 +176,33 @@ class TestConstraints:
         by = {s["type"]: s for s in geo.summary()["sources"]}
         assert by["boreholes"]["n_features"] == 2 and by["boreholes"]["n_holes"] == 3
 
+    def test_borehole_radius_tapers_the_log_into_the_cells_around(self, grid_cells, tmp_path):
+        """radius_m: share 1 - d / radius of the nearest logged unit, whole cells on the trace."""
+        centres, half, surface = grid_cells
+        (tmp_path / "holes.csv").write_text(
+            "x,y,bearing,cl_inclina,length_m,unit\n"
+            "1050,1050,0,90,300,dense\n"             # vertical: dense down to 300 m
+            "1050,1050,0,90,150,light\n")            # the same collar: a later hole wins its cells
+        spec = {"units": _units(), "unconstrained": {"lower": -1.0, "upper": 1.0},
+                "sources": [{"type": "boreholes", "file": "holes.csv", "radius_m": 250,
+                             "unit_by": {"field": "unit"}}]}
+        geo = build_constraints(spec, centres, half, surface, str(tmp_path))
+        x, y, z = centres.T
+        d = np.hypot(x - 1050, y - 1050)
+        at = lambda dx, depth: (np.isclose(d, dx)) & np.isclose(-z, depth)      # noqa: E731
+        # on the trace: whole cells, the later hole's unit in its two cells, then the first's
+        assert np.all(geo.share[at(0, 50)] == 1) and np.all(geo.unit_index[at(0, 150)] == 1)
+        assert np.all(geo.unit_index[at(0, 250)] == 0)
+        # 100 m beside the trace at 250 m depth: 1 - 100/250 of dense, mixed with the free part
+        s = 1 - 100 / 250
+        np.testing.assert_allclose(geo.share[at(100, 250)], s)
+        np.testing.assert_allclose(geo.reference[at(100, 250)], s * 0.5)
+        np.testing.assert_allclose(geo.upper[at(100, 250)], s * 0.7 + (1 - s) * 1.0)
+        np.testing.assert_allclose(geo.weights[at(100, 250)], s * 8 + (1 - s) * 1.0)
+        # beyond the radius (and below the hole's end by more than it) nothing changes
+        assert np.all(geo.share[d > 250] == 0) and np.all(geo.share[-z > 300 + 250] == 0)
+        assert geo.summary()["sources"][0]["radius_m"] == 250
+
     def test_map_polygons_from_geojson(self, grid_cells, tmp_path):
         centres, half, surface = grid_cells
         fc = {"type": "FeatureCollection", "crs": {"type": "name", "properties": {"name": "EPSG:32643"}},
