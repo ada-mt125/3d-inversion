@@ -206,6 +206,8 @@ def test_a_stand_alone_viewer_keeps_the_map_layers(tmp_path):
     html = open(generate_viewer(str(src)), encoding="utf-8").read()
     data = json.loads(html.split('<script id="embedded-data" type="application/json">')[1].split("</script>")[0])
     assert data["map_layers"] == layers
+    # opened without the server: the logo travels inside the page
+    assert 'src="assets/' not in html and 'src="data:image/png;base64,' in html
 
 
 class TestViewerGrid:

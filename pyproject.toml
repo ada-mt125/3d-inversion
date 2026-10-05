@@ -32,8 +32,9 @@ geoinv3d = "geoinv3d.app:main"
 include = ["geoinv3d*"]
 
 [tool.setuptools.package-data]
-# the page and viewer template; the IGRF-14 coefficients (geoinv3d/methods/igrf.py)
-geoinv3d = ["viz/*.html", "data/*.txt"]
+# the page and viewer template, its images (the Alt Carbon logo); the IGRF-14 coefficients
+# (geoinv3d/methods/igrf.py)
+geoinv3d = ["viz/*.html", "viz/assets/*", "data/*.txt"]
 
 [tool.ruff]
 line-length = 96

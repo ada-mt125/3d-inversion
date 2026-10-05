@@ -1915,3 +1915,20 @@ draw only) has the server's colours and depth (`model_3d.depth_max`) and samples
 probability when that is shown (nothing for the posterior std, which only the server has).
 A slider redraws only the slices it moves (the E-W slider: that section and the depth
 slice's line), once per frame. A 25-step drag of the E-W slider: 25 requests, one stand-in.
+
+## 2026-10-05 — Alt Carbon's look: white and purple, the logo
+
+The page was dark (#0e131a, an orange accent). It now follows Alt Carbon's site: white
+surfaces, a very light lavender for panels and inputs (#f8f6fd, #f0ecfb), near-black text
+(#1e1b2e) and the brand purple #7b4cff (sampled from altcarbon.com) as the accent, with a
+3 px purple strip over the header, the Alt Carbon logo next to "GeoInv3D", and Upload as a
+purple pill like the site's "Remove CO₂". The CSS variables on `:root` carry the theme;
+canvases and Plotly read the same colours from `TH` (they cannot use CSS variables).
+Warnings, which used the old orange accent, have their own amber (`--warn` #b45309); the
+light reds, blues and teals of messages are their darker shades; the slices' line colours
+(depth slice, E-W, N-S, profile) are darker versions of the same hues; stations in 3D and
+the workflow's arrows are a soft grey-lavender instead of cream and dark grey.
+
+The logo is `geoinv3d/viz/assets/altcarbon-logo-black-horizontal.png` (package data),
+served at `/assets/{name}` (plain names only) and written into stand-alone viewers as a
+data URI (`serve_dag.inline_assets`), so it shows without the server too.

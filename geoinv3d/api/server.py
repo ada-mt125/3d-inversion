@@ -1630,6 +1630,16 @@ async def upload_page():
     return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/assets/{name}", include_in_schema=False)
+async def page_asset(name: str):
+    """The page's images (geoinv3d/viz/assets: the Alt Carbon logo)."""
+    from ..viz.serve_dag import ASSETS_DIR
+    path = ASSETS_DIR / name
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or name.startswith(".") or not path.is_file():
+        raise HTTPException(status_code=404, detail="No such asset")
+    return FileResponse(path, headers={"Cache-Control": "max-age=86400"})
+
+
 @app.get("/api/health")
 async def health():
     """Health check (does not contact AWS)."""

@@ -104,6 +104,15 @@ class TestLocalOnly:
         rebound = TestClient(server.app, base_url="http://attacker.example:8000")
         assert rebound.get("/").status_code == 403
 
+    def test_the_page_logo_is_served(self, api):
+        """The header's Alt Carbon logo (geoinv3d/viz/assets), and nothing else from there."""
+        client = TestClient(server.app, base_url="http://localhost:8123")
+        assert 'src="assets/altcarbon-logo-black-horizontal.png"' in client.get("/").text
+        r = client.get("/assets/altcarbon-logo-black-horizontal.png")
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
+        for bad in ("nope.png", "..%2Fdag_interactive.html", ".hidden"):
+            assert client.get(f"/assets/{bad}").status_code == 404
+
     def test_preflight_for_a_local_page(self, api):
         client, _, _ = api
         r = client.options("/api/inversion/submit", headers={

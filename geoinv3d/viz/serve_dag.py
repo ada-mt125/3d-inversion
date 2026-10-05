@@ -14,6 +14,24 @@ import sys
 from pathlib import Path
 
 
+ASSETS_DIR = Path(__file__).parent / "assets"   # the page's images (the Alt Carbon logo)
+
+
+def inline_assets(html: str) -> str:
+    """The page's ``assets/...`` images as data URIs, for a page opened without the server."""
+    import base64
+    import mimetypes
+    import re
+
+    def data_uri(m):
+        path = ASSETS_DIR / m.group(2)
+        if not path.is_file():
+            return m.group(0)
+        mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        return f'{m.group(1)}"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"'
+    return re.sub(r'(src=)"assets/([A-Za-z0-9._-]+)"', data_uri, html)
+
+
 def generate_viewer(workflow_path: str, output_path: str | None = None) -> str:
     with open(workflow_path, "r", encoding="utf-8") as f:
         workflow_data = json.load(f)
@@ -31,7 +49,7 @@ def generate_viewer(workflow_path: str, output_path: str | None = None) -> str:
         f'{json.dumps(compact_data, separators=(",", ":"))}'
         f'</script>\n'
     )
-    html = html.replace('</body>', inject + '</body>')
+    html = inline_assets(html.replace('</body>', inject + '</body>'))
 
     if output_path is None:
         base = Path(workflow_path).stem
