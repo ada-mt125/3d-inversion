@@ -2181,3 +2181,20 @@ the norms or the length scales out; the page shows it for a single magnetic inve
 new norm preset, "Robust compact"), until the user changes the norms or α, and a restored setup
 keeps its own. Gravity, DC/MT and joint inversions, and the other regularizations, keep p =
 (0,2,2,1) and α 1: they were not tested. The report says so and was republished (version 2).
+
+## 2026-10-06 — Inputs stored once: clones of an identical file kept before
+
+`~/.geoinv3d` had grown to 14 GB, 12.75 GB of it one file: Block 8's 240 MB TMI grid, copied twice
+per job (the server's `inputs/<task>/data` for re-runs and the local backend's
+`local/<task>/data`), 54 copies. Those were replaced by APFS clones of one of them (hashes checked
+before and after; 12 GiB back on the disk, no job changed), and from now on
+`geoinv3d.io.filestore.store` keeps an input as a clone of an identical file stored before
+(found by size and hash in `~/.geoinv3d/content_index.json`, checked again before it is shared),
+else as a clone of the upload; on file systems without clones it copies. The server's kept
+inputs, the local backend's job data and the EC2 staging folder use it; files under 1 MB are
+copied as before. Tests keep their index in their own folder (`GEOINV3D_CONTENT_INDEX`).
+
+Also moved to the Trash: ten generated workflow viewers (`*.geoinv3d_viewer.html` and their
+`.geoinv3d.json`, 343 MB, not in the repository) of the Karnataka joint, magnetic and gravity-with-
+terrain studies and of `examples/output/ec2_runs`; each study's `scripts/build_workflow.py` makes
+them again.

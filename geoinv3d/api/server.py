@@ -82,6 +82,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from ..cloud.aws import (
     AWSRunner, BatchBackend, CANCEL_REASON, INSTANCE_RESOURCES, TERMINAL_STATUSES,
 )
+from ..io.filestore import store
 
 app = FastAPI(
     title="GeoInv3D Inversion API",
@@ -444,8 +445,8 @@ def _inputs_dir(task_id: str) -> Path:
 def _keep_inputs(task_id: str, files: list[Path], params: dict, preview_of) -> None:
     folder = _inputs_dir(task_id)
     (folder / "data").mkdir(parents=True, exist_ok=True)
-    for f in files:
-        shutil.copy(f, folder / "data" / Path(f).name)
+    for f in files:      # an input kept before is shared, not stored again (geoinv3d.io.filestore)
+        store(f, folder / "data" / Path(f).name)
     _write_json(folder / "params.json", params, indent=1)
     if preview_of:
         _write_json(folder / "preview_of.json", preview_of, indent=1)

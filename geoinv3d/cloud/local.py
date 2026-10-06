@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -29,6 +28,8 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
+
+from ..io.filestore import store
 
 PHASE_STATUS = {"queued": "RUNNABLE", "running": "RUNNING", "succeeded": "SUCCEEDED",
                 "failed": "FAILED", "cancelled": "FAILED"}
@@ -117,8 +118,8 @@ class LocalBackend:
         job = self.job_dir(task_id)
         (job / "data").mkdir(parents=True, exist_ok=True)
         (job / "out").mkdir(exist_ok=True)
-        for f in files:
-            shutil.copy(f, job / "data" / Path(f).name)
+        for f in files:      # shares the bytes of an identical input kept before
+            store(f, job / "data" / Path(f).name)
         (job / "params.json").write_text(json.dumps(params, indent=2), encoding="utf-8")
         (job / "QUEUED").write_text(str(self.clock()), encoding="utf-8")
         self._schedule()

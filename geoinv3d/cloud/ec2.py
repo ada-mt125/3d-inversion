@@ -40,6 +40,8 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, Optional
 
+from ..io.filestore import clone_or_copy
+
 REMOTE = "/opt/geoinv3d"
 PYTHON_VERSION = "3.13"
 # The versions tested locally; the instance installs exactly these.
@@ -274,7 +276,7 @@ class EC2Backend:
         staging = self.state_dir / "staging" / task_id
         staging.mkdir(parents=True, exist_ok=True)
         for f in files:
-            shutil.copy(f, staging / Path(f).name)
+            clone_or_copy(f, staging / Path(f).name)
         (staging / "params.json").write_text(json.dumps(params, indent=2), encoding="utf-8")
 
         with self._setup_lock:   # parallel jobs would create the key or the rule twice
