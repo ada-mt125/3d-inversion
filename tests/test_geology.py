@@ -203,6 +203,48 @@ class TestConstraints:
         assert np.all(geo.share[d > 250] == 0) and np.all(geo.share[-z > 300 + 250] == 0)
         assert geo.summary()["sources"][0]["radius_m"] == 250
 
+    def test_logged_holes_put_each_interval_in_its_cells(self, grid_cells):
+        """Holes given in the spec, logged by interval: each interval's unit in the cells it
+        passes through; a boundary inside a cell mixes the two by their length there."""
+        centres, half, surface = grid_cells
+        spec = {"units": _units(), "unconstrained": {"lower": -1.0, "upper": 1.0},
+                "sources": [{"type": "boreholes", "crs": "job", "holes": [
+                    {"name": "BH1", "x": 1050, "y": 1050, "inclination": 90, "intervals": [
+                        {"from_m": 0, "to_m": 250, "unit": "light"},
+                        {"from_m": 250, "to_m": 600, "unit": "dense"}]}]}]}
+        geo = build_constraints(spec, centres, half, surface, "")
+        x, y, z = centres.T
+        col = np.isclose(x, 1050) & np.isclose(y, 1050)
+        depth = -z
+        assert np.all(geo.unit_index[col & (depth < 200)] == 1)            # light
+        assert np.all(geo.unit_index[col & (depth > 300) & (depth < 600)] == 0)  # dense
+        # the 200-300 m cell: half light, half dense
+        mid = col & np.isclose(depth, 250)
+        np.testing.assert_allclose(geo.reference[mid], 0.5 * 0.5 + 0.5 * -0.1)
+        np.testing.assert_allclose(geo.share[mid], 1.0)
+        # below the hole and off its column: free
+        assert np.all(geo.share[col & (depth > 600)] == 0) and np.all(geo.share[~col] == 0)
+        src = geo.summary()["sources"][0]
+        assert src["n_features"] == 1 and src["n_holes"] == 1
+
+    def test_logged_inclined_hole_and_collar(self, grid_cells):
+        """An inclined hole leaves its column; a collar elevation above the ground shifts it up."""
+        centres, half, surface = grid_cells
+        spec = {"units": _units(), "sources": [{"type": "boreholes", "crs": "job", "radius_m": 0, "holes": [
+            {"name": "BH2", "x": 550, "y": 550, "azimuth": 90, "inclination": 45, "collar_m": 100,
+             "intervals": [{"from_m": 0, "to_m": 800, "unit": "dense"}]}]}]}
+        geo = build_constraints(spec, centres, half, surface, "", default_bounds=(-1.0, 1.0))
+        x, y, z = centres.T
+        hit = geo.unit_index == 0
+        # 45 degrees east: from 100 m above the ground, it enters the ground 100 m east of the
+        # collar and goes as far east as it goes down
+        assert hit.any() and np.all(np.isclose(y[hit], 550))
+        assert np.all(np.abs((x[hit] - 550 - 100) - (-z[hit])) <= 150)
+        with pytest.raises(ValueError, match="interval"):
+            build_constraints({"units": _units(), "sources": [{"type": "boreholes", "crs": "job", "holes": [
+                {"x": 1, "y": 1, "intervals": [{"from_m": 50, "to_m": 10, "unit": "dense"}]}]}]},
+                centres, half, surface, "")
+
     def test_map_polygons_from_geojson(self, grid_cells, tmp_path):
         centres, half, surface = grid_cells
         fc = {"type": "FeatureCollection", "crs": {"type": "name", "properties": {"name": "EPSG:32643"}},

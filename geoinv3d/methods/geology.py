@@ -29,8 +29,9 @@ the cells they share):
 
     samples    the cell column under each rock sample, down to ``depth_m``
     boreholes  the cells along each hole's trace (collar, azimuth, inclination, length),
-               the unit from a field of the hole (e.g. its commodity) or given; with
-               ``radius_m``, also the cells around it, in part (see below)
+               the unit from a field of the hole (e.g. its commodity) or given; or holes
+               given in the spec (``holes``), each logged in depth intervals with a unit
+               each (see below); with ``radius_m``, also the cells around them, in part
     body       a polygon (or box) between two depths, optionally dipping: an interpreted body
     map        polygons of a vector file (e.g. a geological map), extruded like a body
     layers     a stack of layers (thicknesses, the last one possibly down to the bottom),
@@ -48,6 +49,18 @@ also reaches the cells around its trace: a cell whose centre is a distance d fro
 nearest point of the trace takes the share 1 - d / radius of that point's unit (none
 beyond the radius), so its reference, bounds and weight go over linearly from the log's
 at the hole to what was there before at the radius.
+
+Holes given in the spec (the model builder writes them) are logged by interval::
+
+    {"type": "boreholes", "crs": "job", "radius_m": 0,
+     "holes": [{"name": "BH1", "x": 2500, "y": 1800, "collar_m": null, "azimuth": 0,
+                "inclination": 90,
+                "intervals": [{"from_m": 0, "to_m": 120, "unit": "BH1 0-120"}, ...]}]}
+
+with depths along the hole from its collar (``collar_m``, an elevation; none: on the mesh's
+ground), the inclination from the horizontal (90: straight down) and the azimuth clockwise from
+north.  A cell the hole passes through takes the units of the intervals in it by their length
+there, so an interval boundary inside a cell mixes the two as a body's edge does.
 
 Coordinates of samples, holes and polygons may be longitude/latitude (they are then
 projected to the job's CRS) or metres in it (``"crs": "job"`` says so; otherwise it is
@@ -612,6 +625,65 @@ def _borehole_cells(cells: _Cells, spec: dict, data_dir: str, crs, names: set, s
     return pairs, used, len(feats), traces
 
 
+def _logged_hole_cells(cells: _Cells, spec: dict, crs, names: set, step: float):
+    """Holes given in the spec, logged by interval (see the module docstring): one (cell, unit)
+    pair per point sampled every ``step`` along each interval (so a cell holds its units in
+    proportion to their length in it), the holes used and given, and the traces per interval."""
+    holes = [h for h in spec.get("holes") or [] if isinstance(h, dict)]
+    if not holes:
+        return [], 0, 0, []
+    try:
+        hx, hy = [float(h["x"]) for h in holes], [float(h["y"]) for h in holes]
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("Every hole needs numbers x and y")
+    xs, ys = _to_crs(hx, hy, crs, _geographic(spec))
+    pairs, used, traces = [], 0, []
+    for h, x, y in zip(holes, xs, ys):
+        inc = float(h.get("inclination") or 90.0)
+        inc = 90.0 if inc <= 0 or inc > 90 else inc
+        az = np.radians(float(h.get("azimuth") or 0.0))
+        dx, dy = np.cos(np.radians(inc)) * np.sin(az), np.cos(np.radians(inc)) * np.cos(az)
+        dz = np.sin(np.radians(inc))
+        collar = h.get("collar_m")
+        top = (float(np.asarray(cells.surface(np.array([x]), np.array([y]))).ravel()[0])
+               if collar is None or collar == "" else float(collar))
+        hit = False
+        for iv in h.get("intervals") or []:
+            unit = iv.get("unit")
+            if unit is None or unit not in names:
+                continue
+            a, b = float(iv["from_m"]), float(iv["to_m"])
+            if not b > a:
+                raise ValueError(f"Hole {h.get('name', '?')}: an interval from {a:g} m to {b:g} m")
+            # points at the middle of steps of at most a quarter of `step`: each stands for the
+            # same length, so a cell's units are shared by their length in it to within a few %
+            n = max(int(np.ceil(4 * (b - a) / step)), 1)
+            s = a + (np.arange(n) + 0.5) * (b - a) / n
+            px, py, pz = x + s * dx, y + s * dy, top - s * dz
+            idx = cells.containing(px, py, pz)
+            traces.append((np.column_stack([px, py, pz]), unit))
+            ok = idx >= 0
+            if ok.any():
+                hit = True
+                pairs += [(int(i), unit) for i in idx[ok]]
+        used += int(hit)
+    return pairs, used, len(holes), traces
+
+
+def _by_length(pairs, names: dict):
+    """[(unit index, cells, shares)] from (cell, unit) pairs, one per equal length of hole: each
+    cell filled by its units in proportion to their length in it."""
+    from collections import Counter
+    count = Counter(pairs)
+    total = Counter(i for i, _ in pairs)
+    out = {}
+    for (i, u), c in count.items():
+        out.setdefault(names[u], ([], []))
+        out[names[u]][0].append(i)
+        out[names[u]][1].append(c / total[i])
+    return [(k, np.array(i), np.array(f)) for k, (i, f) in out.items()]
+
+
 def _borehole_halo(cells: _Cells, traces, pairs, radius: float, names: dict):
     """(unit index, cells, shares) around the holes: 1 - d / radius of the unit of the
     nearest trace point (d from the cell's centre), 1 in the cells the traces pass through."""
@@ -840,16 +912,27 @@ def build_constraints(spec: dict, centres, half_sizes, surface, data_dir: str = 
             parts = whole(pairs)
             info.update(n_features=n_used, depth_m=depth)
         elif kind == "boreholes":
-            pairs, n_used, n_total, traces = _borehole_cells(cells, source, data_dir, crs,
-                                                             set(names) | set(dropped), step)
+            logged = source.get("holes") is not None
+            find = _logged_hole_cells if logged else _borehole_cells
+            args = (cells, source, crs, set(names) | set(dropped), step) if logged else \
+                (cells, source, data_dir, crs, set(names) | set(dropped), step)
+            pairs, n_used, n_total, traces = find(*args)
             pairs = [(i, unit) for i, unit in pairs if known(unit, "Borehole")]
-            radius = float(source.get("radius_m", 0.0))
+            radius = float(source.get("radius_m", 0.0) or 0.0)
             if radius > 0:
-                last = dict(pairs)          # a later hole wins a cell, as without a radius
+                if logged:          # a cell the hole passes through: its longest interval
+                    from collections import Counter
+                    best = {}
+                    for (i, u), c in Counter(pairs).items():
+                        if c > best.get(i, (None, 0))[1]:
+                            best[i] = (u, c)
+                    last = {i: u for i, (u, _) in best.items()}
+                else:
+                    last = dict(pairs)          # a later hole wins a cell, as without a radius
                 parts = _borehole_halo(cells, [(t, u) for t, u in traces if u in names],
                                        list(last.items()), radius, names)
             else:
-                parts = whole(pairs)
+                parts = _by_length(pairs, names) if logged else whole(pairs)
             info.update(file=source.get("file"), n_features=n_used, n_holes=n_total)
             if radius > 0:
                 info["radius_m"] = radius

@@ -2379,3 +2379,33 @@ Server: `GET /model`; `GET/POST /api/models`, `GET/PUT/DELETE /api/models/{id}`,
 
 Next: forward data from a model (gravity, magnetics, DC, MT on the job's mesh), so that a model
 built here also makes synthetic surveys.
+
+## 2026-10-07 — Boreholes logged by interval, in the model builder and the constraints
+
+A borehole is now a list of depth intervals, each with its own density, susceptibility and/or
+resistivity (and a lithology), not one unit for the whole hole.
+
+- `geoinv3d/methods/geology.py`: a "boreholes" source may give its holes inline
+  (`holes: [{name, x, y, collar_m, azimuth, inclination, intervals: [{from_m, to_m, unit}]}]`,
+  depths along the hole from the collar, the collar on the ground unless given).  The cells the
+  hole passes through take the intervals' units by their length in them (points every quarter
+  of half the thinnest cell: 51.5 ohm m where the exact log mix of 30 m at 60 and 20 m at 40 ohm m
+  is 51.0); with `radius_m`, the cells around take the longest interval of the nearest hole
+  cell, in part, as before.  The file-based holes (one unit per hole) are unchanged.
+- The model builder: "⊙ Boreholes" (a set: reach, weight, fixed, sharp; a holes table — name,
+  E, N, collar, azimuth, dip — and the picked hole's intervals: from, to, lithology, the three
+  values); "⤒ Boreholes CSV" and a pasted CSV, one row per interval (`hole,x,y,from,to,…`) or per
+  measurement (`hole,x,y,depth,…`: each value then stands for the depths half-way to its
+  neighbours), headers with units in brackets accepted, `*_lower` / `*_upper` columns for ranges;
+  the area widens to take in the holes.  Holes are drawn along their azimuth and dip, each interval
+  coloured by lithology or by the property shown, the reach as a faint sleeve; "◎ Zoom to selected"
+  (or a double-click) brings a body or a hole into view.
+- The upload page keeps a model's borehole sets apart from its editor (`MB.holes`), shows the
+  collars on its map, and makes every interval with a value a unit ("Boreholes 1: BH1 0–30 m") of a
+  "boreholes" source of each property's spec; its "⤓ Save model" writes them back.
+
+Checked: tests of a vertical hole crossing an interval boundary inside a cell, of an inclined hole
+with a collar above the ground and of a reversed interval; in the browser, a CSV of four depth
+measurements becomes four intervals with midpoint boundaries, the upload page's spec of the saved
+model carries a borehole source per property, and that spec, placed by geology.py on 50 m cells,
+puts the logged resistivities down the right columns (the inclined hole moving east with depth).

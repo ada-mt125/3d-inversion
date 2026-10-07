@@ -5724,7 +5724,11 @@ window.GeoPreview=GeoPreview;
   // switches fixed (hardly moves) and sharp (little smoothing across its boundaries).  Each
   // becomes a unit and a "body" / "layers" source of the spec (geoinv3d/methods/geology.py);
   // every job gets the spec of its property.
-  const MB={items:[],sel:-1,drawing:null,drawFor:null,secAt:null,seq:0,layerSeq:0,timer:null,
+  // MB.holes: borehole sets of the 3D model builder ({kind:'boreholes', name, radius, weight, fixed,
+  // sharp, holes:[{name, x, y, collar (elevation; empty: on the ground), azimuth, dip (from
+  // horizontal; 90: down), intervals:[{from, to, lithology, props:{p:{value,lower,upper}}}]}]}):
+  // kept apart from the editor's items, each interval with a value a unit of a "boreholes" source
+  const MB={items:[],holes:[],sel:-1,drawing:null,drawFor:null,secAt:null,seq:0,layerSeq:0,timer:null,
     paste:false,secProp:null,ground:0,
     free:{density:{value:2.67,lower:null,upper:null},susceptibility:{lower:null,upper:null},
           resistivity:{value:null,lower:null,upper:null,mixing:'log'}}};
@@ -5862,6 +5866,22 @@ window.GeoPreview=GeoPreview;
           ...(ring?{polygon:mbRingOut(ring)}:{}),layers});
       }
     }
+    for(const bs of MB.holes){        // logged holes: an interval with a value is a unit
+      const holes=[];
+      for(const h of bs.holes||[]){
+        const intervals=[];
+        for(const iv of h.intervals||[]){
+          const v=iv.props&&iv.props[p];
+          if(!mbHas(p,v)||!(+iv.to>+iv.from))continue;
+          const name=`${bs.name}: ${h.name} ${+iv.from}–${+iv.to} m`;
+          units[name]=mbUnit(p,v,bs);
+          intervals.push({from_m:+iv.from,to_m:+iv.to,unit:name});
+        }
+        if(intervals.length)holes.push({name:h.name,x:+h.x,y:+h.y,collar_m:mbNum(h.collar),
+          azimuth:+(h.azimuth??0),inclination:+(h.dip??90),intervals});
+      }
+      if(holes.length)sources.push({type:'boreholes',name:bs.name,crs:'job',radius_m:+(bs.radius||0),holes});
+    }
     if(!sources.length)return null;
     const f=MB.free[p], free={};
     if(mbNum(f.lower)!=null)free.lower=p==='density'?+(f.lower-mbBg()).toFixed(6):+f.lower;
@@ -5897,6 +5917,8 @@ window.GeoPreview=GeoPreview;
     if(b&&!Array.isArray(b)&&Array.isArray(b.items)){             // saved here
       for(const it of b.items){
         const c=JSON.parse(JSON.stringify(it));
+        if(c.kind==='boreholes'){MB.holes.push(c);continue;}
+        if(c.kind!=='body'&&c.kind!=='layers')continue;
         if(c.kind==='layers'){for(const l of c.layers){made.add(l.name);l.name=take(l.name,null);}}
         else{made.add(c.name);c.name=take(c.name,null);}
         MB.items.push(c);
@@ -5973,8 +5995,11 @@ window.GeoPreview=GeoPreview;
   function mbHint(){
     const s=selection(), joint=s&&(s.gl||s.mode==='joint');
     $u('mb-hint').textContent=MB.drawing?`Drawing${MB.drawFor?` the outline of ${MB.drawFor.name}`:''}: ${MB.drawing.length} point${MB.drawing.length===1?'':'s'} — double-click or click the first point to close, Esc to cancel`
-      :joint&&MB.items.length?'⚠ A joint inversion does not use the model yet: pick single (or separate) inversions'
+      :joint&&(MB.items.length||MB.holes.length)?'⚠ A joint inversion does not use the model yet: pick single (or separate) inversions'
       :MB.items.length?'Click a body to edit it; Shift-click moves the section':'';
+    const nh=MB.holes.reduce((a,bs)=>a+(bs.holes||[]).length,0);
+    if(nh&&!MB.drawing)$u('mb-hint').textContent+=`${MB.items.length?' · ':''}${nh} borehole${nh===1?'':'s'} from the model builder `+
+      `(${MB.holes.map(b=>b.name).join(', ')}): their logged intervals constrain the cells they pass through — edit them there`;
   }
   function mbWire(){
     const el=$u('mb-map'); if(el._mbWired)return; el._mbWired=true;
@@ -6018,11 +6043,11 @@ window.GeoPreview=GeoPreview;
     const specs={};
     for(const p of Object.keys(MB_P)){const s=geoCombined(p);if(s)specs[p]=s;}
     const order=[...mbProps(),...Object.keys(specs)], main=specs[order.find(p=>specs[p])];
-    if(!main&&!MB.items.length){$u('mb-hint').textContent='Nothing to save yet';return;}
+    if(!main&&!MB.items.length&&!MB.holes.length){$u('mb-hint').textContent='Nothing to save yet';return;}
     const others=Object.fromEntries(Object.entries(specs).filter(([k])=>!main||k!==main.property));
     const out={...(main||{property:mbProps()[0],units:{},sources:[]}),
       ...(Object.keys(others).length?{other_properties:others}:{}),
-      builder:{version:2,items:MB.items,free:MB.free,ground:MB.ground}};
+      builder:{version:2,items:MB.items.concat(MB.holes),free:MB.free,ground:MB.ground}};
     const blob=new Blob([JSON.stringify(out,null,1)],{type:'application/json'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='starting_model.json';
     document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
@@ -6032,11 +6057,12 @@ window.GeoPreview=GeoPreview;
     try{
       const r=await fetch(`${apiBase()}/api/models/${encodeURIComponent(id)}`), d=await r.json().catch(()=>({}));
       if(!r.ok||!d.ok)throw new Error(d.detail||('HTTP '+r.status));
-      const before=MB.items.length;
+      const before=MB.items.length, beforeH=MB.holes.length;
       mbImport({builder:d.builder});
       mbRender(true);
-      const n=MB.items.length-before;
-      $u('mb-hint').textContent=`“${d.name}” from the model builder: ${n} item${n===1?'':'s'} added`;
+      const n=MB.items.length-before, nh=MB.holes.length-beforeH;
+      $u('mb-hint').textContent=`“${d.name}” from the model builder: ${n} item${n===1?'':'s'}`+
+        (nh?` and ${nh} borehole set${nh===1?'':'s'}`:'')+' added';
       return d;
     }catch(err){$u('mb-hint').textContent=`⚠ Could not load the model: ${err.message}`;return null;}
   }
@@ -6093,6 +6119,11 @@ window.GeoPreview=GeoPreview;
           line:{color:col,width:1,dash:'dot'},hoverinfo:'skip'});
       }
     });
+    const collars=MB.holes.flatMap(bs=>(bs.holes||[]).map(h=>({...h,set:bs.name})));
+    if(collars.length)traces.push({type:'scatter',mode:'markers+text',x:km(collars.map(h=>+h.x)),y:km(collars.map(h=>+h.y)),
+      text:collars.map(h=>h.name),textposition:'top center',textfont:{size:10,color:TH.text2},
+      marker:{size:8,symbol:'circle-dot',color:'#ffffff',line:{color:TH.accent,width:2}},
+      hovertemplate:collars.map(h=>`${escH(h.set)}: ${escH(h.name)}<br>${(h.intervals||[]).length} intervals<extra></extra>`)});
     if(MB.drawing&&MB.drawing.length)
       traces.push({type:'scatter',mode:'lines+markers',x:km(MB.drawing.map(p=>p[0])),y:km(MB.drawing.map(p=>p[1])),
         line:{color:'#ffffff',width:1.5,dash:'dash'},marker:{size:7,color:'#ffffff'},hoverinfo:'skip'});

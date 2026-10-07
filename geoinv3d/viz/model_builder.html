@@ -140,6 +140,9 @@ table.props input{padding:3px 4px;}
       <button class="btn sm" id="a-cyl">＋ Cylinder</button>
       <button class="btn sm" id="a-poly" title="Click the ground to place vertices; double-click or Enter to close; Esc cancels">✎ Polygon body</button>
       <button class="btn sm" id="a-layers" title="A stack of layers, everywhere (or inside an outline)">≡ Layers</button>
+      <button class="btn sm" id="a-holes" title="Boreholes logged by depth interval: each interval's values go into the cells the hole passes through">⊙ Boreholes</button>
+      <button class="btn sm" id="a-holes-csv" title="Boreholes from a CSV file (see the format when a borehole set is selected)">⤒ Boreholes CSV</button>
+      <input type="file" id="f-holes" accept=".csv,.txt,text/csv" hidden>
     </div>
     <div class="note" id="draw-hint"></div>
   </div>
@@ -174,6 +177,7 @@ table.props input{padding:3px 4px;}
     <button class="btn sm" data-view="plan">Plan</button>
     <button class="btn sm" data-view="south">From south</button>
     <button class="btn sm" data-view="east">From east</button>
+    <button class="btn sm" id="zoom-sel" title="Zoom to the selected item (or double-click it)">◎ Zoom to selected</button>
     <span class="lbl">Colour</span>
     <select id="color-by">
       <option value="unit">by unit</option>
@@ -225,6 +229,11 @@ const COLORS = ['#9a74ff', '#1e88e5', '#43a047', '#e57373', '#ba68c8', '#4dd0e1'
 //            vertical), dipdir, props:{p:{value,lower,upper}}, weight, fixed, sharp}
 //   layers  {kind:'layers', name, shape:'all'|'box'|'polygon', ref, top, dip, dipdir, origin:[x,y],
 //            layers:[{name, thickness (null on the last: to the floor), props, weight, fixed, sharp}]}
+//   boreholes {kind:'boreholes', name, radius (m: the cells around a hole take its log in part,
+//            1 - distance / radius), weight, fixed, sharp, holes:[{name, x, y, collar (elevation;
+//            empty: on the ground), azimuth, dip (from horizontal; 90: straight down),
+//            intervals:[{from, to (m along the hole), lithology, props:{p:{value,lower,upper}}}]}]}
+//            — the upload page makes each interval with a value a unit of a "boreholes" source
 // (metres in the job's frame; depths below the ground).  Extra fields the upload page ignores:
 // hidden (not drawn here).
 function blankModel() {
@@ -348,7 +357,7 @@ function ramp(t) {   // a perceptual blue–purple–orange ramp, t in [0, 1]
 function propRange(p) {
   const vals = [];
   for (const it of items()) {
-    const parts = it.kind === 'layers' ? it.layers : [it];
+    const parts = it.kind === 'layers' ? it.layers : it.kind === 'boreholes' ? (it.holes || []).flatMap(h => h.intervals || []) : [it];
     for (const u of parts) {const v = num(u.props?.[p]?.value); if (v != null && (!PROPS[p].log || v > 0)) vals.push(PROPS[p].log ? Math.log10(v) : v);}
   }
   if (!vals.length) return null;
@@ -427,11 +436,55 @@ function drawModel() {
         addPrism(g, c, known, k === sel && (selLayer < 0 || selLayer === j), {k, j},
           k === sel ? {text: l.name, at: S(cx, cy, (zt.reduce((a, b) => a + b) + zb.reduce((a, b) => a + b)) / (2 * r.length))} : null, true);
       });
-    }
+    } else if (it.kind === 'boreholes') drawHoles(it, k);
   });
   drawColourbar();
   placePivot();
   drawHandles();
+}
+
+// ── Boreholes: a hole from its collar along its azimuth and dip, its intervals over it ──
+function holeDir(h) {
+  const inc = (num(h.dip) ?? 90) * Math.PI / 180, az = (num(h.azimuth) ?? 0) * Math.PI / 180;
+  return [Math.cos(inc) * Math.sin(az), Math.cos(inc) * Math.cos(az), Math.sin(inc)];
+}
+const collarZ = h => num(h.collar) ?? M.ground;
+function holePoint(h, s) {const d = holeDir(h), z0 = collarZ(h); return [+h.x + s * d[0], +h.y + s * d[1], z0 - s * d[2]];}
+const holeLength = h => Math.max(0, ...(h.intervals || []).map(iv => num(iv.to) || 0));
+function lithColour(name, i) {      // the same lithology, the same colour in every hole
+  if (!name) return COLORS[i % COLORS.length];
+  let x = 0; for (const c of String(name).trim().toLowerCase()) x = (x * 31 + c.charCodeAt(0)) >>> 0;
+  return COLORS[x % COLORS.length];
+}
+function tube(a, b, radius, colour, opacity, user) {
+  const A = S(...a), B = S(...b), len = A.distanceTo(B); if (!(len > 0)) return null;
+  const mat = new THREE.MeshStandardMaterial({color: colour, transparent: opacity < 1, opacity, roughness: 0.6,
+    depthWrite: opacity >= 0.5, clippingPlanes: $('sec-dir').value ? [clip] : []});
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, 14, 1, false), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+  m.userData = user; bodies.add(m); return m;
+}
+function drawHoles(it, k) {
+  const span = Math.max(M.extent[1] - M.extent[0], M.extent[3] - M.extent[2]) / 1000;
+  const r0 = span / 140, by = $('color-by').value;
+  (it.holes || []).forEach((h, j) => {
+    if (num(h.x) == null || num(h.y) == null) return;
+    const isSel = k === sel && (selLayer < 0 || selLayer === j), L = holeLength(h);
+    tube(holePoint(h, 0), holePoint(h, Math.max(L, 1)), r0 * 0.4, 0x8c879e, 0.7, {k, j});
+    (h.intervals || []).forEach((iv, i) => {
+      const a = num(iv.from), b = num(iv.to); if (a == null || b == null || !(b > a)) return;
+      const c = by === 'unit' ? {c: lithColour(iv.lithology, i), known: true} : colourOf(iv, i);
+      tube(holePoint(h, a), holePoint(h, b), r0 * (c.known ? (isSel ? 1.7 : 1.25) : 0.7), c.c, c.known ? 1 : 0.45, {k, j});
+    });
+    const R = num(it.radius) || 0;       // the reach of the log into the cells around
+    if (R > 0 && L > 0) tube(holePoint(h, 0), holePoint(h, L), R / 1000, 0x7b4cff, isSel ? 0.14 : 0.07, {k, j});
+    const top = holePoint(h, 0);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(r0 * 2.3, 14, 10), new THREE.MeshBasicMaterial({color: isSel ? 0x6236e8 : 0x3d3654}));
+    ball.position.copy(S(...top)); ball.userData = {k, j}; bodies.add(ball);
+    const d = document.createElement('div'); d.className = 'lab name'; d.textContent = h.name;
+    const o = new CSS2DObject(d); o.position.set(0, 0, r0 * 6); ball.add(o);
+  });
 }
 
 // the area: ground, the floor's outline, ticks
@@ -475,7 +528,7 @@ function anchor(it) {   // where the gizmo sits: the item's top centre
 let mode = 'translate';
 function placePivot() {
   const it = cur();
-  if (!it || it.hidden || mode === 'verts') {gizmo.detach(); return;}
+  if (!it || it.hidden || mode === 'verts' || it.kind === 'boreholes') {gizmo.detach(); return;}
   const a = anchor(it); if (!a) {gizmo.detach(); return;}
   pivot.position.copy(S(...a)); pivot.scale.set(1, 1, 1);
   const canScale = it.kind === 'body' && (it.shape === 'box' || it.shape === 'cylinder');
@@ -592,7 +645,11 @@ window.addEventListener('pointerup', ev => {
   if (hit) select(hit.object.userData.k, hit.object.userData.j);
   else if (!gizmo.axis) select(-1);
 });
-renderer.domElement.addEventListener('dblclick', () => {if (drawing) finishDrawing();});
+renderer.domElement.addEventListener('dblclick', ev => {
+  if (drawing) {finishDrawing(); return;}
+  setPtr(ev); const hit = ray.intersectObjects(bodies.children, false)[0];
+  if (hit) {select(hit.object.userData.k, hit.object.userData.j); zoomTo(hit.object.userData.k, items()[hit.object.userData.k]?.kind === 'boreholes' ? hit.object.userData.j : -1);}
+});
 renderer.domElement.addEventListener('contextmenu', ev => {
   ev.preventDefault(); setPtr(ev);
   const hit = ray.intersectObjects(handles.children, false)[0], it = cur();
@@ -632,6 +689,17 @@ function fitCamera(dir) {
   camera.near = r / 500; camera.far = r * 50; camera.updateProjectionMatrix(); orbit.update();
 }
 function setView(v) {fitCamera(v); document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));}
+function zoomTo(k, j = -1) {    // the camera onto what is drawn of item k (hole j of a set)
+  const box = new THREE.Box3();
+  for (const o of bodies.children) if (o.userData.k === k && (j < 0 || o.userData.j === j)) box.expandByObject(o);
+  if (box.isEmpty()) return;
+  const c = box.getCenter(new THREE.Vector3()), r = Math.max(box.getSize(new THREE.Vector3()).length(), 0.05);
+  const dir = camera.position.clone().sub(orbit.target).normalize();
+  orbit.target.copy(c); camera.position.copy(c.clone().add(dir.multiplyScalar(r * 1.6)));
+  camera.near = r / 200; camera.far = Math.max(camera.far, r * 400); camera.updateProjectionMatrix(); orbit.update();
+  document.querySelectorAll('[data-view]').forEach(b => b.classList.remove('on'));
+}
+$('zoom-sel').addEventListener('click', () => {if (sel >= 0) zoomTo(sel, cur().kind === 'boreholes' ? selLayer : -1); else say('Select an item first', 'warn');});
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 function setSection() {
   const dir = $('sec-dir').value, pos = +$('sec-pos').value / 1000, [w, e, s, n] = M.extent;
@@ -681,12 +749,31 @@ $('a-layers').addEventListener('click', () => {
   commit('Added a layer stack'); select(items().length - 1, 0);
 });
 
+$('a-holes').addEventListener('click', () => {
+  const m = middle(), d = M.depth;
+  addHoleSet([{name: 'BH1', x: r1(m.cx), y: r1(m.cy), collar: null, azimuth: 0, dip: 90, intervals: [
+    {from: 0, to: Math.round(d * 0.06), lithology: 'cover', props: blankProps(false)},
+    {from: Math.round(d * 0.06), to: Math.round(d * 0.3), lithology: '', props: blankProps(false)}]}]);
+  select(items().length - 1, 0);
+  say('A borehole set: type each interval\'s values, or paste a CSV (below the holes table)');
+});
+$('a-holes-csv').addEventListener('click', () => $('f-holes').click());
+$('f-holes').addEventListener('change', async ev => {
+  const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
+  try {
+    const {holes, notes} = parseHolesCsv(await f.text());
+    addHoleSet(holes, f.name.replace(/\.(csv|txt)$/i, ''));
+    say(`${f.name}: ${holes.length} hole${holes.length === 1 ? '' : 's'}, ${holes.reduce((a, h) => a + h.intervals.length, 0)} intervals` +
+      (notes.length ? ` — skipped: ${notes.slice(0, 4).join('; ')}${notes.length > 4 ? '…' : ''}` : ''), notes.length ? 'warn' : '');
+  } catch (e) {say(`Could not read ${f.name}: ${e.message}`, 'err');}
+});
+
 // ── List ──
 function renderList() {
   const L = $('list');
   if (!items().length) {L.innerHTML = '<div class="note">Empty: add a box, a cylinder, a polygon or a layer stack.</div>'; return;}
   L.innerHTML = items().map((it, k) => {
-    const kind = it.kind === 'body' ? it.shape : `${it.layers.length} layers`;
+    const kind = it.kind === 'body' ? it.shape : it.kind === 'boreholes' ? `${(it.holes || []).length} holes` : `${it.layers.length} layers`;
     const row = `<div class="it${k === sel && selLayer < 0 ? ' sel' : ''}" data-k="${k}" data-j="-1">` +
       `<input type="checkbox" data-vis="${k}" ${it.hidden ? '' : 'checked'} title="Shown">` +
       `<span class="sw" style="background:${it.kind === 'body' ? COLORS[k % COLORS.length] : 'transparent'}"></span>` +
@@ -694,7 +781,10 @@ function renderList() {
     const subs = it.kind === 'layers' && k === sel ? it.layers.map((l, j) =>
       `<div class="it sub${j === selLayer ? ' sel' : ''}" data-k="${k}" data-j="${j}"><span class="sw" style="background:${COLORS[(k + j) % COLORS.length]}"></span>` +
       `<span class="nm">${esc(l.name)}</span><span class="kd">${l.thickness == null || l.thickness === '' ? 'to the floor' : `${l.thickness} m`}</span></div>`).join('') : '';
-    return row + subs;
+    const holes = it.kind === 'boreholes' && k === sel ? (it.holes || []).map((h, j) =>
+      `<div class="it sub${j === selLayer ? ' sel' : ''}" data-k="${k}" data-j="${j}"><span class="sw" style="background:#3d3654;border-radius:50%"></span>` +
+      `<span class="nm">${esc(h.name)}</span><span class="kd">${(h.intervals || []).length} intervals, ${holeLength(h)} m</span></div>`).join('') : '';
+    return row + subs + holes;
   }).join('');
 }
 $('list').addEventListener('click', ev => {
@@ -707,6 +797,7 @@ function delSelected() {
   if (sel < 0) return;
   const it = cur();
   if (it.kind === 'layers' && selLayer >= 0 && it.layers.length > 1) {it.layers.splice(selLayer, 1); selLayer = -1; commit('Deleted a layer'); select(sel, -1); return;}
+  if (it.kind === 'boreholes' && selLayer >= 0 && it.holes.length > 1) {it.holes.splice(selLayer, 1); selLayer = -1; commit('Deleted a hole'); select(sel, -1); return;}
   items().splice(sel, 1); commit('Deleted'); select(-1);
 }
 $('i-dup').addEventListener('click', () => {
@@ -750,6 +841,8 @@ function renderForm(quiet) {
       `<div class="row"><div class="f"><span>Dip (°, 90 = vertical)</span>${inp('dip', it.dip, 'min="1" max="90"')}</div><div class="f"><span>Dip direction (°)</span>${inp('dipdir', it.dipdir)}</div></div>` +
       (it.shape !== 'polygon' ? `<div class="row"><button class="btn sm" data-act="to-poly" title="Its outline as a polygon: then its vertices can move one by one">Make it a polygon</button></div>` : '') +
       propsTable(it, '');
+  } else if (it.kind === 'boreholes') {
+    h += holesForm(it);
   } else {
     h += `<div class="row"><div class="f"><span>Outline</span><select data-f="shape"><option value="all"${it.shape === 'all' ? ' selected' : ''}>everywhere</option>` +
       `<option value="box"${it.shape === 'box' ? ' selected' : ''}>a box</option><option value="polygon"${it.shape === 'polygon' ? ' selected' : ''}>a polygon</option></select></div>${ref}` +
@@ -768,6 +861,128 @@ function renderForm(quiet) {
   }
   F.innerHTML = h;
 }
+function holesForm(it) {
+  const hs = it.holes || [];
+  let h = `<div class="row"><div class="f"><span>Reach around a hole (m)</span>${inp('radius', it.radius ?? 0, 'min="0"')}</div>` +
+    `<div class="f" style="max-width:80px"><span>Weight</span>${inp('weight', it.weight ?? 10, 'min="0"')}</div>` +
+    `<label title="Hardly moves"><input type="checkbox" data-f="fixed" ${it.fixed ? 'checked' : ''}> fixed</label>` +
+    `<label title="Little smoothing across its boundaries"><input type="checkbox" data-f="sharp" ${it.sharp ? 'checked' : ''}> sharp</label></div>` +
+    `<div class="note" style="margin-bottom:6px">Each interval with a value goes into the cells the hole passes through (a cell crossed by two ` +
+    `intervals takes both, by their length in it); with a reach, also into the cells around, in part (1 − distance / reach). ` +
+    `The range of a value is ± a margin (×/÷ 2 for resistivity) unless the CSV gives one.</div>` +
+    `<table class="props"><thead><tr><th></th><th>hole</th><th>E (m)</th><th>N (m)</th><th>collar (m)</th><th>azim.</th><th>dip</th></tr></thead><tbody>` +
+    hs.map((x, j) => `<tr${j === selLayer ? ' style="background:var(--bg3)"' : ''}>` +
+      `<td><button class="btn sm" data-act="pick-hole" data-j="${j}" title="Its intervals">${j === selLayer ? '●' : '○'}</button></td>` +
+      `<td><input type="text" data-f="holes.${j}.name" value="${esc(x.name)}" style="width:58px"></td>` +
+      `<td>${inp(`holes.${j}.x`, x.x)}</td><td>${inp(`holes.${j}.y`, x.y)}</td>` +
+      `<td>${inp(`holes.${j}.collar`, x.collar, 'placeholder="ground"')}</td>` +
+      `<td>${inp(`holes.${j}.azimuth`, x.azimuth ?? 0)}</td><td>${inp(`holes.${j}.dip`, x.dip ?? 90, 'min="1" max="90"')}</td></tr>`).join('') +
+    `</tbody></table><div class="row" style="margin-top:6px"><button class="btn sm" data-act="add-hole">＋ Hole</button>` +
+    (selLayer >= 0 && hs.length > 1 ? `<button class="btn sm" data-act="del-hole">Delete ${esc(hs[selLayer].name)}</button>` : '') + '</div>';
+  const hl = hs[selLayer];
+  if (hl) {
+    const ivs = hl.intervals || [], q = `holes.${selLayer}.intervals`;
+    h += `<div class="note" style="margin:8px 0 4px"><b>${esc(hl.name)}</b>: its intervals, in metres along the hole from the collar</div>` +
+      `<table class="props"><thead><tr><th>from</th><th>to</th><th>lithology</th>${Object.values(PROPS).map(P => `<th>${P.label.slice(0, 5)}. ${P.unit}</th>`).join('')}<th></th></tr></thead><tbody>` +
+      ivs.map((iv, i) => `<tr><td>${inp(`${q}.${i}.from`, iv.from, 'min="0"')}</td><td>${inp(`${q}.${i}.to`, iv.to, 'min="0"')}</td>` +
+        `<td><input type="text" data-f="${q}.${i}.lithology" value="${esc(iv.lithology || '')}" style="width:62px"></td>` +
+        Object.keys(PROPS).map(p => `<td>${inp(`${q}.${i}.props.${p}.value`, iv.props?.[p]?.value)}</td>`).join('') +
+        `<td><button class="btn sm" data-act="del-iv" data-i="${i}" title="Delete this interval">✕</button></td></tr>`).join('') +
+      `</tbody></table><div class="row" style="margin-top:6px"><button class="btn sm" data-act="add-iv">＋ Interval below</button></div>`;
+  } else h += '<div class="note">Pick a hole (○ in the table, or in the view or the list) for its intervals.</div>';
+  return h + `<details style="margin-top:8px"><summary class="note" style="cursor:pointer">Paste a CSV</summary>` +
+    `<div class="note" style="margin:6px 0">${HOLES_CSV_HELP}</div>` +
+    `<textarea id="holes-text" rows="5" style="width:100%;font:11px 'SF Mono',Consolas,monospace" placeholder="hole,x,y,from,to,lithology,density,resistivity&#10;BH1,2500,1800,0,120,cover,2.2,40&#10;BH1,2500,1800,120,400,ore,3.4,5"></textarea>` +
+    `<div class="row" style="margin-top:4px"><button class="btn sm" data-act="holes-replace">Replace the holes</button>` +
+    `<button class="btn sm" data-act="holes-add">Add to them</button></div></details>`;
+}
+const HOLES_CSV_HELP = 'One row per interval — <span class="kbd">hole,x,y,from,to,lithology,density,susceptibility,resistivity</span> — ' +
+  'or per measurement, with <span class="kbd">depth</span> instead of from and to (each value then stands for the depths half-way to its ' +
+  'neighbours). Optional: <span class="kbd">collar</span> (elevation; none: on the ground), <span class="kbd">azimuth</span>, ' +
+  '<span class="kbd">dip</span> (90: straight down), <span class="kbd">density_lower</span> / <span class="kbd">density_upper</span> and so on. ' +
+  'x and y in metres of the model\'s coordinates; density g/cc, susceptibility SI, resistivity Ω·m; an empty cell says nothing. ' +
+  'Headers may carry units in brackets, e.g. <span class="kbd">density (g/cc)</span>.';
+
+// ── Boreholes from CSV ──
+const HOLE_COLS = {hole: ['hole', 'hole_id', 'holeid', 'borehole', 'bh', 'name', 'id'], x: ['x', 'easting', 'east', 'x_m', 'e'],
+  y: ['y', 'northing', 'north', 'y_m', 'n'], collar: ['collar', 'collar_z', 'collar_elevation', 'elevation', 'elev', 'rl', 'z'],
+  azimuth: ['azimuth', 'azi', 'az', 'bearing'], dip: ['dip', 'inclination', 'incl', 'inc'],
+  from: ['from', 'from_m', 'depth_from', 'top', 'top_m'], to: ['to', 'to_m', 'depth_to', 'bottom', 'bottom_m'],
+  depth: ['depth', 'depth_m', 'md'], lithology: ['lithology', 'litho', 'lith', 'rock', 'unit'],
+  density: ['density', 'den', 'rho_b'], susceptibility: ['susceptibility', 'susc', 'mag_sus', 'k'],
+  resistivity: ['resistivity', 'res', 'rho', 'ohm_m']};
+function parseHolesCsv(text) {
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+  if (lines.length < 2) throw new Error('a header line and at least one row are needed');
+  const sep = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') && !lines[0].includes(',')) ? ';' : ',';
+  const norm = h => h.replace(/\(.*?\)|\[.*?\]/g, '').trim().toLowerCase().replace(/[\s-]+/g, '_').replace(/^_+|_+$/g, '');
+  const head = lines[0].split(sep).map(norm);
+  const col = key => {for (const a of HOLE_COLS[key]) {const i = head.indexOf(a); if (i >= 0) return i;} return -1;};
+  const c = Object.fromEntries(Object.keys(HOLE_COLS).map(k => [k, col(k)]));
+  const bound = (p, w) => {for (const a of HOLE_COLS[p]) for (const s of w === 'lower' ? ['_lower', '_min'] : ['_upper', '_max']) {const i = head.indexOf(a + s); if (i >= 0) return i;} return -1;};
+  if (c.hole < 0 || c.x < 0 || c.y < 0) throw new Error('columns hole, x and y are needed (got: ' + head.join(', ') + ')');
+  const byDepth = c.from < 0 || c.to < 0;
+  if (byDepth && c.depth < 0) throw new Error('columns from and to (intervals) or depth (measurements) are needed');
+  const nums = (row, i) => {if (i < 0) return null; const t = (row[i] ?? '').trim(); if (t === '') return null; const v = Number(t); return Number.isFinite(v) ? v : null;};
+  const holes = new Map(), notes = [];
+  lines.slice(1).forEach((line, r) => {
+    const row = line.split(sep);
+    const name = (row[c.hole] ?? '').trim(); if (!name) {notes.push(`row ${r + 2}: no hole`); return;}
+    const x = nums(row, c.x), y = nums(row, c.y);
+    if (!holes.has(name)) {
+      if (x == null || y == null) {notes.push(`row ${r + 2}: ${name} has no x/y`); return;}
+      holes.set(name, {name, x, y, collar: nums(row, c.collar), azimuth: nums(row, c.azimuth) ?? 0, dip: nums(row, c.dip) ?? 90, rows: []});
+    }
+    const props = {};
+    for (const p of Object.keys(PROPS)) props[p] = {value: nums(row, c[p]), lower: nums(row, bound(p, 'lower')), upper: nums(row, bound(p, 'upper'))};
+    holes.get(name).rows.push({from: nums(row, c.from), to: nums(row, c.to), depth: nums(row, c.depth),
+      lithology: c.lithology >= 0 ? (row[c.lithology] ?? '').trim() : '', props});
+  });
+  const out = [];
+  for (const h of holes.values()) {
+    let ivs;
+    if (!byDepth) ivs = h.rows.filter(q => q.from != null && q.to != null && q.to > q.from).map(q => ({from: q.from, to: q.to, lithology: q.lithology, props: q.props}));
+    else {
+      const rs = h.rows.filter(q => q.depth != null).sort((a, b) => a.depth - b.depth);
+      ivs = rs.map((q, i) => {
+        const prev = rs[i - 1], next = rs[i + 1], gap = next ? next.depth - q.depth : prev ? q.depth - prev.depth : 10;
+        return {from: r1(prev ? (prev.depth + q.depth) / 2 : Math.max(0, q.depth - gap / 2)),
+                to: r1(next ? (q.depth + next.depth) / 2 : q.depth + gap / 2), lithology: q.lithology, props: q.props};
+      }).filter(iv => iv.to > iv.from);
+    }
+    ivs.sort((a, b) => a.from - b.from);
+    if (!ivs.length) {notes.push(`${h.name}: no interval`); continue;}
+    delete h.rows; out.push({...h, intervals: ivs});
+  }
+  if (!out.length) throw new Error('no hole with an interval' + (notes.length ? ` (${notes.slice(0, 3).join('; ')})` : ''));
+  return {holes: out, notes};
+}
+function widenTo(holes) {   // the area takes in the holes (with a margin), if they lie outside it
+  const xs = holes.map(h => +h.x), ys = holes.map(h => +h.y);
+  const [w, e, s, n] = M.extent;
+  const pad = Math.max(500, 0.15 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
+  const ext = [Math.min(w, Math.min(...xs) - pad), Math.max(e, Math.max(...xs) + pad), Math.min(s, Math.min(...ys) - pad), Math.max(n, Math.max(...ys) + pad)].map(Math.round);
+  const deepest = Math.max(...holes.map(h => holeLength(h)));
+  const grew = ext.some((v, i) => v !== M.extent[i]) || deepest > M.depth;
+  M.extent = ext; if (deepest > M.depth) M.depth = Math.ceil(deepest * 1.2 / 100) * 100;
+  if (grew) {renderSettings(); drawFrame();}
+  return grew;
+}
+function mergeHoles(set, holes, replace) {
+  if (replace) set.holes = [];
+  for (const h of holes) {
+    const old = set.holes.find(o => o.name === h.name);
+    if (old) {old.intervals = old.intervals.concat(h.intervals).sort((a, b) => a.from - b.from);}
+    else set.holes.push(h);
+  }
+}
+function addHoleSet(holes, name) {
+  items().push({kind: 'boreholes', name: nextName(name || 'Boreholes'), radius: 0, weight: 10, fixed: false, sharp: false, holes});
+  const grew = widenTo(holes);
+  commit('Added boreholes'); select(items().length - 1);
+  if (grew) setView('3d');
+}
+
 function setPath(obj, path, val) {
   const ks = path.split('.'); let o = obj;
   for (let i = 0; i < ks.length - 1; i++) {const k = ks[i]; if (o[k] == null) o[k] = /^\d+$/.test(ks[i + 1]) ? [] : {}; o = o[k];}
@@ -782,6 +997,13 @@ $('form').addEventListener('change', ev => {
   else v = el.value;
   if (f === 'name') v = unique(String(v).trim() || it.name, it);
   if (/^layers\.\d+\.name$/.test(f)) v = unique(String(v).trim() || 'layer', it.layers[+f.split('.')[1]]);
+  if (/^holes\.\d+\.name$/.test(f)) {
+    const j = +f.split('.')[1], taken = it.holes.filter((_, q) => q !== j).map(h => h.name);
+    let n = String(v).trim() || `BH${j + 1}`; const b = n; let c = 2;
+    while (taken.includes(n)) n = `${b} (${c++})`;
+    v = n;
+  }
+  if (/\.(from|to)$/.test(f) && v != null && v < 0) v = 0;
   if (f === 'shape' && it.kind === 'layers') {
     if (v === 'box' && !it.box) {const m = middle(0.3); it.box = [r1(m.cx - m.hw), r1(m.cx + m.hw), r1(m.cy - m.hh), r1(m.cy + m.hh)];}
     if (v === 'polygon' && !(it.poly && it.poly.length >= 3)) {const r = (it.box ? ring({shape: 'box', box: it.box}) : extentRing()); it.poly = r.map(q => [...q]);}
@@ -801,6 +1023,33 @@ $('form').addEventListener('click', ev => {
     commit('Added a layer'); select(sel, it.layers.length - 1);
   }
   if (b.dataset.act === 'del-layer') delSelected();
+  if (it.kind !== 'boreholes') return;
+  const hs = it.holes, hl = hs[selLayer];
+  if (b.dataset.act === 'pick-hole') select(sel, +b.dataset.j);
+  if (b.dataset.act === 'add-hole') {
+    const last = hs[hs.length - 1], m = middle(), off = (M.extent[1] - M.extent[0]) * 0.08;
+    const taken = hs.map(h => h.name); let k = hs.length + 1; while (taken.includes(`BH${k}`)) k++;
+    hs.push({name: `BH${k}`, x: r1(last ? +last.x + off : m.cx), y: r1(last ? +last.y : m.cy), collar: null, azimuth: 0, dip: 90,
+      intervals: [{from: 0, to: Math.round(M.depth * 0.2), lithology: '', props: blankProps(false)}]});
+    commit('Added a hole'); select(sel, hs.length - 1);
+  }
+  if (b.dataset.act === 'del-hole' && hl && hs.length > 1) {hs.splice(selLayer, 1); commit('Deleted a hole'); select(sel, -1);}
+  if (b.dataset.act === 'add-iv' && hl) {
+    const last = hl.intervals[hl.intervals.length - 1], from = last ? (num(last.to) ?? 0) : 0;
+    hl.intervals.push({from, to: from + Math.max(Math.round(M.depth * 0.05), 10), lithology: '', props: blankProps(false)});
+    commit('Added an interval'); drawModel(); renderList(); renderForm();
+  }
+  if (b.dataset.act === 'del-iv' && hl) {hl.intervals.splice(+b.dataset.i, 1); commit('Deleted an interval'); drawModel(); renderList(); renderForm();}
+  if (b.dataset.act === 'holes-replace' || b.dataset.act === 'holes-add') {
+    try {
+      const {holes, notes} = parseHolesCsv($('holes-text').value);
+      mergeHoles(it, holes, b.dataset.act === 'holes-replace');
+      widenTo(holes);
+      commit(`Read ${holes.length} hole${holes.length === 1 ? '' : 's'}`); select(sel, -1);
+      say(`Read ${holes.length} hole${holes.length === 1 ? '' : 's'}, ${holes.reduce((a, h) => a + h.intervals.length, 0)} intervals` +
+        (notes.length ? ` — skipped: ${notes.slice(0, 4).join('; ')}${notes.length > 4 ? '…' : ''}` : ''), notes.length ? 'warn' : '');
+    } catch (e) {say(`Could not read the CSV: ${e.message}`, 'err');}
+  }
 });
 
 // ── Everywhere else ──
@@ -899,7 +1148,10 @@ function load(d) {
 }
 function guessExtent(list) {   // the bodies' outlines, widened (a model from the upload page has no area)
   const pts = [];
-  for (const it of list || []) {const r = ring(it); if (r) pts.push(...r); if (it.origin) pts.push(it.origin);}
+  for (const it of list || []) {
+    const r = it.kind === 'boreholes' ? null : ring(it); if (r) pts.push(...r); if (it.origin) pts.push(it.origin);
+    if (it.kind === 'boreholes') for (const h of it.holes || []) if (num(h.x) != null && num(h.y) != null) pts.push([+h.x, +h.y]);
+  }
   if (!pts.length) return null;
   const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
   const w = Math.min(...xs), e = Math.max(...xs), s = Math.min(...ys), n = Math.max(...ys), pad = Math.max(e - w, n - s, 1000) * 0.5;
