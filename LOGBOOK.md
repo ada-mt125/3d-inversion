@@ -2224,3 +2224,10 @@ apparent resistivity is off by -1.1 % with air and +7.1 % with conducting "air";
 both are 8 and 16 % off, as 50 m cells are too coarse for a 159 m skin depth (the mesh is next).
 SuperLU took 3 minutes for three frequencies on that mesh: neither PARDISO (Intel MKL, not on
 Apple silicon) nor MUMPS (no wheels on PyPI, no Homebrew formula) is installed here.
+
+MT and DC on EC2 now solve with PARDISO: the instances install `pydiso==0.3.1` and `mkl==2026.1.0`
+(x86 Linux wheels; the Batch image gets pydiso too). Checked on a c5.2xlarge (ap-south-1, 4 min,
+about $0.02): the bootstrap took 0.5 min, `pde_solver()` picked Pardiso, and the two-layer case
+above (22,264 cells, 71,898 edges) took 3.8 s per frequency against 158.5 s with SuperLU on the
+same instance (42x), with the same answers (-1.1 % at 1 Hz). The Mac keeps SuperLU (pydiso has no
+wheels for Apple silicon), for small tests.

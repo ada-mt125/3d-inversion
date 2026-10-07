@@ -44,9 +44,13 @@ from ..io.filestore import clone_or_copy
 
 REMOTE = "/opt/geoinv3d"
 PYTHON_VERSION = "3.13"
-# The versions tested locally; the instance installs exactly these.
+# The versions tested locally; the instance installs exactly these.  pydiso (with Intel MKL,
+# about 230 MB) is PARDISO, the sparse solver of MT and DC (geoinv3d.methods.solvers): many
+# times faster than SciPy's SuperLU; its wheels are for x86 Linux and Windows only, so a Mac
+# with Apple silicon runs those methods with SuperLU.
 PINNED_PACKAGES = ("numpy==2.3.3 scipy==1.16.2 simpeg==0.25.2 discretize==0.12.0 "
-                   "numba==0.67.0 rasterio==1.5.0 scikit-learn==1.8.0")   # scikit-learn: PGI
+                   "numba==0.67.0 rasterio==1.5.0 scikit-learn==1.8.0 "   # scikit-learn: PGI
+                   "pydiso==0.3.1 mkl==2026.1.0")
 PHASE_STATUS = {
     "launching": "STARTING", "bootstrapping": "STARTING", "uploading": "STARTING",
     "running": "RUNNING", "finishing": "RUNNING",
