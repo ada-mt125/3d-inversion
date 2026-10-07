@@ -873,6 +873,32 @@ class TestEMData:
             assert result["mesh_design"]["used"]["air_m"] == SMALL_MESH["pad_distance_m"]
             assert result["settings"]["solver"] in ("Pardiso", "Mumps", "SolverLU")
 
+    def test_mt_mesh_from_the_skin_depths(self, tmp_path, capture):
+        """Without mesh settings an MT job's mesh follows the skin depths of its data: top cells
+        a quarter of the smallest, padding and air twice the largest (meshing.recommend_mt_mesh)."""
+        from geoinv3d.cloud.meshing import nice_floor, skin_depth
+        freqs = np.array([1.0, 10.0])
+        z = np.sqrt(1j * 2 * np.pi * freqs * 4e-7 * np.pi * 100.0)            # 100 ohm m
+        stations = np.array([[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [2000.0, 0.0, 0.0]])
+        values = np.stack([np.repeat(v[:, None], 3, axis=1) for v in (-z.real, -z.imag, z.real, z.imag)], 1)
+        np.savez(tmp_path / "mt.npz", locations=stations, frequencies=freqs,
+                 components=np.array(["xy_real", "xy_imag", "yx_real", "yx_imag"]),
+                 values=values.ravel(), std=np.full(values.size, 0.05))
+        result = run_data_pipeline({"method_type": "mt", "mesh_type": "octree", "max_iter": 1,
+                                    "datasets": [{"method": "mt", "files": ["mt.npz"]}]}, str(tmp_path))
+        used, rec = result["mesh_design"]["used"], result["mesh_design"]["recommended"]
+        assert result["mesh_design"]["source"] == "auto" and used["mt"]
+        assert rec["rho_low"] == pytest.approx(100.0, rel=1e-6)
+        assert used["core_cell_z_m"] == nice_floor(skin_depth(100.0, 10.0) / 4)
+        assert used["pad_distance_m"] >= 2 * skin_depth(100.0, 1.0) and used["air_m"] == used["pad_distance_m"]
+        dmesh = capture["mesh"].to_discretize()
+        assert dmesh.h_gridded[:, 2].min() == pytest.approx(used["core_cell_z_m"])
+        assert dmesh.nodes_z[-1] >= used["air_m"] and -dmesh.nodes_z[0] >= used["pad_distance_m"]
+        # the primary: a layering fitted to the data, here the 100 ohm m halfspace
+        assert used["mt_primary"]["kind"] == "smooth1d"
+        np.testing.assert_allclose(used["mt_primary"]["rho_ohm_m"], 100.0, rtol=0.05)
+        assert capture["task"].method_kwargs["primary_layers"][0][0] == 0
+
     def test_mt_file_checks(self, tmp_path):
         stations = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
         np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],

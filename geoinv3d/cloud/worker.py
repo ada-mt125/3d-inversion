@@ -38,6 +38,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .meshing import MT_TOP_LAYERS, MT_Z_GROWTH
 from .task import (
     GROUP_LASSO_KEYS, JOINT_REG_KEYS, LENGTH_SCALE_ALPHA_S, InversionTask, effective_alpha_s,
     unpack_task, pack_task,
@@ -2408,8 +2409,30 @@ def _mt_arrays(values, std, stations, freqs, comps, kwargs):
     station_of = np.broadcast_to(np.arange(len(stations)), values.shape)[mask]
     info = {"n_stations": int(len(stations)), "frequencies": kwargs["frequencies"],
             "components": kwargs["components"], "n_missing": int((~mask).sum()),
-            "station_of_datum": station_of}
+            "station_of_datum": station_of,
+            "rho_a": _mt_apparent_resistivity(np.where(mask, values, np.nan), freqs, comps)}
     return values[mask], None if std is None else std[mask], kwargs, info
+
+
+def _mt_apparent_resistivity(values, freqs, comps):
+    """(frequencies, stations) apparent resistivity of the off-diagonal impedance,
+    sqrt(rho_xy rho_yx) (either alone if the other is missing), or None without it."""
+    from .meshing import MU0
+    idx = {c: i for i, c in enumerate(comps)}
+    w = 2 * np.pi * np.asarray(freqs, float)[:, None]
+    rho = {}
+    for o in ("xy", "yx"):
+        if f"{o}_real" in idx and f"{o}_imag" in idx:
+            z = values[:, idx[f"{o}_real"]] + 1j * values[:, idx[f"{o}_imag"]]
+            rho[o] = np.abs(z) ** 2 / (w * MU0)
+        elif f"{o}_rho" in idx:
+            rho[o] = values[:, idx[f"{o}_rho"]]
+    if not rho:
+        return None
+    if len(rho) == 1:
+        return next(iter(rho.values()))
+    a, b = rho["xy"], rho["yx"]
+    return np.where(np.isfinite(a) & np.isfinite(b), np.sqrt(np.abs(a * b)), np.fmax(a, b))
 
 
 def _load_edi_dataset(spec: dict, data_dir: str, files: list, crs: str | None) -> PipelineDataset:
@@ -2750,6 +2773,116 @@ def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels
     return DiscretizeMesh(tree, name="octree")
 
 
+def _mt_axes(extent, surface, has_dem, used: dict, octree: bool = False):
+    """Cell widths (hx, hy, hz) and origin of an MT mesh (see meshing.recommend_mt_mesh):
+    core cells over the stations and a margin, padding growing to the padding distance around
+    and below, and in z the top cells (also through the relief of a DEM), growing to the depth
+    of investigation, then the padding; the air above.  For an OcTree each axis is made a
+    power of two long with cells of the last size beyond the padding (coarsened there), and
+    the ground is the middle node of z, so that it stays a cell face at every level."""
+    from .meshing import PAD_FACTOR, mt_vertical, padding_cells
+
+    dx, top = float(used["core_cell_m"]), float(used["core_cell_z_m"])
+    pad, air = float(used["pad_distance_m"]), float(used.get("air_m") or used["pad_distance_m"])
+    margin = float(used.get("margin_m") or 2 * dx)
+    xmin, xmax, ymin, ymax = extent
+    n_pad = padding_cells(dx, pad, PAD_FACTOR)
+    nx = max(4, int(np.ceil((xmax - xmin + 2 * margin) / dx)))
+    ny = max(4, int(np.ceil((ymax - ymin + 2 * margin) / dx)))
+    hx = _padded_widths(nx, dx, n_pad, PAD_FACTOR)
+    hy = _padded_widths(ny, dx, n_pad, PAD_FACTOR)
+    x0 = 0.5 * (xmin + xmax) - 0.5 * nx * dx - hx[:n_pad].sum()
+    y0 = 0.5 * (ymin + ymax) - 0.5 * ny * dx - hy[:n_pad].sum()
+    # the ground over the stations' area sets the top cells' span
+    cx, cy = np.meshgrid(np.linspace(xmin - margin, xmax + margin, 41),
+                         np.linspace(ymin - margin, ymax + margin, 41))
+    ground = surface(cx, cy)
+    z_low, z_high = float(np.min(ground)), float(np.max(ground))
+    n_relief = int(np.ceil((z_high - z_low) / top - 1e-9)) if has_dem else 0
+    z_top = z_low + n_relief * top if has_dem else z_high
+    down, up = mt_vertical(top, float(used["depth_core_m"]), pad, air,
+                           top_layers=int(used.get("top_layers") or 3),
+                           growth=float(used.get("z_growth") or 1.1))
+    below = np.r_[down[::-1], np.full(n_relief, top)]
+    if octree:   # beyond the padding, cells of its last size up to a power of two
+        def extend(h):
+            extra = (1 << int(np.ceil(np.log2(h.size)))) - h.size
+            return np.r_[np.full(extra // 2, h[0]), h, np.full(extra - extra // 2, h[-1])], extra // 2
+        hx, ex = extend(hx)
+        hy, ey = extend(hy)
+        x0, y0 = x0 - hx[:ex].sum(), y0 - hy[:ey].sum()
+        half = 1 << int(np.ceil(np.log2(max(below.size, up.size))))
+        below = np.r_[np.full(half - below.size, below[0]), below]
+        up = np.r_[up, np.full(half - up.size, up[-1])]
+    hz = np.r_[below, up]
+    return hx, hy, hz, (x0, y0, z_top - below.sum())
+
+
+def _build_mt_tensor_mesh(extent, surface, has_dem, used: dict):
+    """Tensor mesh for MT (see _mt_axes)."""
+    from ..datamodel.mesh import Mesh3D
+    hx, hy, hz, origin = _mt_axes(extent, surface, has_dem, used)
+    return Mesh3D(hx=hx, hy=hy, hz=hz, origin=origin)
+
+
+MT_OCTREE_CELLS_PER_LEVEL = 3   # base cells kept at each level around the finest boxes
+
+
+def _build_mt_octree_mesh(extent, surface, has_dem, used: dict):
+    """OcTree for MT on _mt_axes.  An OcTree cell coarsens in all three directions at once,
+    and the low frequencies sense the ground far around: cells merged across the near-surface
+    layering there misrepresent it (10 ohm m over 1000 ohm m, 13-29 % off at the lowest
+    frequency, against 0.7 % on the tensor mesh).  So the finest cells (the base tensor's) are
+    kept in every column within the padding distance, from the first air cells as tall as a
+    core cell down to where the cells below the ground are as thick as one ("the slab"), and
+    over the stations down to the depth of investigation (at most the core's width); one level
+    coarser every MT_OCTREE_CELLS_PER_LEVEL base cells away from those boxes: the high air,
+    the deep ground and the cells beyond the padding."""
+    from discretize import TreeMesh
+
+    from ..datamodel.mesh import DiscretizeMesh
+
+    hx, hy, hz, origin = _mt_axes(extent, surface, has_dem, used, octree=True)
+    tree = TreeMesh([hx, hy, hz], origin=origin, diagonal_balance=True)
+    nodes = [origin[i] + np.r_[0.0, np.cumsum(h)] for i, h in enumerate((hx, hy, hz))]
+    dx = float(used["core_cell_m"])
+    pad = float(used["pad_distance_m"])
+    margin = float(used.get("margin_m") or 2 * dx)
+    xmin, xmax, ymin, ymax = extent
+    g = hz.size // 2
+    z_ground = nodes[2][g]
+    up, down = hz[g:], hz[:g][::-1]
+    k_air = int(np.argmax(up >= dx)) if np.any(up >= dx) else up.size - 1
+    air_fine = z_ground + up[:max(k_air, 2) + 1].sum()
+    k_slab = int(np.argmax(down >= dx)) if np.any(down >= dx) else down.size - 1
+    slab = down[:k_slab + 1].sum()
+    width = max(xmax - xmin, ymax - ymin) + 2 * margin
+    depth = min(float(used["depth_core_m"]), max(width, 4 * dx))
+    lowest = z_ground
+    if has_dem:   # the relief's top cells reach down to its lowest ground
+        gx, gy = np.meshgrid(np.linspace(xmin - margin, xmax + margin, 41),
+                             np.linspace(ymin - margin, ymax + margin, 41))
+        lowest = min(lowest, float(np.min(surface(gx, gy))))
+    boxes = [  # [x, y, z] ranges kept finest
+        [[xmin - margin - pad, xmax + margin + pad], [ymin - margin - pad, ymax + margin + pad],
+         [lowest - slab, air_fine]],
+        [[xmin - margin, xmax + margin], [ymin - margin, ymax + margin], [lowest - depth, air_fine]],
+    ]
+    x0s, x1s, levels = [], [], []
+    for box in boxes:
+        idx = [[int(np.clip(np.searchsorted(nodes[i], box[i][0] + 1e-6, "right") - 1, 0, nodes[i].size - 2)),
+                int(np.clip(np.searchsorted(nodes[i], box[i][1] - 1e-6, "left"), 1, nodes[i].size - 1))]
+               for i in range(3)]
+        for lev in range(tree.max_level, 0, -1):
+            k = (tree.max_level - lev) * MT_OCTREE_CELLS_PER_LEVEL
+            x0s.append([nodes[i][max(idx[i][0] - k, 0)] for i in range(3)])
+            x1s.append([nodes[i][min(idx[i][1] + k, nodes[i].size - 1)] for i in range(3)])
+            levels.append(lev)
+    tree.refine_box(np.array(x0s), np.array(x1s), levels, finalize=False)
+    tree.finalize()
+    return DiscretizeMesh(tree, name="octree")
+
+
 # The property geology constraints describe for each method's model
 GEOLOGY_PROPERTY = {"gravity": "density", "magnetics": "susceptibility",
                     "mt": "resistivity", "dc_resistivity": "resistivity"}
@@ -2923,7 +3056,11 @@ def _mesh_design(params: dict, datasets, extent, n_data: int) -> dict:
     spacing = [{"method": ds.method, "spacing_m": ds.spacing, "kind": ds.spacing_kind}
                for ds in datasets]
     known = [ds.spacing for ds in datasets if ds.spacing]
-    recommended = recommend_mesh(extent, min(known), n_data) if known else None
+    mt = [ds for ds in datasets if canonical_method(ds.method) == "mt"]
+    if mt:   # MT: from the skin depths (see meshing.recommend_mt_mesh)
+        recommended = _mt_mesh_recommendation(mt, extent, known)
+    else:
+        recommended = recommend_mesh(extent, min(known), n_data) if known else None
     base = {k: recommended[k] for k in MESH_KEYS} if recommended else _FALLBACK_MESH
     if len(given) == len(MESH_KEYS):
         source = "user"
@@ -2931,8 +3068,71 @@ def _mesh_design(params: dict, datasets, extent, n_data: int) -> dict:
         source = "auto" if recommended else "fallback"
     else:
         source = "mixed"
+    used = {**base, **given}
+    if mt:   # the air, and the vertical growth the builders use, go with the MT design
+        used.update(mt=True, air_m=float(params.get("air_m") or used["pad_distance_m"]),
+                    z_growth=MT_Z_GROWTH, top_layers=MT_TOP_LAYERS,
+                    margin_m=float(params.get("margin_m") or recommended["margin_m"]))
     return {"source": source, "data_spacing": spacing, "recommended": recommended,
-            "used": {**base, **given}, "client": params.get("mesh_design")}
+            "used": used, "client": params.get("mesh_design")}
+
+
+MT_PRIMARY_DEFAULT = "smooth1d"
+
+
+def _mt_primaries(params: dict, datasets, mesh_design: dict) -> None:
+    """MT's primary field: a layered earth from each MT dataset's median apparent resistivity
+    (``mt_primary``: "smooth1d", the default, the smoothest layering that fits it,
+    meshing.smooth_1d_layers; "bostick", its Niblett-Bostick transform) or the uniform
+    background ("uniform"), unless its method_kwargs give ``primary_layers``.  Recorded in
+    mesh_design["used"]["mt_primary"]."""
+    from .meshing import bostick_layers, mt_rho_stats, smooth_1d_layers
+    choice = str(params.get("mt_primary") or MT_PRIMARY_DEFAULT).lower()
+    if choice not in ("smooth1d", "bostick", "uniform"):
+        raise ValueError(f"mt_primary must be 'smooth1d', 'bostick' or 'uniform', got {params.get('mt_primary')!r}")
+    for ds in datasets:
+        if canonical_method(ds.method) != "mt":
+            continue
+        layers = ds.method_kwargs.get("primary_layers")
+        kind = "given" if layers is not None else "uniform"
+        if layers is None and choice != "uniform" and (ds.mt or {}).get("rho_a") is not None:
+            stats = mt_rho_stats(ds.method_kwargs["frequencies"], ds.mt["rho_a"])
+            estimate = smooth_1d_layers if choice == "smooth1d" else bostick_layers
+            got = estimate(stats) if stats else None
+            if got is not None:
+                layers = [got[0].tolist(), got[1].tolist()]
+                ds.method_kwargs = {**ds.method_kwargs, "primary_layers": layers}
+                kind = choice
+        mesh_design["used"]["mt_primary"] = (
+            {"kind": kind, "tops_m": [round(v, 1) for v in layers[0]],
+             "rho_ohm_m": [round(1 / v, 3) for v in layers[1]]} if layers is not None
+            else {"kind": "uniform", "rho_ohm_m": 1 / float(ds.method_kwargs.get("sigma_background", 1e-2))})
+
+
+def _mt_mesh_recommendation(mt_datasets, extent, spacings) -> dict:
+    """recommend_mt_mesh for the MT datasets: their frequencies and apparent resistivities,
+    the background where they have no impedance, the finest spacing of all datasets."""
+    from .meshing import mt_rho_stats, recommend_mt_mesh
+    freqs, rhos = [], []
+    for ds in mt_datasets:
+        f = np.asarray(ds.method_kwargs.get("frequencies") or [], float)
+        freqs.append(f)
+        r = (ds.mt or {}).get("rho_a")
+        if r is not None:
+            rhos.append((f, np.asarray(r, float)))
+    f_all = np.concatenate(freqs) if freqs else np.zeros(0)
+    stats = None
+    if rhos:
+        fu = np.unique(np.concatenate([f for f, _ in rhos]))
+        table = np.full((fu.size, sum(r.shape[1] for _, r in rhos)), np.nan)
+        col = 0
+        for f, r in rhos:
+            table[np.searchsorted(fu, f), col:col + r.shape[1]] = r
+            col += r.shape[1]
+        stats = mt_rho_stats(fu, table)
+    sigma_bg = float(mt_datasets[0].method_kwargs.get("sigma_background", 1e-2))
+    spacing = min(spacings) if spacings else max(extent[1] - extent[0], extent[3] - extent[2], 1000.0)
+    return recommend_mt_mesh(extent, spacing, f_all, stats, rho_background=1.0 / sigma_bg)
 
 
 def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
@@ -3066,14 +3266,25 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
           f"{core_cell_m:g} m x {core_cell_z_m:g} m cells, core {depth_core_m:g} m deep, "
           f"padding {pad_distance_m:g} m")
 
+    _mt_primaries(params, datasets, mesh_design)
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
-    # MT solves for the fields in the air too: the mesh reaches as far above the ground as
-    # it is padded around and below (the other methods end at the ground)
-    pad_above = pad_distance_m if any(canonical_method(ds.method) == "mt" for ds in datasets) else 0.0
-    if pad_above:
-        mesh_design["used"]["air_m"] = pad_above
-        print(f"[Pipeline] Air above the ground for MT: {pad_above:g} m")
-    if mesh_type == "octree":
+    # MT solves for the fields in the air too, and its cells follow the skin depths
+    # (meshing.recommend_mt_mesh): thin at the ground, growing with depth, air above
+    mt_design = mesh_design["used"] if mesh_design["used"].get("mt") else None
+    pad_above = 0.0
+    if mt_design:
+        if mesh_type not in ("octree", "tensor"):
+            raise ValueError(f"Unknown mesh_type '{mesh_type}' (expected 'tensor' or 'octree')")
+        rec = mesh_design["recommended"] or {}
+        print(f"[Pipeline] MT mesh from the skin depths: {rec.get('skin_depth_min_m', float('nan')):.0f} m "
+              f"({rec.get('frequency_max', float('nan')):.4g} Hz over {rec.get('rho_low', float('nan')):.3g} ohm m) "
+              f"to {rec.get('skin_depth_max_m', float('nan')):.0f} m ({rec.get('frequency_min', float('nan')):.4g} Hz "
+              f"over {rec.get('rho_deep', float('nan')):.3g} ohm m); top cells {core_cell_z_m:g} m growing "
+              f"{100 * (mt_design['z_growth'] - 1):.0f} % a layer to {depth_core_m:g} m, padding and air "
+              f"{pad_distance_m:g} / {mt_design['air_m']:g} m")
+        mesh = (_build_mt_octree_mesh if mesh_type == "octree" else _build_mt_tensor_mesh)(
+            extent, surface, has_dem, mt_design)
+    elif mesh_type == "octree":
         # layers of the finest cells under the ground, then of 2x and 4x their size
         levels = [int(v) for v in (params.get("octree_levels") or [4, 4, 4])]
         if len(levels) < 1 or levels[0] < 1 or any(v < 0 or v > 64 for v in levels):
@@ -3097,7 +3308,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
 
     # Octree meshes extend above the ground even for flat topography, and MT's into the air
     active = None
-    if has_dem or mesh_type == "octree" or pad_above:
+    if has_dem or mesh_type == "octree" or mt_design:
         active = _active_below_surface(dmesh, surface)
         if not active.any():
             raise ValueError("No mesh cells lie below the topography surface")
@@ -3324,7 +3535,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
              **({"continuation": ds.continuation} if ds.continuation else {}),
              **({"igrf": ds.igrf} if ds.igrf else {}),
              **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {}),
-             **({"mt": {k: v for k, v in ds.mt.items() if k != "station_of_datum"}} if ds.mt else {})}
+             **({"mt": {k: v for k, v in ds.mt.items() if k not in ("station_of_datum", "rho_a")}}
+                if ds.mt else {})}
             for ds in datasets
         ],
     })

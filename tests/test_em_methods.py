@@ -132,6 +132,8 @@ class TestMT:
         np.testing.assert_allclose(mapped.dpred(np.r_[np.zeros(5), m]), full, rtol=1e-10)
         active = np.ones(tm.nC, bool)
         active[:10] = False           # inactive cells are air (1e-8 S/m); their layer stays ground
+        # the fields where the full simulation takes them (not on the ground and in the air)
+        mt = MTMethod(frequencies=[10.0], components=["xy_real", "xy_imag"], h_in_air=False)
         act = mt.make_simulation_active(mesh, _survey(locs, 2), active)
         m_bg = m.copy()
         m_bg[~active] = np.log(1e-8)
@@ -157,28 +159,34 @@ class TestMT:
         np.testing.assert_allclose(sigma[cc[:, 2] > 0], 1e-8)        # the air cells
 
     @pytest.mark.skipif(not os.environ.get("GEOINV3D_SLOW_TESTS") and pde_solver()[1] == "SolverLU",
-                        reason="a minute with SuperLU: set GEOINV3D_SLOW_TESTS, or install MUMPS or PARDISO")
+                        reason="an hour with SuperLU (a minute with PARDISO): set GEOINV3D_SLOW_TESTS, install MUMPS or PARDISO, or run deploy/mt_accuracy.py")
     def test_two_layers_match_the_1d_solution(self):
-        """10 ohm m over 1000 ohm m (300 m): the impedance at 1 Hz is the 1D one only with air
-        above the ground (without it, conducting "air" over the model gives 7 % more)."""
-        mu = 4e-7 * np.pi
-        w = 2 * np.pi * 1.0
-        k = np.sqrt(1j * w * mu * np.array([0.1, 1e-3]))
-        eta = 1j * w * mu / k
-        t = np.tanh(k[0] * 300.0)
-        z1d = eta[0] * (eta[1] + eta[0] * t) / (eta[0] + eta[1] * t)
-        hx = [(400.0, 8, -1.4), (400.0, 6), (400.0, 8, 1.4)]
-        below = [(50.0, 16, -1.3), (50.0, 16)]
-        hzb = TensorMesh([below]).h[0]
-        tm = TensorMesh([hx, hx, below + [(50.0, 4), (50.0, 10, 1.4)]], origin=["C", "C", -hzb.sum()])
-        cc = tm.cell_centers
-        ground = cc[:, 2] < 0
-        mesh = Mesh3D(hx=tm.h[0], hy=tm.h[1], hz=tm.h[2], origin=tuple(tm.origin))
-        mt = MTMethod(frequencies=[1.0], sigma_background=1e-3)
-        m = np.where(cc[:, 2] > -300, np.log(0.1), np.log(1e-3))[ground]
-        d = mt.make_simulation_active(mesh, _survey(np.zeros((1, 3)), 2), ground).dpred(m)
-        rho = abs(d[0] + 1j * d[1]) ** 2 / (w * mu)
-        assert abs(rho / (abs(z1d) ** 2 / (w * mu)) - 1) < 0.03
+        """10 ohm m over 1000 ohm m (300 m) on the mesh designed from the skin depths, the
+        primary a smooth layering fitted to the data (worker._mt_primaries): the impedance is
+        the 1D one of the cells' own layering within 3 % at 0.3, 3 and 30 Hz."""
+        from geoinv3d.cloud.meshing import MU0, _rho_a_1d, recommend_mt_mesh, smooth_1d_layers
+        from geoinv3d.cloud.worker import _active_below_surface, _build_mt_octree_mesh
+        flat = lambda x, y: np.zeros_like(np.asarray(x, dtype=float))   # noqa: E731
+        freqs = np.array([0.3, 3.0, 30.0])
+        ra = _rho_a_1d(freqs, [10.0, 1000.0], [300.0])
+        stats = {"frequencies": list(freqs), "p10": list(ra), "p50": list(ra), "p90": list(ra)}
+        ext = (0.0, 2400.0, 0.0, 2400.0)
+        mesh = _build_mt_octree_mesh(ext, flat, False, recommend_mt_mesh(ext, 1200.0, freqs, stats))
+        dm = mesh.to_discretize()
+        active = _active_below_surface(dm, flat)
+        m = np.where(dm.cell_centers[active, 2] > -300, np.log(0.1), np.log(1e-3))
+        mt = MTMethod(frequencies=freqs, sigma_background=1 / np.exp(np.mean(np.log(ra))),
+                      primary_layers=smooth_1d_layers(stats))
+        d = mt.make_simulation_active(mesh, _survey(np.array([[1200.0, 1200.0, 0.0]]), 6), active,
+                                      forward_only=True).dpred(m)
+        rho = np.abs(d[0::2] + 1j * d[1::2]) ** 2 / (2 * np.pi * freqs * MU0)
+        # the cells' own layering under the station
+        nodes = dm.origin[2] + np.r_[0.0, np.cumsum(dm.h[2])]
+        zc = 0.5 * (nodes[1:] + nodes[:-1])
+        g = zc < 0
+        layers = np.where(zc[g] > -300, 10.0, 1000.0)[::-1]
+        ref = _rho_a_1d(freqs, layers, dm.h[2][g][::-1][:-1])
+        np.testing.assert_allclose(rho, ref, rtol=0.03)
 
 
 def test_joint_dc_and_mt_share_a_conductivity_model():

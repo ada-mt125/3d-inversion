@@ -11,6 +11,14 @@ mesh's horizontal layers is ground where most of its volume is active, so the in
 at the mean ground level and the secondary field accounts for the topography and the 3D model.
 With every cell active (no air in the mesh) the primary is a uniform whole space.
 
+Where the fields are measured: E on the top of the ground cell under each station (the mesh's
+ground, a staircase on a DEM) and H at the centre of the air cell above it.  H is continuous
+through the ground but bends there (its gradient follows the conductivity); SimPEG interpolates
+the faces' H between the cell centres either side, which with both at the ground errs by about
+half the top cell over the skin depth (16 % in apparent resistivity with 50 m cells at 100 Hz
+over 10 ohm m).  In the air H barely changes over a cell, and the air cell's H, from E on its two
+edges, is right to the solution's own accuracy (LOGBOOK, 2026-10-07).
+
 Data order (SimPEG's): frequency by frequency, then component by component
 (``components``), then station by station (``SurveyData.locations``, (n, 3)); with a ``mask``
 (frequency, component, station) only the stations it marks, so stations may miss frequencies.
@@ -52,6 +60,8 @@ class MTMethod(MethodBase):
         sigma_inactive: float = 1e-8,
         store_sensitivities: bool = True,
         mask=None,
+        h_in_air: bool = True,
+        primary_layers=None,
     ) -> None:
         """
         Args:
@@ -69,6 +79,13 @@ class MTMethod(MethodBase):
                 group lasso's Gauss–Newton steps; n_data x n_cells floats).
             mask: (frequencies, components, stations) booleans: the data there are; None:
                 every station at every frequency and component.
+            h_in_air: with active cells (the air above the ground), E on the ground under
+                each station and H at the centre of the air cell above (see the module
+                docstring); False: both at the stations as given.
+            primary_layers: a layered primary instead of the uniform background: (depths,
+                conductivities), the tops of the layers below the ground (m, the first 0) and
+                their conductivities (S/m).  The closer the primary is to the earth's layering,
+                the less the secondary field has to carry to the mesh's edge.
         """
         self.frequencies = (
             np.asarray(frequencies, dtype=float) if frequencies is not None
@@ -80,6 +97,14 @@ class MTMethod(MethodBase):
         self.sigma_background = float(sigma_background)
         self.sigma_inactive = float(sigma_inactive)
         self.store_sensitivities = bool(store_sensitivities)
+        self.h_in_air = bool(h_in_air)
+        self.primary_layers = None
+        if primary_layers is not None:
+            tops, sig = (np.asarray(a, dtype=float).ravel() for a in primary_layers)
+            if tops.size != sig.size or tops.size == 0 or tops[0] != 0 or np.any(np.diff(tops) <= 0) \
+                    or not np.all(sig > 0):
+                raise ValueError("primary_layers: increasing tops from 0 and positive conductivities")
+            self.primary_layers = (tops, sig)
         self.mask = None if mask is None else np.asarray(mask, dtype=bool)
         if self.mask is not None and self.mask.shape[:2] != (len(self.frequencies), len(self.components)):
             raise ValueError(f"mask has shape {self.mask.shape}, expected ({len(self.frequencies)}, "
@@ -118,9 +143,33 @@ class MTMethod(MethodBase):
         """The number of data with the mask (None without one: it depends on the stations)."""
         return None if self.mask is None else int(self.mask.sum())
 
-    def _build_survey(self, locations: NDArray, sigma_primary: NDArray | None = None):
+    @staticmethod
+    def measurement_points(dmesh, locations, active_cells) -> tuple[NDArray, NDArray]:
+        """Where E and H are taken for stations at ``locations`` (n, 3): E on the top of the
+        highest active cell of each station's column, H at the centre of the cell above it
+        (E's point if there is none)."""
+        locations = np.atleast_2d(np.asarray(locations, dtype=float))
+        active = np.asarray(active_cells, dtype=bool)
+        b = np.asarray(dmesh.cell_bounds)
+        loc_e, loc_h = locations.copy(), locations.copy()
+        for i, (x, y, _) in enumerate(locations):
+            col = (b[:, 0] <= x) & (x < b[:, 1]) & (b[:, 2] <= y) & (y < b[:, 3])
+            if not col.any():          # on the mesh's far edge
+                col = (b[:, 0] <= x) & (x <= b[:, 1]) & (b[:, 2] <= y) & (y <= b[:, 3])
+            ground = col & active
+            if not ground.any():
+                raise ValueError(f"Station {i} at ({x:.1f}, {y:.1f}) has no ground under it")
+            top = b[ground, 5].max()
+            above = col & ~active & np.isclose(b[:, 4], top, rtol=0, atol=1e-6 * max(1.0, abs(top)))
+            loc_e[i, 2] = top
+            loc_h[i, 2] = top + (0.5 * (b[above, 5] - b[above, 4]).min() if above.any() else 0.0)
+        return loc_e, loc_h
+
+    def _build_survey(self, locations: NDArray, sigma_primary: NDArray | None = None,
+                      locations_h: NDArray | None = None):
         """Build a SimPEG natural source survey; ``sigma_primary``: the primary 1D model on
-        the mesh's vertical cells (the background, uniform, if None)."""
+        the mesh's vertical cells (the background, uniform, if None); ``locations_h``: where
+        the horizontal H is taken (``locations`` if None, as E and the tipper's Hz)."""
         from simpeg.electromagnetics.natural_source import (
             receivers, sources, survey,
         )
@@ -133,16 +182,20 @@ class MTMethod(MethodBase):
         elif mask.shape[2] != len(locations):
             raise ValueError(f"mask is for {mask.shape[2]} stations, the survey has {len(locations)}")
 
-        def receiver(orientation, part, where):
-            if orientation in ("zx", "zy"):
-                return receivers.Tipper(where, orientation=orientation, component=part)
+        loc_h = locations if locations_h is None else np.atleast_2d(np.asarray(locations_h, float))
+
+        def receiver(orientation, part, sel):
+            if orientation in ("zx", "zy"):   # Hz at the station, Hx and Hy at its "base"
+                return receivers.Tipper(locations[sel], locations_base=loc_h[sel],
+                                        orientation=orientation, component=part)
             component = {"rho": "apparent_resistivity"}.get(part, part)
-            return receivers.Impedance(where, orientation=orientation, component=component)
+            return receivers.Impedance(locations[sel], locations_h=loc_h[sel],
+                                       orientation=orientation, component=component)
 
         src_list = []
         sigma_1d = np.full(1, self.sigma_background) if sigma_primary is None else sigma_primary
         for f, freq in enumerate(self.frequencies):
-            rx_list = [receiver(o, part, locations[mask[f, c]])
+            rx_list = [receiver(o, part, mask[f, c])
                        for c, (o, part) in enumerate(parsed) if mask[f, c].any()]
             if not rx_list:
                 continue
@@ -174,6 +227,13 @@ class MTMethod(MethodBase):
         for k in np.flatnonzero(total == 0):
             share[k] = share[k - 1] if k > 0 else 1.0
         sigma[share < 0.5] = self.sigma_inactive
+        if self.primary_layers is not None and np.any(share >= 0.5):
+            tops, sig = self.primary_layers
+            ground = share >= 0.5
+            surface = nodes[1:][ground].max()              # the top of the highest ground layer
+            depth = surface - 0.5 * (nodes[1:] + nodes[:-1])   # of each layer's centre
+            k = np.clip(np.searchsorted(tops, depth[ground], side="right") - 1, 0, sig.size - 1)
+            sigma[ground] = sig[k]
         return sigma
 
     def _sigma_map(self, dmesh, mapping=None, active_cells=None):
@@ -202,9 +262,12 @@ class MTMethod(MethodBase):
         sigma_1d = self.primary_1d(dmesh, active_cells)
         nodes = dmesh.origin[2] + np.r_[0.0, np.cumsum(dmesh.h[-1])]
         layer = np.clip(np.searchsorted(nodes, dmesh.cell_centers[:, 2]) - 1, 0, sigma_1d.size - 1)
+        loc_e, loc_h = survey.locations, None
+        if active_cells is not None and self.h_in_air:
+            loc_e, loc_h = self.measurement_points(dmesh, survey.locations, active_cells)
         return Simulation3DPrimarySecondary(
             mesh=dmesh,
-            survey=self._build_survey(survey.locations, sigma_1d),
+            survey=self._build_survey(loc_e, sigma_1d, loc_h),
             sigmaMap=self._sigma_map(dmesh, mapping, active_cells),
             sigmaPrimary=sigma_1d[layer],
             **kwargs,

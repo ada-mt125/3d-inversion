@@ -12,6 +12,7 @@ Endpoints:
                                             run it again anywhere: geoinv3d.cloud.worker --local
     GET    /api/estimates                 — run times of finished jobs, to estimate new ones
     POST   /api/mesh/cells                — the cells a job's mesh would have (built as the worker does)
+    POST   /api/mesh/mt                   — an MT job's mesh from the skin depths, and its cells
     POST   /api/dem, GET /api/dem/{id}    — a DEM downloaded for a box (SRTM, else ETOPO 2022)
     GET    /api/igrf                      — the IGRF-14 field at a place and date
     GET    /api/crs                       — check a coordinate system (e.g. EPSG:32643)
@@ -1062,6 +1063,51 @@ def mesh_cells(body: dict = Body(...)):
                              **_mesh_cells(ext, h, dz, depth, pad, mesh_type, levels)})
     except Exception as e:   # a mesh the worker could not build either
         raise HTTPException(status_code=400, detail=f"The mesh cannot be built: {e}")
+
+
+@app.post("/api/mesh/mt")
+def mesh_mt(body: dict = Body(...)):
+    """An MT job's mesh from the skin depths (geoinv3d.cloud.meshing.recommend_mt_mesh), as the
+    worker designs it: ``extent`` [W, E, S, N] and ``spacing`` of the stations, ``frequencies``,
+    optionally ``stats`` ({frequencies, p10, p50, p90} of the stations' apparent resistivity)
+    and ``rho_background``; core_cell_m, core_cell_z_m (the top cell), depth_core_m and
+    pad_distance_m override the recommendation.  Returns the recommendation, the settings used
+    and the cells of that mesh (``mesh_type``, flat ground): all, and below the ground."""
+    from ..cloud.meshing import recommend_mt_mesh
+    try:
+        ext = tuple(float(v) for v in body["extent"])
+        spacing = float(body.get("spacing") or 0) or max(ext[1] - ext[0], ext[3] - ext[2], 1000.0)
+        freqs = [float(v) for v in body["frequencies"]]
+        rec = recommend_mt_mesh(ext, spacing, freqs, body.get("stats") or None,
+                                rho_background=float(body.get("rho_background") or 100.0))
+        used = {k: rec[k] for k in ("core_cell_m", "core_cell_z_m", "depth_core_m", "pad_distance_m",
+                                    "air_m", "z_growth", "top_layers", "margin_m")}
+        for k in ("core_cell_m", "core_cell_z_m", "depth_core_m", "pad_distance_m"):
+            if body.get(k) is not None:
+                used[k] = float(body[k])
+                if not used[k] > 0:
+                    raise ValueError(f"{k} must be positive")
+        used["air_m"] = used["pad_distance_m"]
+        mesh_type = str(body.get("mesh_type") or "octree")
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Bad MT mesh: {e}")
+    try:
+        cells = _mt_mesh_cells(ext, mesh_type, tuple(sorted(used.items())))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"The mesh cannot be built: {e}")
+    return JSONResponse({"ok": True, "recommended": rec, "used": used, **cells})
+
+
+@lru_cache(maxsize=64)
+def _mt_mesh_cells(extent: tuple, mesh_type: str, used: tuple) -> dict:
+    from ..cloud.worker import _build_mt_octree_mesh, _build_mt_tensor_mesh
+    flat = lambda x, y: np.zeros_like(np.asarray(x, dtype=float))   # noqa: E731
+    t0 = time.time()
+    build = _build_mt_octree_mesh if mesh_type == "octree" else _build_mt_tensor_mesh
+    mesh = build(extent, flat, False, dict(used)).to_discretize()
+    below = int((mesh.cell_centers[:, 2] < 0).sum())
+    return {"n_cells": below, "n_total": int(mesh.n_cells), "n_edges": int(mesh.n_edges),
+            "seconds": round(time.time() - t0, 2)}
 
 
 # ── Ground and field for a survey area: a DEM, the IGRF, the coordinate system ──

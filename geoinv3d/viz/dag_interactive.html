@@ -4488,12 +4488,18 @@ const GeoMesh=(function(){
     const descr=/'descr':\s*'([^']+)'/.exec(hdr)[1], fortran=/'fortran_order':\s*True/.test(hdr);
     const shape=/'shape':\s*\(([^)]*)\)/.exec(hdr)[1].split(',').map(s=>s.trim()).filter(Boolean).map(Number);
     const data=buf.slice(hstart+hlen);
+    const U=/^[<|]U(\d+)$/.exec(descr);
+    if(U){   // fixed-length UTF-32 strings (e.g. MT component names)
+      const n=+U[1], count=shape.reduce((a,b)=>a*b,1), cp=new Uint32Array(data,0,n*count), arr=[];
+      for(let i=0;i<count;i++){let t='';for(let j=0;j<n;j++){const c=cp[i*n+j];if(!c)break;t+=String.fromCodePoint(c);}arr.push(t);}
+      return {arr,shape,fortran};
+    }
     const T={'<f8':Float64Array,'<f4':Float32Array,'<i4':Int32Array,'<i8':BigInt64Array}[descr];
     if(!T)throw new Error('unsupported dtype '+descr);
     let arr=new T(data); if(T===BigInt64Array)arr=Float64Array.from(arr,Number);
     return {arr,shape,fortran};
   }
-  async function readNpz(file){
+  async function npzArrays(file){
     const buf=await file.arrayBuffer(), dv=new DataView(buf), u8=new Uint8Array(buf);
     let eocd=-1; for(let i=buf.byteLength-22;i>=Math.max(0,buf.byteLength-65557);i--)if(dv.getUint32(i,true)===0x06054b50){eocd=i;break;}
     if(eocd<0)throw new Error('not a zip archive');
@@ -4506,11 +4512,36 @@ const GeoMesh=(function(){
       entries[name]={method,raw:buf.slice(start,start+csize)};
       p+=46+nl+el+cl;
     }
-    const get=async k=>{const e=entries[k];if(!e)return null;
+    return async k=>{const e=entries[k];if(!e)return null;
       if(e.method===0)return parseNpy(e.raw);
       if(e.method!==8)throw new Error('unsupported zip compression');
       const s=new Blob([e.raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
       return parseNpy(await new Response(s).arrayBuffer());};
+  }
+  // MT in a .npz (the worker's format): each station's apparent resistivity per frequency,
+  // sqrt(rho_xy rho_yx) of the off-diagonal impedance (see worker._mt_apparent_resistivity)
+  async function readMtNpz(file){
+    const get=await npzArrays(file);
+    const [F,C,V,L]=await Promise.all(['frequencies','components','values','locations'].map(get));
+    if(!F||!C||!V||!L)return null;
+    const nf=F.arr.length, nc=C.arr.length, ns=L.shape[0], comps=Array.from(C.arr);
+    if(V.arr.length!==nf*nc*ns)return null;
+    const at=(f,c,st)=>V.arr[(f*nc+c)*ns+st], MU0=4e-7*Math.PI;
+    const rhoOf=(f,st,o)=>{
+      const re=comps.indexOf(o+'_real'), im=comps.indexOf(o+'_imag'), r=comps.indexOf(o+'_rho');
+      if(re>=0&&im>=0){const a=at(f,re,st),b=at(f,im,st);return (a*a+b*b)/(2*Math.PI*F.arr[f]*MU0);}
+      return r>=0?at(f,r,st):NaN;
+    };
+    const stations=[];
+    for(let st=0;st<ns;st++){
+      const rho=Array.from(F.arr,(f,i)=>{const a=rhoOf(i,st,'xy'),b=rhoOf(i,st,'yx');
+        return Number.isFinite(a)&&Number.isFinite(b)?Math.sqrt(Math.abs(a*b)):Number.isFinite(a)?a:b;});
+      stations.push({freq:Array.from(F.arr),rho});
+    }
+    return {stations,nData:Array.from(V.arr).filter(Number.isFinite).length};
+  }
+  async function readNpz(file){
+    const get=await npzArrays(file);
     // values: a 4th column of the locations, or a separate array
     let vals=null;
     for(const k of ['observed','values','data','dobs','value']){const a=await get(k);if(a){vals=a.arr;break;}}
@@ -4565,12 +4596,29 @@ const GeoMesh=(function(){
   }
   async function readEdiStation(file){
     const text=await file.text(), kv={};
-    for(const m of text.matchAll(/\b(LAT|LONG|LON|REFLAT|REFLONG|REFLON|ELEV|REFELEV)\s*=\s*("[^"]*"|\S+)/gi)){
+    for(const m of text.matchAll(/\b(LAT|LONG|LON|REFLAT|REFLONG|REFLON|ELEV|REFELEV|EMPTY)\s*=\s*("[^"]*"|\S+)/gi)){
       const k=m[1].toUpperCase(); if(!(k in kv))kv[k]=m[2];
     }
     const lat=ediAngle(kv.LAT??kv.REFLAT??'NaN'), lon=ediAngle(kv.LONG??kv.LON??kv.REFLONG??kv.REFLON??'NaN');
     if(!Number.isFinite(lat)||!Number.isFinite(lon))throw new Error(`${file.name}: no LAT / LONG in its header`);
-    return {lat,lon,elev:Number(kv.ELEV??kv.REFELEV??NaN)};
+    // the frequencies and the off-diagonal impedance (field units, mV/km/nT): sqrt(rho_xy rho_yx)
+    const blocks={}; let cur=null;
+    for(const line of text.split(/\r?\n/)){
+      const t=line.trim();
+      if(t.startsWith('>')){cur=t.slice(1).trim().split(/\s+/)[0].toUpperCase(); if(cur in blocks)cur=null; else blocks[cur]=[]; continue;}
+      if(cur&&t)for(const v of t.replace(/,/g,' ').split(/\s+/))
+        if(/^[-+]?(\d+\.?\d*|\.\d+)([eEdD][-+]?\d+)?$/.test(v))blocks[cur].push(Number(v.replace(/[dD]/,'e')));
+    }
+    const freq=blocks.FREQ||[], n=freq.length, empty=Number(kv.EMPTY??1e32);
+    const blk=k=>{const a=blocks[k];return a&&a.length===n?a:null;};
+    const S=4e-4*Math.PI, MU0=4e-7*Math.PI, ok=v=>Number.isFinite(v)&&Math.abs(v)<0.99*empty;
+    const rho=freq.map((f,i)=>{
+      const r=['XY','YX'].map(o=>{const re=blk('Z'+o+'R'),im=blk('Z'+o+'I');
+        if(!re||!im||!ok(re[i])||!ok(im[i]))return NaN;
+        const a=re[i]*S,b=im[i]*S; return (a*a+b*b)/(2*Math.PI*f*MU0);});
+      return Number.isFinite(r[0])&&Number.isFinite(r[1])?Math.sqrt(r[0]*r[1]):Number.isFinite(r[0])?r[0]:r[1];
+    });
+    return {lat,lon,elev:Number(kv.ELEV??kv.REFELEV??NaN),freq,rho};
   }
   // all the EDI files of a dataset: their stations, in UTM metres
   async function inspectEdi(files){
@@ -4580,10 +4628,26 @@ const GeoMesh=(function(){
     const format=`EDI (MT), ${st.length} station${st.length>1?'s':''}`+(pr?` · lon/lat → UTM ${pr.epsg%100}${pr.epsg>32700?'S':'N'}`:'');
     const sp=st.length>1?stationSpacing(xs,ys)
       :{area_spacing:1000,nn_spacing:1000,across_spacing:1000,spacing:1000,extent:[xs[0]-500,xs[0]+500,ys[0]-500,ys[0]+500],n:1};
-    return {kind:'points',format,...sp,xs,ys,elev:st.map(s=>s.elev)};
+    return {kind:'points',format,...sp,xs,ys,elev:st.map(s=>s.elev),
+      mt:{stations:st.map(s=>({freq:s.freq,rho:s.rho}))}};
+  }
+  // The stations' apparent resistivity on one list of frequencies (within 2 %): its 10th,
+  // 50th and 90th percentiles, as meshing.mt_rho_stats (for the MT mesh, /api/mesh/mt)
+  function mtStats(stations){
+    const groups=new Map();
+    for(const st of stations)st.freq.forEach((f,i)=>{
+      const r=st.rho[i]; if(!(f>0)||!(r>0)||!Number.isFinite(r))return;
+      const k=Math.round(Math.log10(f)*100); if(!groups.has(k))groups.set(k,{f:[],r:[]});
+      groups.get(k).f.push(f); groups.get(k).r.push(r);});
+    if(!groups.size)return null;
+    const pct=(a,q)=>{const s=[...a].sort((x,y)=>x-y), h=(s.length-1)*q/100, lo=Math.floor(h);
+      return s[lo]+(s[Math.min(lo+1,s.length-1)]-s[lo])*(h-lo);};
+    const keys=[...groups.keys()].sort((a,b)=>a-b);
+    return {frequencies:keys.map(k=>median(groups.get(k).f)),
+      p10:keys.map(k=>pct(groups.get(k).r,10)),p50:keys.map(k=>pct(groups.get(k).r,50)),p90:keys.map(k=>pct(groups.get(k).r,90))};
   }
   return {niceNumber,nextNiceNumber,paddingCells,tensorShape,octreeCells,recommend,stationSpacing,inspectFile,
-    inspectEdi,readNpzValues:readNpz,MAX_CELLS};
+    inspectEdi,readMtNpz,mtStats,readNpzValues:readNpz,MAX_CELLS};
 })();
 window.GeoMesh=GeoMesh;
 
@@ -6893,8 +6957,8 @@ window.GeoPreview=GeoPreview;
   // magnetic data thinned to PREVIEW_FACTOR times their spacing
   function previewParams(p){
     const q=JSON.parse(JSON.stringify(p)), f=PREVIEW_FACTOR;
-    q.core_cell_m=p.core_cell_m*f; q.core_cell_z_m=p.core_cell_z_m*f;
-    q.depth_core_m=Math.max(p.depth_core_m,q.core_cell_z_m);
+    if(p.core_cell_m!=null){q.core_cell_m=p.core_cell_m*f; q.core_cell_z_m=p.core_cell_z_m*f;
+      q.depth_core_m=Math.max(p.depth_core_m,q.core_cell_z_m);}
     (q.datasets||[]).forEach(d=>{
       if(!['gravity','magnetic'].includes(d.type))return;
       const c=analysis&&analysis.counts&&analysis.counts.find(x=>x.d.t.key===d.type);
@@ -6936,12 +7000,25 @@ window.GeoPreview=GeoPreview;
         gridStep:best&&best.info.kind==='grid'?Math.min(best.info.dx||Infinity,best.info.dy||Infinity):null,
         extent:ext.length?[arrMin(ext.map(e=>e[0])),arrMax(ext.map(e=>e[1])),arrMin(ext.map(e=>e[2])),arrMax(ext.map(e=>e[3]))]:null};
     });
+    // MT: the stations' frequencies and apparent resistivities, for the mesh from the skin depths
+    let mt=null;
+    const emRows=rows.filter(r=>r.t.key==='em'&&!r.info.error);
+    if(emRows.length){
+      const stations=[]; let nData=0;
+      for(const r of emRows){
+        if(r.info.mt){stations.push(...r.info.mt.stations);continue;}
+        const m=await GeoMesh.readMtNpz(r.f).catch(()=>null);
+        if(m){stations.push(...m.stations); nData+=m.nData;}
+      }
+      const stats=GeoMesh.mtStats(stations);
+      if(stats)mt={stats,frequencies:stats.frequencies,nStations:stations.length,nDataNpz:nData};
+    }
     const ex=ds.map(d=>d.extent).filter(Boolean), sp=ds.map(d=>d.spacing).filter(v=>v>0);
     const native={nData:ds.reduce((a,d)=>a+d.n,0),spacing:sp.length?arrMin(sp):null,
       extent:ex.length?[arrMin(ex.map(e=>e[0])),arrMax(ex.map(e=>e[1])),arrMin(ex.map(e=>e[2])),arrMax(ex.map(e=>e[3]))]:null};
     if(!native.extent)throw new Error('None of the files could be read in the browser');
     // mesh-step numbers start as the whole survey; applyArea() narrows them
-    analysis={rows,ds,native,nData:native.nData,spacing:native.spacing,extent:native.extent};
+    analysis={rows,ds,native,nData:native.nData,spacing:native.spacing,extent:native.extent,mt};
     analysisKey=key;
     aoi=null;
   }
@@ -6971,7 +7048,46 @@ window.GeoPreview=GeoPreview;
 
   function setMeshInputs(v){MESH_INPUTS.forEach(([k,id])=>{$u(id).value=v[k];});}
 
+  // ── MT: the mesh from the skin depths, designed by the server as the worker does
+  // (/api/mesh/mt, meshing.recommend_mt_mesh) for the stations' frequencies and resistivities ──
+  const mtMesh=()=>{const s=selection();return !!(s&&s.mode!=='separate'&&s.types.some(t=>t.key==='em'));};
+  const MT_MESH=new Map(); let mtTimer=null, mtPending=null;
+  function mtMeshAsk(over){   // the design and its cells: an answer, null (none), undefined (asked)
+    if(!analysis||!analysis.mt||!analysis.extent)return null;
+    const body={extent:analysis.extent,spacing:analysis.spacing,frequencies:analysis.mt.frequencies,
+      stats:analysis.mt.stats,mesh_type:$u('upload-mesh').value,...(over||{})};
+    const key=JSON.stringify(body);
+    if(MT_MESH.has(key))return MT_MESH.get(key);
+    if(mtPending&&MT_MESH.get(mtPending)===undefined)MT_MESH.delete(mtPending);
+    clearTimeout(mtTimer); mtPending=key; MT_MESH.set(key,undefined);
+    mtTimer=setTimeout(async()=>{
+      try{const r=await fetch(apiBase()+'/api/mesh/mt',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const d=await r.json(); MT_MESH.set(key,r.ok&&d.ok?d:null);}
+      catch(err){MT_MESH.set(key,null);}
+      if(!over&&mtMesh()){const d=MT_MESH.get(key); recommended=d?{...d.recommended,mt:true}:null;
+        if(recommended&&!meshEdited)setMeshInputs(recommended);}
+      renderMesh();
+      if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    },over?250:0);
+    return undefined;
+  }
+  const mtOverrides=v=>Object.fromEntries(MESH_INPUTS.map(([k])=>[k,v[k]]));
+  // MT data the job inverts (stations x frequencies x components; an upper bound for EDI)
+  function mtDataCount(){
+    const m=analysis&&analysis.mt; if(!m)return 0;
+    if(m.nDataNpz)return m.nDataNpz;
+    const imp={offdiagonal:4,full:8,none:0}[$u('up-em-mtimp').value]||0, tip=$u('up-em-mttip').value==='yes'?4:0;
+    return m.nStations*m.frequencies.length*(imp+tip);
+  }
+  const fmtHz=f=>`${+(+f).toPrecision(3)} Hz`, fmtRho=r=>`${+(+r).toPrecision(3)} Ω·m`;
+
   function recommend(){
+    if(mtMesh()){
+      const d=mtMeshAsk(null);
+      recommended=d?{...d.recommended,mt:true}:null;
+      if(recommended&&!meshEdited)setMeshInputs(recommended);
+      renderMesh(); return;
+    }
     recommended=analysis&&analysis.extent&&analysis.spacing
       ?GeoMesh.recommend(analysis.extent,analysis.spacing,analysis.nData,GeoMesh.MAX_CELLS,0.5*ramBytes(),
         $u('upload-mesh').value==='octree'):null;
@@ -6980,8 +7096,16 @@ window.GeoPreview=GeoPreview;
   }
 
   function renderMesh(){
-    const box=$u('up-mesh-rec'), est=$u('up-mesh-est');
+    const box=$u('up-mesh-rec'), est=$u('up-mesh-est'), mt=mtMesh();
+    [['up-mesh-dz','Vertical cell (m)','Top cell (m)'],['up-mesh-depth','Core depth (m)','Depth of investigation (m)'],
+     ['up-mesh-pad','Padding distance (m)','Padding and air (m)']]
+      .forEach(([id,a,b])=>{document.querySelector(`label[for="${id}"]`).textContent=mt?b:a;});
+    $u('up-oct-row').hidden=mt||$u('upload-mesh').value!=='octree';
     if(!analysis){box.innerHTML='';est.innerHTML='';return;}
+    if(mt!==!!(recommended&&recommended.mt)&&!renderMesh.again){   // the selection switched to or from MT
+      renderMesh.again=true; recommend(); renderMesh.again=false; return;
+    }
+    if(mt){renderMtMesh(box,est);renderEstimate();return;}
     if(recommended){
       const r=recommended, finest=analysis.ds.find(d=>d.spacing===analysis.spacing);
       box.innerHTML=`<div>Recommended: <b>${fmtLen(r.core_cell_m)}</b> horizontal × <b>${fmtLen(r.core_cell_z_m)}</b> vertical cells, `+
@@ -7018,6 +7142,40 @@ window.GeoPreview=GeoPreview;
       (topoFile?'<br><span class="up-en">A DEM adds cell layers for the topographic relief.</span>':'')+
       warn.map(w=>`<br><span class="up-warn">⚠ ${escH(w)}</span>`).join('');
     renderEstimate();
+  }
+
+  function renderMtMesh(box,est){
+    const r=recommended;
+    if(!analysis.mt){
+      box.innerHTML='<div>MT: the frequencies could not be read in the browser, so the worker designs the mesh from the skin depths of the data'+
+        ' <span class="up-en">(type cells here to set them yourself)</span>.</div>';
+    }else if(!r){
+      box.innerHTML='<div class="up-hint">Designing the MT mesh from the skin depths…</div>';
+    }else{
+      box.innerHTML=`<div>Recommended for MT, from the skin depths: <b>${fmtLen(r.core_cell_m)}</b> horizontal cells, `+
+        `top cells <b>${fmtLen(r.core_cell_z_m)}</b> thick, growing ${Math.round((r.z_growth-1)*100)} % a layer to <b>${fmtLen(r.depth_core_m)}</b>, `+
+        `padding and air <b>${fmtLen(r.pad_distance_m)}</b>.<br><span class="up-en">`+
+        `Horizontal: half the ${fmtLen(r.data_spacing_m)} station spacing${r.coarsened_from?` (enlarged from ${fmtLen(r.coarsened_from)} for the cell budget)`:''}. `+
+        `Top cells: a quarter of the ${fmtLen(r.skin_depth_min_m)} skin depth at ${fmtHz(r.frequency_max)} over ${fmtRho(r.rho_low)}, the least resistive the stations show. `+
+        `Depth: the Bostick depth at ${fmtHz(r.frequency_min)}. `+
+        `Padding and air: twice the ${fmtLen(r.skin_depth_max_m)} skin depth at ${fmtHz(r.frequency_min)} over ${fmtRho(r.rho_deep)}, so that the fields have died out at the mesh's edge. `+
+        `The primary field is that of the smoothest layered earth fitting the stations' median apparent resistivity (the worker fits it), so the secondary field carries only what is not layered.</span></div>`+
+        `<button type="button" class="up-btn" id="up-mesh-reset"${meshEdited?'':' disabled'}>Use recommended</button>`;
+      $u('up-mesh-reset').onclick=()=>{meshEdited=false;setMeshInputs(recommended);renderMesh();};
+    }
+    let v; try{v=readMesh();}catch(err){est.innerHTML=`<span class="up-err">${escH(err.message)}</span>`;return;}
+    if(!analysis.mt){est.innerHTML='';return;}
+    const c=mtMeshAsk(meshEdited?mtOverrides(v):null);
+    if(!c){est.innerHTML=c===undefined?'<span class="up-hint">Counting the cells…</span>':'<span class="up-warn">The server could not build this mesh.</span>';return;}
+    const nd=mtDataCount(), g=nd*c.n_cells*8, ram=ramBytes(), nf=analysis.mt.frequencies.length;
+    // SimPEG keeps the sensitivities (float64) and, per frequency, the factorized system
+    const jobGb=g/1e9+0.5;
+    est.innerHTML=`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor mesh'}: <b>${fmtInt(c.n_total)}</b> cells, <b>${fmtInt(c.n_cells)}</b> below the ground, `+
+      `${fmtInt(c.n_edges)} edges <span class="up-en">(counted on the mesh the job builds)</span> · one sparse system of that size per frequency, ${nf} frequencies`+
+      ` · sensitivities ≈ <b>${fmtBytes(g)}</b> for ≈ ${fmtInt(nd)} data · the job needs at least ≈ <b>${jobGb.toFixed(1)} GB</b> of the ${(ram/1e9).toFixed(0)} GB `+
+      `${where==='local'?'of this computer':'of '+$u('upload-instance').value}${jobGb>0.8*ram/1e9?' <span class="up-err">— too much</span>':''}`+
+      (where==='local'?'<br><span class="up-warn">⚠ This computer solves with SciPy’s SuperLU (no PARDISO): slow for MT beyond a few ten thousand cells — run it on AWS.</span>':'')+
+      (topoFile?'<br><span class="up-en">A DEM adds top cells through the relief.</span>':'');
   }
 
   ['up-dw','up-dw-exp'].forEach(id=>['input','change'].forEach(ev=>$u(id).addEventListener(ev,e=>{if(e.isTrusted)$u('up-dw').dataset.userSet='1';})));
@@ -7059,8 +7217,8 @@ window.GeoPreview=GeoPreview;
 
   MESH_INPUTS.forEach(([,id])=>$u(id).addEventListener('input',()=>{meshEdited=true;renderMesh();}));
   ['up-oct-1','up-oct-2','up-oct-3'].forEach(id=>$u(id).addEventListener('input',()=>renderMesh()));
-  const octRow=()=>{$u('up-oct-row').hidden=$u('upload-mesh').value!=='octree';};
-  $u('upload-mesh').addEventListener('change',octRow); octRow();
+  const octRow=()=>{$u('up-oct-row').hidden=$u('upload-mesh').value!=='octree'||mtMesh();};
+  $u('upload-mesh').addEventListener('change',()=>{octRow(); if(analysis&&mtMesh())recommend();}); octRow();
   $u('upload-instance').addEventListener('change',recommend);
 
   // ── Step 2: area of interest and data density ──
@@ -7710,8 +7868,13 @@ window.GeoPreview=GeoPreview;
       ['Area',areaTxt],
       ['Inversion',modeTxt],
       ['Topography',topoFile?`DEM: ${escH(topoFile.name)}`:`Flat at ${escH(p.topography.flat_elevation)} m`],
-      ['Mesh',`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
-        (m.octree_levels?` · refined ${m.octree_levels.join('/')} layers`:'')+
+      ['Mesh',(mtMesh()?(analysis&&analysis.mt||meshEdited
+          ?`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} from the skin depths · ${fmtLen(m.core_cell_m)} cells · top ${fmtLen(m.core_cell_z_m)}, `+
+           `growing ${recommended&&recommended.z_growth?Math.round((recommended.z_growth-1)*100):10} % a layer to ${fmtLen(m.depth_core_m)} · padding and air ${fmtLen(m.pad_distance_m)}`
+          :`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} designed by the worker from the skin depths of the data`)
+        :`${$u('upload-mesh').value==='octree'?'OcTree':'Tensor'} · ${fmtLen(m.core_cell_m)} × ${fmtLen(m.core_cell_z_m)} cells · core ${fmtLen(m.depth_core_m)} · padding ${fmtLen(m.pad_distance_m)}`+
+        (m.octree_levels?` · refined ${m.octree_levels.join('/')} layers`:''))+
+        (s.mode==='separate'&&s.types.some(t=>t.key==='em')?' · <span class="up-en">the MT job: from its skin depths (worker)</span>':'')+
         (p.max_source_depth_m?` · <b>no sources below ${fmtLen(p.max_source_depth_m)}</b>`:'')+
         (cells?` · ≈ ${fmtInt(cells)} cells`:'')+(meshEdited?' (edited)':recommended?' (recommended)':'')],
       ['Compute',($u('up-preview').checked?'Preview on this computer first, then ':'')+
@@ -8002,6 +8165,7 @@ window.GeoPreview=GeoPreview;
   // mesh the job would build (flat ground), GeoMesh.octreeCells until it answers
   function meshCells(m){
     const ext=analysis.extent;
+    if(mtMesh()){const c=mtMeshAsk(meshEdited?mtOverrides(m):null);return c?c.n_cells:null;}
     if($u('upload-mesh').value==='octree')return meshCount(m)||GeoMesh.octreeCells(ext,m.core_cell_m,m.octree_levels);
     return GeoMesh.tensorShape(ext,m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m).reduce((a,b)=>a*b,1);
   }
@@ -8353,6 +8517,11 @@ window.GeoPreview=GeoPreview;
       if(!['sparse','l2'].includes(reg.regularization_type))throw new Error('The magnetization-vector inversion takes the Lp-norm (sparse) or smooth L2 regularization');
       if(reg.beta_selection&&!['auto','discrepancy'].includes(reg.beta_selection))throw new Error('The magnetization-vector inversion chooses β by χ² = N');
     }
+    // MT: the worker designs the mesh from the skin depths when the page could not (or for
+    // the MT job of separate inversions, whose mesh the others' settings do not fit)
+    const MESH_KEYS=MESH_INPUTS.map(([k])=>k);
+    const mtAuto=t=>t.key==='em'&&(s.mode==='separate'||(!(analysis&&analysis.mt)&&!meshEdited));
+    const meshFor=types=>types.some(mtAuto)?Object.fromEntries(Object.entries(mesh).filter(([k])=>!MESH_KEYS.includes(k)&&k!=='octree_levels'&&k!=='mesh_design')):mesh;
     if(s.mode==='joint'){
       const specs=s.types.map(datasetSpec), perModel=modelRegs(s);
       specs.forEach((d,i)=>{if(perModel[i])d.regularization=perModel[i];});
@@ -8361,7 +8530,7 @@ window.GeoPreview=GeoPreview;
       return [{method:'joint',files:[...s.types.flatMap(t=>files[t.key]),...extra],params:{
         method_type:'joint',inversion_mode:'joint',regularization_type,datasets:specs,
         joint_methods:specs.map(d=>d.method),joint_kwargs_list:specs.map(d=>d.method_kwargs||{}),
-        topography,...reg,...jointP,...mesh}}];
+        topography,...reg,...jointP,...meshFor(s.types)}}];
     }
     // (missing constraint files do not block: the worker leaves out what needs them)
     return s.types.map(t=>{
@@ -8369,7 +8538,7 @@ window.GeoPreview=GeoPreview;
       return {method:d.method,files:[...files[t.key],...extra,...(g?g.files:[])],params:{
         method_type:d.method,inversion_mode:'single',regularization_type,datasets:[d],
         data_file:d.files[0],noise_pct:d.noise_pct,noise_floor:d.noise_floor,
-        method_kwargs:d.method_kwargs||{},topography,...reg,...mesh,...(g?{geology:g.geology}:{})}};
+        method_kwargs:d.method_kwargs||{},topography,...reg,...meshFor([t]),...(g?{geology:g.geology}:{})}};
     });
   }
 

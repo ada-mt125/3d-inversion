@@ -2287,3 +2287,66 @@ one `.npz`; controlled-source methods would join it). A dataset's `type` is `dc`
 - The browser now reads a DC `.npz` (`electrodes`, or `a`, `b`, `m`, `n`) for the extent and
   spacing: a datum at the centre of its electrodes. Before, it said the file could not be read
   and the mesh step had nothing to recommend from.
+
+## 2026-10-07 — MT: the mesh from the skin depths, the fields where they are measured, a layered primary
+
+Step 4 of the MT plan.  Every number below compares SimPEG's impedance with the analytic one of
+the model as the cells hold it (each cell under the station a layer), so it measures the
+solution's error, not the staircase of the interfaces.
+
+**Where the fields are taken (methods/mt.py).**  E on the top of the ground cell under each
+station, H at the centre of the air cell above it (`Impedance(locations_e, locations_h)`;
+the tipper's Hz at the station, Hx and Hy above).  H is continuous through the ground but
+bends there; SimPEG interpolated it between the cell centres either side, an error of about
+half the top cell over the skin depth.  A 1D study of the same scheme (E on nodes, H at cell
+centres) and the 3D two-layer case agree: with 50 m cells over 10 ohm m, +7.8 % at 10 Hz and
++16.4 % at 100 Hz before, -0.6 % and -0.1 % after.  The earlier "-1.1 % at 1 Hz" was a
+cancellation: its phase was 18 degrees off, the mesh's 5 km of air too thin.
+
+**The mesh (cloud/meshing.recommend_mt_mesh, worker._mt_axes / _build_mt_*_mesh).**  From the
+stations' apparent resistivity, 10th/50th/90th percentiles per frequency:
+- top cells a quarter of the smallest skin depth (the highest frequency over the 10th
+  percentile), three of them, then 10 % thicker a layer to the Bostick depth of the lowest
+  frequency: in the 1D study, 1/4 keeps a halfspace within 0.3 % and 1 deg, and growth 1.1
+  keeps a 1 ohm m conductor under 1000 ohm m within 4 % (1.2 doubles it);
+- padding around and below, and air above, twice the largest skin depth (the lowest
+  frequency over the 90th percentile, raised by Niblett-Bostick, (1 + m) / (1 - m), when the
+  curve still climbs there: 10 over 1000 ohm m shows 300 ohm m at 0.3 Hz);
+- horizontal cells half the station spacing, the core a spacing beyond the outer stations.
+An OcTree merges cells in all three directions at once, and the low frequencies sense the ground
+far around: merged across the near-surface layering it misrepresents it.  So the OcTree keeps
+the base (tensor) cells in every column within the padding from the first air cells as tall as a
+core cell down to where the cells are as thick as one (the slab), and over the stations to the
+depth of investigation; coarser away from those.  Each axis is a power of two long (cells of
+the last size beyond the padding), the ground the middle node of z.  The page asks the server
+(`POST /api/mesh/mt`) for the design and its cells, so page and worker share one rule.
+
+**The primary (worker._mt_primaries, meshing.smooth_1d_layers).**  With a uniform primary the
+secondary field of a layered earth is the whole layering, laterally uniform: held to zero at the
+mesh's edge and carried through coarse OcTree cells it fails at low frequencies.  The primary is
+now the smoothest layered earth fitting the stations' median apparent resistivity (Occam's idea:
+30 layers, Gauss-Newton on log resistivity, the smoothing lowered until the fit is within 2 %;
+0.1 s), `mt_primary` "smooth1d" (default), "bostick" or "uniform"; the result records it.
+
+Checks on EC2 (PARDISO; 10 km array, 5 x 5 stations 2 km apart; worst apparent resistivity error):
+
+| 0.01-100 Hz, OcTree     | uniform primary | Bostick | smooth 1D |
+|-------------------------|-----------------|---------|-----------|
+| halfspace 100 ohm m     | 0.28 %          | 0.28 %  | 0.28 %    |
+| 10 over 1000 (300 m)    | 73 %            | 10.9 %  | 1.3 %     |
+| 1000 over 10 (1 km)     | 3.8 %           | 2.4 %   | 2.4 %     |
+| 100 / 10 / 1000         | 94 %            | -       | 0.9 %     |
+
+Phases within 0.5 deg with the smooth primary.  A 5 ohm m block in a 100 ohm m halfspace changed
+by at most 0.03 % in Z and 0.0001 in the tipper between padding of 1, 2 and 4 skin depths, and
+between OcTree coarsenings.  With only 0.3-30 Hz the three-layer earth stays 3.4 % off at 0.3 Hz
+(two decades do not constrain its basement, so neither does the primary); likewise from 0.01, 1
+and 100 Hz alone 10 over 1000 was 12 % off at 0.01 Hz, against 1.3 % from nine frequencies: the
+primary wants the data sampled a few times a decade.  `deploy/mt_accuracy.py` runs these checks on
+one instance: the mesh and the primary from nine frequencies, solved at 0.01, 1 and 100 Hz (about
+15 minutes; `--full`: all of the above).
+
+Memory: SimPEG keeps every frequency's factorization (`Ainv`) unless `forward_only`; 9
+frequencies of a 150,000-cell OcTree did not fit 64 GB.  One at a time: 15 GB and 80 s per
+frequency (m5.4xlarge, 150,476 cells), 23 GB and 160 s (221,184-cell tensor).  For inversions
+this is step 5 (frequencies one at a time, or in parallel).
