@@ -135,6 +135,7 @@ svg#dag:active{cursor:grabbing;}
 .up-step{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;display:inline-flex;align-items:center;justify-content:center;flex:none;}
 .up-hint{font-weight:400;font-size:11px;color:var(--text3);}
 .up-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px;}
+#up-datasets{grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));}   /* four cards: two rows, potential fields over resistivity */
 .up-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:14px;}
 .up-ds{border-top:3px solid var(--c);opacity:.8;transition:opacity .2s;}
 .up-ds.loaded{opacity:1;}
@@ -4522,7 +4523,22 @@ const GeoMesh=(function(){
     }
     const x=await get('x'),y=await get('y');
     if(x&&y)return {xs:x.arr,ys:y.arr,vs:vals};
-    throw new Error("no 'locations' or 'x'/'y' arrays");
+    // DC: the electrodes A, B, M, N of each datum (n x 12, or a, b, m, n of n x 3; NaN B, N for
+    // poles), as the worker reads them; the datum at the centre of its electrodes
+    const el=await get('electrodes'), quad=el?null:await Promise.all(['a','b','m','n'].map(get));
+    if(el||(quad[0]&&quad[2])){
+      const n=(el||quad[0]).shape[0], xs=new Float64Array(n), ys=new Float64Array(n);
+      const at=(i,e,c)=>{
+        if(el){const k=3*e+c;return el.fortran?el.arr[k*n+i]:el.arr[i*12+k];}
+        const q=quad[e]; if(!q)return NaN; const w=q.shape[1]||1;
+        return q.fortran?q.arr[c*n+i]:q.arr[i*w+c];
+      };
+      for(let i=0;i<n;i++){let sx=0,sy=0,m=0;
+        for(let e=0;e<4;e++){const px=at(i,e,0),py=at(i,e,1);if(Number.isFinite(px)&&Number.isFinite(py)){sx+=px;sy+=py;m++;}}
+        xs[i]=m?sx/m:NaN; ys[i]=m?sy/m:NaN;}
+      return {xs,ys,vs:vals};
+    }
+    throw new Error("no 'locations', 'x'/'y' or DC 'electrodes' arrays");
   }
   async function inspectFile(file){
     const ext=(file.name.split('.').pop()||'').toLowerCase();
@@ -4788,7 +4804,7 @@ window.GeoPreview=GeoPreview;
 // ══════════════════════════════════════════
 (function(){
   const $u=id=>document.getElementById(id);
-  const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz,.edi';
+  const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz';
   const AUTO_FLOOR_SHARE=0.015, AUTO_NOISE_PCT=2;   // automatic errors, as worker.auto_noise
   // A single magnetic inversion's cell weighting by default: depth, this β (worker.MAG_DEPTH_BETA).
   // Sensitivity weights make a deep cell as cheap as a shallow one, so a broad anomaly becomes
@@ -4814,21 +4830,25 @@ window.GeoPreview=GeoPreview;
         {id:'data',label:'Data inverted',type:'select',options:[['tmi','Total field as measured'],['rtp','Reduced to the pole (vertical field)']]},
         {id:'reg',label:'Regional field',type:'select',options:[['poly2','Trend surface, order 2'],['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly3','Trend surface, order 3'],
           ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)']]}]},
-    {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
-      opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]},
-        // MT from EDI files (geoinv3d/io/mt_data.py); shown for MT only
-        {id:'mtimp',label:'Impedance',type:'select',options:[['offdiagonal','Off-diagonal: Zxy, Zyx'],['full','Full tensor'],['none','None']]},
+    // DC resistivity: an electrical method, a current put into the ground through electrodes
+    {key:'dc',label:'DC resistivity',en:'resistivity · electrical',color:'#2196F3',unit:'',pct:5,floor:0,
+      accept:'.npz',drop:'.npz: electrodes A, B, M, N and the data, in one file',opts:[]},
+    // electromagnetic methods (natural or controlled sources); MT for now
+    {key:'em',label:'Electromagnetic',en:'resistivity · MT, natural source',color:'#00897B',unit:'',pct:5,floor:0,
+      accept:'.edi,.npz',drop:'.edi (one file per station) · .npz (stations, frequencies, components)',
+      // MT from EDI files (geoinv3d/io/mt_data.py)
+      opts:[{id:'mtimp',label:'Impedance',type:'select',options:[['offdiagonal','Off-diagonal: Zxy, Zyx'],['full','Full tensor'],['none','None']]},
         {id:'mttip',label:'Tipper',type:'select',options:[['yes','Used where present'],['no','Left out']]},
         {id:'mtdata',label:'Impedance as',type:'select',options:[['impedance','Real and imaginary parts'],['rho_phase','Apparent resistivity and phase']]},
         {id:'mtfloor',label:'Error floor (% of √|Zxy·Zyx|)',type:'number',value:5},
         {id:'mttfloor',label:'Tipper error floor',type:'number',value:0.03}]},
   ];
-  const files={gravity:[],magnetic:[],electrical:[]};
+  const files={gravity:[],magnetic:[],dc:[],em:[]};
   let topoFile=null, paramMode='auto', methodPicked=false;
   let geoFiles=[], geoSpec=null, geoError='';   // geology constraints: the spec and its files
 
-  const methodOf=t=>t.key==='electrical'?$u('up-electrical-sub').value:t.key;
-  const methodName=t=>t.key==='electrical'?($u('up-electrical-sub').value==='mt'?'MT':'DC'):t.en;
+  const methodOf=t=>t.key==='em'?'mt':t.key;
+  const isEdi=f=>/\.edi$/i.test(f.name);
   const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(1)+' KB':(b/1048576).toFixed(1)+' MB';
   const fileRow=(f,act)=>`<div class="up-file"><span class="n" title="${escH(f.name)}">${escH(f.name)}</span>`+
     `<span class="s">${fmtSize(f.size)}</span><button type="button" class="x" data-act="${act}" title="Remove">×</button></div>`;
@@ -4995,13 +5015,13 @@ window.GeoPreview=GeoPreview;
     return `<div class="up-card up-ds" id="up-ds-${t.key}" style="--c:${t.color}">
       <div class="up-ds-h"><span class="up-dot"></span>${t.label}<span class="up-en">${t.en}</span><span class="up-chip" id="up-chip-${t.key}">empty</span></div>
       <div class="up-drop" id="up-drop-${t.key}">
-        <input type="file" id="up-file-${t.key}" accept="${DATA_ACCEPT}" multiple hidden>
+        <input type="file" id="up-file-${t.key}" accept="${t.accept||DATA_ACCEPT}" multiple hidden>
         <div class="up-drop-t">Drop files or click to browse</div>
-        <div class="up-drop-s">.tif .grd (grid) · .csv .xyz .obs (stations)${t.key==='electrical'?' · .edi (MT, one per station) · .npz':''}</div>
+        <div class="up-drop-s">${t.drop||'.tif .grd (grid) · .csv .xyz .obs (stations)'}</div>
       </div>
       <div class="up-files" id="up-files-${t.key}"></div>
       ${t.key==='gravity'?'<div id="up-check-gravity"></div>':''}
-      <div class="up-row">${optsHtml}</div>
+      ${optsHtml?`<div class="up-row">${optsHtml}</div>`:''}
       ${t.key==='gravity'||t.key==='magnetic'?`<div class="up-row">
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-height" title="For data without elevations (grids): the stations are put this far above the ground, e.g. the flight height">Height above ground (m)</label>
           <input id="up-${t.key}-height" type="number" step="any" min="0" class="up-in" placeholder="0 (on the ground)"></div>
@@ -5033,13 +5053,8 @@ window.GeoPreview=GeoPreview;
       files[t.key].splice(+b.dataset.act,1); refresh();
     });
   });
-  $u('up-electrical-sub').addEventListener('change',refresh);
-  // the MT options show for MT only; with EDI files their error floors replace the uncertainty row
-  const MT_OPTS=['mtimp','mttip','mtdata','mtfloor','mttfloor'];
-  const showMtOpts=()=>{const mt=$u('up-electrical-sub').value==='mt';
-    MT_OPTS.forEach(id=>{$u('up-electrical-'+id).closest('.up-col').style.display=mt?'':'none';});
-    $u('up-electrical-noise-row').hidden=mt&&files.electrical.some(f=>/\.edi$/i.test(f.name));};
-  $u('up-electrical-sub').addEventListener('change',showMtOpts); showMtOpts();
+  // with EDI files the MT error floors replace the uncertainty row (a .npz without errors needs it)
+  const showMtOpts=()=>{$u('up-em-noise-row').hidden=files.em.some(isEdi);};
 
   // ── Topography ──
   wireDrop($u('up-topo-drop'),$u('up-topo-file'),list=>{
@@ -5222,7 +5237,10 @@ window.GeoPreview=GeoPreview;
     el.value=String(v); return true;
   }
   const fire=id=>{const el=$u(id); if(el)el.dispatchEvent(new Event('change',{bubbles:true}));};
-  const typeOf=d=>d.type||(d.method==='magnetics'?'magnetic':d.method==='gravity'?'gravity':'electrical');
+  // a dataset's card; "electrical" (DC and MT shared one card before) by its method
+  const typeOf=d=>{const m=d.method;
+    if(d.type&&d.type!=='electrical')return d.type;
+    return m==='magnetics'||m==='magnetic'?'magnetic':m==='gravity'?'gravity':m==='mt'?'em':'dc';};
   function setupFiles(setup){
     const p=setup.jobs[0].params, names=new Set();
     setup.jobs.forEach(j=>(j.params.datasets||[]).forEach(d=>(d.files||[]).forEach(n=>names.add(n))));
@@ -5232,7 +5250,7 @@ window.GeoPreview=GeoPreview;
   const missingFiles=setup=>setupFiles(setup).filter(n=>!allNames().includes(n));
   function methodOfSetup(setup){
     const p=setup.jobs[0].params, page=setup.page||{};
-    if(page.method)return page.method;
+    if(page.method&&!/electrical/.test(page.method))return page.method;
     if(setup.jobs.length>1&&setup.jobs.every(j=>j.params.inversion_mode!=='joint'))return 'separate';
     const types=(p.datasets||[]).map(typeOf);
     return (p.inversion_mode==='joint'?'joint:':'single:')+types.join(p.inversion_mode==='joint'?'+':'');
@@ -5277,6 +5295,12 @@ window.GeoPreview=GeoPreview;
         renderRegParams(type);
         if(a!=null){$u(`up-${type}-rega`).value=a;$u(`up-${type}-rega`).dataset.for=reg.method;}
         if(b!=null){$u(`up-${type}-regb`).value=b;$u(`up-${type}-regb`).dataset.for=reg.method;}
+      }
+      if(type==='em'){
+        setv('up-em-mtimp',d.impedance,notes); setv('up-em-mttip',d.tipper==null?null:d.tipper?'yes':'no');
+        setv('up-em-mtdata',d.data_type,notes);
+        if(d.error_floor!=null)setv('up-em-mtfloor',+(d.error_floor*100).toPrecision(6));
+        setv('up-em-mttfloor',d.tipper_floor);
       }
       if(d.decimate_spacing_m){decChoice[type]='custom';decCustom[type]=d.decimate_spacing_m;}else decChoice[type]='1';
       if($u(`up-${type}-height`)){$u(`up-${type}-height`).value=d.station_height??''; $u(`up-${type}-cont`).value=d.continue_to_m??'';}
@@ -5581,7 +5605,7 @@ window.GeoPreview=GeoPreview;
   }
   const geoMissing=()=>geoSpec?geoNeeded(geoSpec).filter(n=>!geoFiles.some(f=>f.name===n)):[];
   // ── Which property goes to which job ──
-  const PROP_OF_TYPE={gravity:'density',magnetic:'susceptibility',electrical:'resistivity'};
+  const PROP_OF_TYPE={gravity:'density',magnetic:'susceptibility',dc:'resistivity',em:'resistivity'};
   const PROP_OF_METHOD={gravity:'density',magnetic:'susceptibility',dc:'resistivity',mt:'resistivity'};
   const JOB_OF_PROP={density:'gravity',susceptibility:'magnetic',resistivity:'DC or MT'};
   // the constraints (the file spec and the model built here) go with the job whose property they describe
@@ -6434,11 +6458,13 @@ window.GeoPreview=GeoPreview;
 
     const sel=$u('upload-method'), prev=sel.value, L=loadedTypes();
     const opts=[];
-    L.forEach(t=>opts.push([`single:${t.key}`,`Single — ${t.label}${t.key==='electrical'?' ('+methodName(t)+')':''}`]));
+    L.forEach(t=>opts.push([`single:${t.key}`,`Single — ${t.label}${t.key==='em'?' (MT)':''}`]));
     if(L.length>=2){
       opts.push(['separate','Separate — one independent job per data type']);
-      // the coupling (cross-gradient, group lasso, PGI, …) is chosen in the Inversion step
-      subsets(L).forEach(s=>opts.push([`joint:${s.map(t=>t.key).join('+')}`,`Joint — ${s.map(t=>t.label).join(' + ')}`]));
+      // the coupling (cross-gradient, group lasso, PGI, …) is chosen in the Inversion step;
+      // DC and MT both see the resistivity: they would share one model, not be coupled (not yet)
+      subsets(L).filter(s=>!(s.some(t=>t.key==='dc')&&s.some(t=>t.key==='em')))
+        .forEach(s=>opts.push([`joint:${s.map(t=>t.key).join('+')}`,`Joint — ${s.map(t=>t.label).join(' + ')}`]));
     }
     if(!opts.length){
       sel.innerHTML='<option>Upload observed data first</option>'; sel.disabled=true;
@@ -6446,7 +6472,7 @@ window.GeoPreview=GeoPreview;
       sel.innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
       sel.disabled=false;
       const vals=opts.map(o=>o[0]);
-      sel.value=methodPicked&&vals.includes(prev)?prev:(L.length>=2?`joint:${L.map(t=>t.key).join('+')}`:vals[0]);
+      sel.value=methodPicked&&vals.includes(prev)?prev:(vals.find(v=>v.startsWith('joint:'))||vals[0]);
     }
     updateMode();
     dataChanged();
@@ -6893,7 +6919,7 @@ window.GeoPreview=GeoPreview;
     for(const f of [...s.types.flatMap(t=>files[t.key]),...(topoFile?[topoFile]:[])])
       if(/\.tiff?$/i.test(f.name))await GeoCRS.scanTiff(f);
     for(const t of s.types){
-      const edi=files[t.key].filter(f=>/\.edi$/i.test(f.name));
+      const edi=files[t.key].filter(isEdi);
       for(const f of files[t.key])if(!edi.includes(f))rows.push({t,f,info:await inspect(f),prev:await preview(f)});
       if(edi.length){   // EDI: a station per file, read together
         const info=await GeoMesh.inspectEdi(edi).catch(e=>({error:e.message||String(e)}));
@@ -7658,11 +7684,11 @@ window.GeoPreview=GeoPreview;
       const ht=$u(`up-${t.key}-height`)?.value, ct=$u(`up-${t.key}-cont`)?.value;
       const where=(+ht?` · ${ht} m above ground`:'')+(+ct?` · continued to ${ct} m before thinning`:'');
       const st=noiseAuto(t.key)?windowStats(t.key):null;
-      const edi=t.key==='electrical'&&methodOf(t)==='mt'&&files.electrical.some(f=>/\.edi$/i.test(f.name));
-      const sel=id=>escH($u('up-electrical-'+id).selectedOptions[0].textContent);
-      const err=edi?` · ${$u('up-electrical-mtimp').value==='none'?'no impedance':sel('mtimp')+' as '+sel('mtdata').toLowerCase()}`+
-          `${$u('up-electrical-mttip').value==='yes'?' + tipper':''} · error floors ${escH($u('up-electrical-mtfloor').value)} % of √|Zxy·Zyx|`+
-          `${$u('up-electrical-mttip').value==='yes'?', '+escH($u('up-electrical-mttfloor').value)+' on the tipper':''}`
+      const edi=t.key==='em'&&files.em.some(isEdi);
+      const sel=id=>escH($u('up-em-'+id).selectedOptions[0].textContent);
+      const err=edi?` · ${$u('up-em-mtimp').value==='none'?'no impedance':sel('mtimp')+' as '+sel('mtdata').toLowerCase()}`+
+          `${$u('up-em-mttip').value==='yes'?' + tipper':''} · error floors ${escH($u('up-em-mtfloor').value)} % of √|Zxy·Zyx|`+
+          `${$u('up-em-mttip').value==='yes'?', '+escH($u('up-em-mttfloor').value)+' on the tipper':''}`
         :noiseAuto(t.key)?` · errors automatic: ${AUTO_NOISE_PCT} % + ${st?'≈ '+(+(AUTO_FLOOR_SHARE*(st.p95-st.p5)).toPrecision(2)).toLocaleString('en-US'):`${100*AUTO_FLOOR_SHARE} % of the spread`} ${t.unit}`
         :$u(`up-${t.key}-pct`)?` · errors ${escH($u(`up-${t.key}-pct`).value)} % + ${escH($u(`up-${t.key}-floor`).value)} ${t.unit}`:'';
       return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}${where}${err}`+
@@ -7913,7 +7939,7 @@ window.GeoPreview=GeoPreview;
     // the data errors
     for(const t of s?s.types:[]){
       const fl=$u(`up-${t.key}-floor`);
-      if(fl&&!noiseAuto(t.key)&&!(+fl.value>0)&&t.key!=='electrical')add('warn',`${t.label}: a noise floor of 0 gives the smallest data almost no error, and χ² = N may be out of reach`);
+      if(fl&&!noiseAuto(t.key)&&!(+fl.value>0)&&t.key!=='dc'&&t.key!=='em')add('warn',`${t.label}: a noise floor of 0 gives the smallest data almost no error, and χ² = N may be out of reach`);
     }
     // the iterations
     const mi=currentMaxIter();
@@ -8145,12 +8171,13 @@ window.GeoPreview=GeoPreview;
       }
     }
     // MT from EDI files: which data, and their error floors (the EDI errors are kept above them)
-    if(t.key==='electrical'&&spec.method==='mt'&&files.electrical.some(f=>/\.edi$/i.test(f.name))){
-      spec.impedance=$u('up-electrical-mtimp').value;
-      spec.tipper=$u('up-electrical-mttip').value==='yes';
-      spec.data_type=$u('up-electrical-mtdata').value;
-      spec.error_floor=num('up-electrical-mtfloor','MT error floor',{min:0})/100;
-      spec.tipper_floor=num('up-electrical-mttfloor','tipper error floor',{min:0});
+    if(t.key==='em'&&files.em.some(isEdi)){
+      if(!files.em.every(isEdi))throw new Error('Electromagnetic: EDI files or one .npz, not both');
+      spec.impedance=$u('up-em-mtimp').value;
+      spec.tipper=$u('up-em-mttip').value==='yes';
+      spec.data_type=$u('up-em-mtdata').value;
+      spec.error_floor=num('up-em-mtfloor','MT error floor',{min:0})/100;
+      spec.tipper_floor=num('up-em-mttfloor','tipper error floor',{min:0});
       if(spec.impedance==='none'&&!spec.tipper)throw new Error('MT: choose the impedance, the tipper or both');
     }
     // Thinning chosen in the area step (per data type)

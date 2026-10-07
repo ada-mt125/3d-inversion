@@ -2266,3 +2266,24 @@ SimPEG's prediction within 1 % for both data types; with a conductor to the east
 arrow (Parkinson) points east. In the page, four EDI files went through every step to a job's
 parameters, and the worker ran those parameters here: 4 stations × 3 frequencies × 8 components
 = 96 data, an OcTree with the air above, three iterations.
+
+## 2026-10-07 — The page: DC resistivity and electromagnetics on cards of their own
+
+DC and MT shared an "Electrical" card with a method switch. DC is an electrical method (a
+current put into the ground through electrodes, a static field); MT is an electromagnetic one
+(natural fields, induction, frequencies). They only share the property they recover, the
+resistivity. Now there are four cards, two rows: gravity and magnetics, then **DC
+resistivity** (`.npz` with the electrodes) and **Electromagnetic** (MT for now: `.edi` files or
+one `.npz`; controlled-source methods would join it). A dataset's `type` is `dc` or `em`; its
+`method` is unchanged (`dc`, `mt`), so the worker is untouched.
+
+- Setups and finished jobs saved with the old card (`type: "electrical"`, `single:electrical`)
+  open on the card of their method; an MT dataset's EDI choices are restored too.
+- A joint inversion of DC with MT is not offered: both see the resistivity, so they should
+  share one model rather than be coupled as two (PGI and the linear correspondence would also
+  take them as two properties). DC or MT can still be inverted jointly with gravity or
+  magnetics, or with each other as separate jobs.
+- EDI files and a `.npz` on the Electromagnetic card together are refused.
+- The browser now reads a DC `.npz` (`electrodes`, or `a`, `b`, `m`, `n`) for the extent and
+  spacing: a datum at the centre of its electrodes. Before, it said the file could not be read
+  and the mesh step had nothing to recommend from.
