@@ -140,6 +140,12 @@ body.embed aside{width:330px;}
       <div class="f"><span>Vert. exagg.</span><input type="number" step="any" min="0.1" id="e-ve"></div>
       <div class="f"><span>CRS</span><input type="text" id="e-crs" placeholder="EPSG:32643"></div>
     </div>
+    <div class="row">
+      <div class="f"><span>Mesh cells E/N (m)</span><input type="number" step="any" min="0" id="e-mdx" placeholder="none" title="The mesh's horizontal cells, drawn on sections"></div>
+      <div class="f"><span>Mesh cells down (m)</span><input type="number" step="any" min="0" id="e-mdz" placeholder="none" title="The mesh's vertical cells: drawn on sections, and parts thinner than them are flagged"></div>
+      <label style="align-self:flex-end;padding-bottom:5px" title="Draw the mesh's cells on the section"><input type="checkbox" id="e-mshow" checked> on sections</label>
+    </div>
+    <div class="note" id="mesh-note"></div>
   </div>
   <div class="sec">
     <h2>Add</h2>
@@ -252,13 +258,13 @@ const COLORS = ['#9a74ff', '#1e88e5', '#43a047', '#e57373', '#ba68c8', '#4dd0e1'
 // (metres in the job's frame; depths below the ground).  Extra fields the upload page ignores:
 // hidden (not drawn here).
 function blankModel() {
-  return {id: null, name: 'Untitled model', crs: '', extent: [0, 10000, 0, 10000], ground: 0, depth: 5000, ve: 1,
+  return {id: null, name: 'Untitled model', crs: '', extent: [0, 10000, 0, 10000], ground: 0, depth: 5000, ve: 1, mesh: null,
     builder: {version: 2, items: [], ground: 0,
       free: {density: {value: 2.67, lower: null, upper: null}, susceptibility: {lower: null, upper: null},
              resistivity: {value: null, lower: null, upper: null, mixing: 'log'}}}};
 }
 let M = blankModel();
-let sel = -1, selLayer = -1, dirty = false, seq = 0;
+let sel = -1, selLayer = -1, dirty = false, seq = 0, pasteProp = null, pasteOpen = false, PAGE_PROPS = null;
 const items = () => M.builder.items;
 const cur = () => items()[sel];
 
@@ -329,7 +335,8 @@ orbit.enableDamping = true; orbit.dampingFactor = 0.12; orbit.screenSpacePanning
 scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d2ea, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(-2, -3, 5); scene.add(sun);
 const frame = new THREE.Group(), bodies = new THREE.Group(), handles = new THREE.Group(), drawn = new THREE.Group();
-scene.add(frame, bodies, handles, drawn);
+const gridG = new THREE.Group();
+scene.add(frame, bodies, handles, drawn, gridG);
 const pivot = new THREE.Object3D(); scene.add(pivot);
 const gizmo = new TransformControls(camera, renderer.domElement);
 gizmo.setSize(0.9); scene.add(gizmo);
@@ -399,6 +406,84 @@ function drawColourbar() {
     `<div style="display:flex;justify-content:space-between"><span>${lab(r[0])}</span><span>${lab(r[1])}</span></div>`;
   const ctx = box.querySelector('canvas').getContext('2d');
   for (let i = 0; i < 160; i++) {ctx.fillStyle = ramp(i / 159); ctx.fillRect(i, 0, 1, 10);}
+}
+
+// ── The mesh's cells ──
+// Rows of cells from the ground down, [{z0, z1, dx}] (m below the ground; z1 - z0 the cell
+// height, dx the cells' width).  In the upload page's Model step the page sends the job's (its Mesh
+// step: the core, an OcTree's levels, an MT mesh's growing cells); here, uniform cells typed under
+// the area (M.mesh = {dx, dz}).  A part thinner than its cells is not lost — the cells take it by
+// volume — but the inversion cannot tell it from its neighbours: it is flagged.
+let PAGE_MESH = null;
+const fmtM = m => m >= 1000 ? `${+(m / 1000).toPrecision(3)} km` : `${+m.toPrecision(3)} m`;
+function meshRows() {
+  if (EMBED && PAGE_MESH) return PAGE_MESH.rows;
+  const m = M.mesh; if (!m || !(+m.dz > 0)) return null;
+  const dz = +m.dz, dx = +m.dx > 0 ? +m.dx : null, rows = [];
+  for (let i = 0; i * dz < M.depth && i < 2000; i++) rows.push({z0: i * dz, z1: (i + 1) * dz, dx});
+  return rows;
+}
+function cellAt(depth) {     // the row of cells at a depth below the ground (none beyond the rows)
+  const rows = meshRows(); if (!rows || !(depth >= 0)) return null;
+  return rows.find(r => depth < r.z1) || null;
+}
+function thinFlag(top, thick) {    // '' or why a part this thick, from this depth, is thinner than its cells
+  if (!(thick > 0)) return '';
+  const c = cellAt(top + thick / 2); if (!c) return '';
+  const h = c.z1 - c.z0;
+  return thick < h ? `${fmtM(thick)} thick where the mesh's cells are ${fmtM(h)} tall` : '';
+}
+function thinLayer(it, j) {
+  const e = edges(it); if (!Number.isFinite(e[j + 1])) return '';      // reaches the floor
+  return thinFlag(depthOf(it, +it.top) + e[j], e[j + 1] - e[j]);
+}
+function thinBody(it) {
+  const t = depthOf(it, +it.top), b = depthOf(it, +it.bottom), out = [thinFlag(t, b - t)];
+  const r = ring(it), c = cellAt((t + b) / 2);
+  if (r && c && c.dx > 0) {
+    let w = Infinity;      // its least width, over directions 5 degrees apart (a diagonal dyke too)
+    for (let a = 0; a < 180; a += 5) {
+      const c0 = Math.cos(a * Math.PI / 180), s0 = Math.sin(a * Math.PI / 180), d = r.map(q => q[0] * c0 + q[1] * s0);
+      w = Math.min(w, Math.max(...d) - Math.min(...d));
+    }
+    if (w < c.dx) out.push(`${fmtM(w)} wide where the mesh's cells are ${fmtM(c.dx)} wide`);
+  }
+  const why = out.filter(Boolean).join('; ');
+  return why ? `${why}: the cells take it in part (by volume); finer cells would resolve it` : '';
+}
+function thinWhy(it) {      // '' or why an item gets a flag in the list
+  if (it.kind === 'body') return thinBody(it);
+  if (it.kind !== 'layers') return '';
+  const thin = it.layers.map((l, j) => thinLayer(it, j) ? l.name : null).filter(Boolean);
+  return thin.length ? `Thinner than the mesh's cells: ${thin.join(', ')}` : '';
+}
+const flag = why => why ? `<span class="warn" title="${esc(why)}">⚠</span> ` : '';
+function meshNote() {
+  const el = $('mesh-note'), rows = meshRows();
+  if (EMBED && PAGE_MESH) {el.textContent = `The job's mesh (its Mesh step): ${PAGE_MESH.label}.`; return;}
+  el.textContent = rows ? `${rows.length} rows of cells to the floor; shown on sections (approximately where the job's mesh puts them).`
+    : "The mesh's cells, to see them on sections and flag parts thinner than them.";
+}
+function drawGrid() {        // the mesh's cells on the section plane
+  clear(gridG);
+  const dir = $('sec-dir').value, rows = meshRows();
+  if (!dir || !rows || !$('e-mshow').checked) return;
+  const [w, e, s, n] = M.extent, f = +$('sec-pos').value / 1000;
+  const [a, b] = dir === 'ew' ? [w, e] : [s, n], at = dir === 'ew' ? s + (n - s) * f : w + (e - w) * f;
+  const P = (u, d) => dir === 'ew' ? S(u, at, M.ground - d) : S(at, u, M.ground - d);
+  const pts = [];
+  for (const r of rows) {
+    if (r.z0 >= M.depth || pts.length > 200000) break;
+    const z1 = Math.min(r.z1, M.depth);
+    pts.push(P(a, r.z0), P(b, r.z0), P(a, z1), P(b, z1));
+    // the columns from the area's west / south edge (the job's mesh is centred on its data:
+    // its columns may sit up to a cell away)
+    const k = r.dx > 0 ? Math.floor((b - a) / r.dx) : 0;
+    if (k <= 1000) for (let i = 0; i <= k; i++) pts.push(P(a + i * r.dx, r.z0), P(a + i * r.dx, z1));
+  }
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color: 0x4a4366, transparent: true, opacity: 0.4, depthTest: false}));
+  lines.renderOrder = 10; gridG.add(lines);
 }
 
 // ── Drawing the model ──
@@ -572,6 +657,7 @@ function drawFrame() {
   const zs = niceStep(M.depth);
   for (let d = 0; d <= M.depth + 1e-6; d += zs) tick(`${d ? '−' : ''}${km(d)} km`, S(e + step * 0.15, s, g - d));
   tick('N', S(C[0], n + step * 0.35, g), 'lab name');
+  drawGrid();      // (the area, the depth or the exaggeration changed)
 }
 
 // ── Selection and the gizmo ──
@@ -759,10 +845,10 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
 function setSection() {
   const dir = $('sec-dir').value, pos = +$('sec-pos').value / 1000, [w, e, s, n] = M.extent;
   $('sec-pos').disabled = !dir;
-  if (!dir) {$('sec-at').textContent = ''; drawModel(); return;}
+  if (!dir) {$('sec-at').textContent = ''; drawGrid(); drawModel(); return;}
   if (dir === 'ew') {const y = s + (n - s) * pos; clip.set(new THREE.Vector3(0, 1, 0), -(y - C[1]) / 1000); $('sec-at').textContent = `N ${(y / 1000).toFixed(2)} km`;}
   else {const x = w + (e - w) * pos; clip.set(new THREE.Vector3(1, 0, 0), -(x - C[0]) / 1000); $('sec-at').textContent = `E ${(x / 1000).toFixed(2)} km`;}
-  drawModel();
+  drawGrid(); drawModel();
 }
 $('sec-dir').addEventListener('change', () => {setSection(); if ($('sec-dir').value) setView($('sec-dir').value === 'ew' ? 'south' : 'east');});
 $('sec-pos').addEventListener('input', setSection);
@@ -832,10 +918,10 @@ function renderList() {
     const row = `<div class="it${k === sel && selLayer < 0 ? ' sel' : ''}" data-k="${k}" data-j="-1">` +
       `<input type="checkbox" data-vis="${k}" ${it.hidden ? '' : 'checked'} title="Shown">` +
       `<span class="sw" style="background:${it.kind === 'body' ? COLORS[k % COLORS.length] : 'transparent'}"></span>` +
-      `<span class="nm">${esc(it.name)}</span><span class="kd">${esc(kind)}</span></div>`;
+      `<span class="nm">${esc(it.name)}</span><span class="kd">${flag(thinWhy(it))}${esc(kind)}</span></div>`;
     const subs = it.kind === 'layers' && k === sel ? it.layers.map((l, j) =>
       `<div class="it sub${j === selLayer ? ' sel' : ''}" data-k="${k}" data-j="${j}"><span class="sw" style="background:${COLORS[(k + j) % COLORS.length]}"></span>` +
-      `<span class="nm">${esc(l.name)}</span><span class="kd">${l.thickness == null || l.thickness === '' ? 'to the floor' : `${l.thickness} m`}</span></div>`).join('') : '';
+      `<span class="nm">${esc(l.name)}</span><span class="kd">${flag(thinLayer(it, j))}${l.thickness == null || l.thickness === '' ? 'to the floor' : `${l.thickness} m`}</span></div>`).join('') : '';
     const holes = it.kind === 'boreholes' && k === sel ? (it.holes || []).map((h, j) =>
       `<div class="it sub${j === selLayer ? ' sel' : ''}" data-k="${k}" data-j="${j}"><span class="sw" style="background:#3d3654;border-radius:50%"></span>` +
       `<span class="nm">${esc(h.name)}</span><span class="kd">${(h.intervals || []).length} intervals, ${holeLength(h)} m</span></div>`).join('') : '';
@@ -863,8 +949,42 @@ $('i-dup').addEventListener('click', () => {
   moveItem(c, JSON.parse(JSON.stringify(c)), dx, 0, 0);
   items().push(c); commit('Duplicated'); select(items().length - 1);
 });
-$('i-up').addEventListener('click', () => {if (sel > 0) {const a = items(); [a[sel - 1], a[sel]] = [a[sel], a[sel - 1]]; sel--; commit('Reordered'); select(sel, selLayer);}});
-$('i-down').addEventListener('click', () => {const a = items(); if (sel >= 0 && sel < a.length - 1) {[a[sel + 1], a[sel]] = [a[sel], a[sel + 1]]; sel++; commit('Reordered'); select(sel, selLayer);}});
+// A pasted table of layers, one per line: [name] thickness value [lowest highest]; '-' or 'inf'
+// as a thickness: to the floor.  Returns the rows read and the line numbers skipped.
+function parseLayers(text) {
+  const rows = [], bad = [], inf = /^(-|inf|infinity|half-?space|∞)$/i, isNum = v => v !== '' && Number.isFinite(Number(v));
+  let first = true;
+  text.split(/\r?\n/).forEach((line, n) => {
+    const t = line.trim().split(/[\s,;\t]+/).filter(Boolean); if (!t.length) return;
+    const head = first && t.every(v => !isNum(v)); first = false;     // a first line of words only: a header
+    if (head) return;
+    let i = 0;                    // the name: the words before the first number (or '-')
+    while (i < t.length && !isNum(t[i]) && !inf.test(t[i])) i++;
+    const name = i ? t.slice(0, i).join(' ') : null;
+    if (t.length < i + 2 || !(isNum(t[i]) || inf.test(t[i])) || !isNum(t[i + 1])) {bad.push(n + 1); return;}
+    const at = k => t.length > k && isNum(t[k]) ? Number(t[k]) : null;
+    const th = isNum(t[i]) ? Math.max(Number(t[i]), 0) : null;
+    rows.push({name, thickness: th, value: Number(t[i + 1]), lower: at(i + 2), upper: at(i + 3)});
+  });
+  return {rows, bad};
+}
+function moveLayer(it, j, to) {   // layer j of a stack to place `to`; the one reaching the floor stays last
+  const L = it.layers; if (!(to >= 0 && to < L.length) || to === j) return false;
+  const floorLast = L[L.length - 1].thickness == null || L[L.length - 1].thickness === '';
+  if (floorLast && (j === L.length - 1 || to === L.length - 1)) {    // the thicknesses keep their places
+    [L[j].thickness, L[to].thickness] = [L[to].thickness, L[j].thickness];
+  }
+  [L[j], L[to]] = [L[to], L[j]];
+  return true;
+}
+function layerStep(d) {
+  const it = cur();
+  if (!(it && it.kind === 'layers' && selLayer >= 0)) return false;
+  if (moveLayer(it, selLayer, selLayer + d)) {commit('Moved a layer'); select(sel, selLayer + d);}
+  return true;
+}
+$('i-up').addEventListener('click', () => {if (layerStep(-1)) return; if (sel > 0) {const a = items(); [a[sel - 1], a[sel]] = [a[sel], a[sel - 1]]; sel--; commit('Reordered'); select(sel, selLayer);}});
+$('i-down').addEventListener('click', () => {if (layerStep(1)) return; const a = items(); if (sel >= 0 && sel < a.length - 1) {[a[sel + 1], a[sel]] = [a[sel], a[sel + 1]]; sel++; commit('Reordered'); select(sel, selLayer);}});
 
 // ── The selected item's form ──
 const km = v => v == null ? '' : +(v / 1000).toFixed(4);
@@ -892,7 +1012,9 @@ function renderForm(quiet) {
       `<div class="f"><span>South</span>${inp('box.2', km(it.box[2]))}</div><div class="f"><span>North</span>${inp('box.3', km(it.box[3]))}</div></div>`;
     if (it.shape === 'cylinder') h += `<div class="row"><div class="f"><span>Centre E (km)</span>${inp('cyl.x', km(it.cyl.x))}</div><div class="f"><span>Centre N (km)</span>${inp('cyl.y', km(it.cyl.y))}</div><div class="f"><span>Radius (km)</span>${inp('cyl.r', km(it.cyl.r), 'min="0"')}</div></div>`;
     if (it.shape === 'polygon') h += `<div class="note" style="margin-bottom:6px">${it.poly.length} vertices — <b>Vertices</b> (V) drags them in the view.</div>`;
+    const thinB = thinBody(it);
     h += `<div class="row">${ref}<div class="f"><span>Top (m)</span>${inp('top', it.top)}</div><div class="f"><span>Bottom (m)</span>${inp('bottom', it.bottom)}</div></div>` +
+      (thinB ? `<div class="note warn" style="margin-bottom:6px">⚠ ${esc(thinB)}</div>` : '') +
       `<div class="row"><div class="f"><span>Dip (°, 90 = vertical)</span>${inp('dip', it.dip, 'min="1" max="90"')}</div><div class="f"><span>Dip direction (°)</span>${inp('dipdir', it.dipdir)}</div></div>` +
       (it.shape !== 'polygon' ? `<div class="row"><button class="btn sm" data-act="to-poly" title="Its outline as a polygon: then its vertices can move one by one">Make it a polygon</button></div>` : '') +
       propsTable(it, '');
@@ -906,13 +1028,26 @@ function renderForm(quiet) {
       `<div class="row"><div class="f"><span>Dip (°)</span>${inp('dip', it.dip, 'min="0" max="89"')}</div><div class="f"><span>Dip direction (°)</span>${inp('dipdir', it.dipdir)}</div>` +
       `<div class="f"><span>About E (km)</span>${inp('origin.0', km(it.origin?.[0]))}</div><div class="f"><span>About N (km)</span>${inp('origin.1', km(it.origin?.[1]))}</div></div>` +
       `<table class="props"><thead><tr><th>layer</th><th>thickness (m)</th>${Object.values(PROPS).map(P => `<th>${P.label.slice(0, 7)}. ${P.unit}</th>`).join('')}</tr></thead><tbody>` +
-      it.layers.map((l, j) => `<tr${j === selLayer ? ' style="background:var(--bg3)"' : ''}><td><input type="text" data-f="layers.${j}.name" value="${esc(l.name)}" style="width:72px"></td>` +
-        `<td>${inp(`layers.${j}.thickness`, l.thickness, j === it.layers.length - 1 ? 'placeholder="to floor"' : 'min="0"')}</td>` +
-        Object.keys(PROPS).map(p => `<td>${inp(`layers.${j}.props.${p}.value`, l.props?.[p]?.value)}</td>`).join('') + '</tr>').join('') +
-      `</tbody></table><div class="row" style="margin-top:6px"><button class="btn sm" data-act="add-layer">＋ Layer below</button>` +
+      it.layers.map((l, j) => {
+        const thin = thinLayer(it, j);
+        return `<tr${j === selLayer ? ' style="background:var(--bg3)"' : ''}><td style="white-space:nowrap">` +
+          `<button class="btn sm" data-act="lay-up" data-j="${j}" title="Move it up"${j ? '' : ' disabled'}>↑</button>` +
+          `<button class="btn sm" data-act="lay-down" data-j="${j}" title="Move it down"${j < it.layers.length - 1 ? '' : ' disabled'}>↓</button> ` +
+          `<input type="text" data-f="layers.${j}.name" value="${esc(l.name)}" style="width:62px"></td>` +
+          `<td${thin ? ` title="${esc(thin)}"` : ''}>${inp(`layers.${j}.thickness`, l.thickness, j === it.layers.length - 1 ? 'placeholder="to floor"' : 'min="0"')}${thin ? '<span class="warn"> ⚠</span>' : ''}</td>` +
+          Object.keys(PROPS).map(p => `<td>${inp(`layers.${j}.props.${p}.value`, l.props?.[p]?.value)}</td>`).join('') + '</tr>';
+      }).join('') +
+      `</tbody></table>` + (it.layers.some((_, j) => thinLayer(it, j)) ? `<div class="note warn" style="margin-top:4px">⚠ Layers thinner than the mesh's cells are mixed into them by volume (not lost); finer cells would resolve them.</div>` : '') +
+      `<div class="row" style="margin-top:6px"><button class="btn sm" data-act="add-layer">＋ Layer below</button>` +
       (selLayer >= 0 ? `<button class="btn sm" data-act="del-layer">Delete ${esc(it.layers[selLayer].name)}</button>` : '') + '</div>' +
       (selLayer >= 0 ? `<div class="note" style="margin:6px 0 4px"><b>${esc(it.layers[selLayer].name)}</b>: ranges and weight</div>` + propsTable(it.layers[selLayer], `layers.${selLayer}.`) :
-        '<div class="note">Click a layer (in the view or the list) for its ranges and weight.</div>');
+        '<div class="note">Click a layer (in the view or the list) for its ranges and weight.</div>') +
+      `<details id="paste-box" style="margin-top:8px"${pasteOpen ? ' open' : ''}><summary class="note" style="cursor:pointer">Paste a table of layers</summary>` +
+      `<div class="note" style="margin:6px 0">One layer per line: <span class="kbd">[name] thickness value [lowest highest]</span> (decimals with a point) — a well log or a 1D model; ` +
+      `<span class="kbd">-</span> or <span class="kbd">inf</span> as the last thickness reaches the floor; lines that do not read are skipped.</div>` +
+      `<div class="row"><div class="f" style="max-width:150px"><span>The values are</span><select id="paste-prop">${Object.entries(PROPS).map(([p, P]) => `<option value="${p}"${p === (pasteProp || PAGE_PROPS?.[0] || 'resistivity') ? ' selected' : ''}>${P.label} (${P.unit})</option>`).join('')}</select></div></div>` +
+      `<textarea id="paste-text" rows="5" style="width:100%;font:11px 'SF Mono',Consolas,monospace" placeholder="cover  30  50&#10;clay   12  3  1  10&#10;sand   40  80&#10;basement  -  3000  1000  30000"></textarea>` +
+      `<div class="row" style="margin-top:4px"><button class="btn sm" data-act="paste-replace">Replace the layers</button><button class="btn sm" data-act="paste-append">Add below</button></div></details>`;
   }
   F.innerHTML = h;
 }
@@ -1044,7 +1179,9 @@ function setPath(obj, path, val) {
   o[ks[ks.length - 1]] = val;
 }
 const KM_FIELDS = /^(box\.\d|cyl\.[xyr]|origin\.\d)$/;
+$('form').addEventListener('toggle', ev => {if (ev.target.id === 'paste-box') pasteOpen = ev.target.open;}, true);
 $('form').addEventListener('change', ev => {
+  if (ev.target.id === 'paste-prop') {pasteProp = ev.target.value; return;}
   const el = ev.target, f = el.dataset.f, it = cur(); if (!f || !it) return;
   let v;
   if (el.type === 'checkbox') v = el.checked;
@@ -1078,6 +1215,40 @@ $('form').addEventListener('click', ev => {
     commit('Added a layer'); select(sel, it.layers.length - 1);
   }
   if (b.dataset.act === 'del-layer') delSelected();
+  if (b.dataset.act === 'lay-up' || b.dataset.act === 'lay-down') {
+    const j = +b.dataset.j, to = j + (b.dataset.act === 'lay-up' ? -1 : 1);
+    if (moveLayer(it, j, to)) {commit('Moved a layer'); select(sel, selLayer === j ? to : selLayer === to ? j : selLayer);}
+  }
+  if (b.dataset.act === 'paste-replace' || b.dataset.act === 'paste-append') {
+    const p = $('paste-prop').value, {rows, bad} = parseLayers($('paste-text').value);
+    if (!rows.length) {say('No layers found: each line needs a thickness and a value', 'warn'); return;}
+    const keep = b.dataset.act === 'paste-append' ? it.layers : [], notes = [];
+    if (keep.length && (keep[keep.length - 1].thickness == null || keep[keep.length - 1].thickness === '')) {
+      const last = keep[keep.length - 1];
+      last.thickness = Math.round(M.depth * 0.1);       // it no longer reaches the floor
+      notes.push(`${last.name} no longer reaches the floor: ${last.thickness} m (edit it)`);
+    }
+    // names are unique in the model (replacing frees the old layers' names)
+    const used = new Set(names().filter(nm => !it.layers.some(l => l.name === nm)).concat(items().map(o => o.name), keep.map(l => l.name)));
+    const fresh = base => {let nm = base, c = 2; while (used.has(nm)) nm = `${base} (${c++})`; used.add(nm); return nm;};
+    const made = [];
+    rows.forEach((r, i) => {
+      let nm = r.name;
+      if (!nm) {let k = 1; while (used.has(`L${k}`)) k++; nm = `L${k}`;}
+      const open = i < rows.length - 1 && r.thickness == null;      // only the last layer reaches the floor
+      const l = {name: fresh(nm), thickness: open ? 100 : r.thickness, props: blankProps(false), weight: 5, fixed: false, sharp: false};
+      if (open) notes.push(`${l.name}: 100 m (only the last layer reaches the floor)`);
+      if (i === rows.length - 1 && r.thickness != null) notes.push(`${l.name} is ${r.thickness} m: '-' as its thickness reaches the floor`);
+      l.props[p] = {value: r.value, lower: r.lower, upper: r.upper};
+      made.push(l);
+    });
+    it.layers = keep.concat(made);
+    pasteOpen = true;
+    commit(`Pasted ${made.length} layer${made.length === 1 ? '' : 's'}`); select(sel, -1);
+    say(`${made.length} layer${made.length === 1 ? '' : 's'} with their ${PROPS[p].label.toLowerCase()}` +
+      (bad.length ? ` — skipped line${bad.length > 1 ? 's' : ''} ${bad.join(', ')}` : '') +
+      (notes.length ? ` — ${notes.join('; ')}` : ''), bad.length || notes.length ? 'warn' : '');
+  }
   if (it.kind !== 'boreholes') return;
   const hs = it.holes, hl = hs[selLayer];
   if (b.dataset.act === 'pick-hole') select(sel, +b.dataset.j);
@@ -1133,7 +1304,17 @@ function renderSettings() {
   if (EMBED) for (const id of ['e-w', 'e-e', 'e-s', 'e-n', 'e-ground', 'e-crs']) {$(id).disabled = true; $(id).title = 'Set by the upload page: its data window, ground and coordinate system';}
   [['e-w', 0], ['e-e', 1], ['e-s', 2], ['e-n', 3]].forEach(([id, i]) => {$(id).value = km(M.extent[i]);});
   $('e-ground').value = M.ground; $('e-depth').value = M.depth; $('e-ve').value = M.ve; $('e-crs').value = M.crs || '';
+  const top = EMBED && PAGE_MESH ? PAGE_MESH.rows[0] : null;
+  $('e-mdx').value = top ? top.dx ?? '' : M.mesh?.dx ?? ''; $('e-mdz').value = top ? top.z1 - top.z0 : M.mesh?.dz ?? '';
+  for (const id of ['e-mdx', 'e-mdz']) {$(id).disabled = !!top; if (top) $(id).title = "The job's mesh, from the upload page's Mesh step (the top cells)";}
+  meshNote();
 }
+['e-mdx', 'e-mdz'].forEach(id => $(id).addEventListener('change', () => {
+  const dx = num($('e-mdx').value), dz = num($('e-mdz').value);
+  M.mesh = dz > 0 || dx > 0 ? {dx: dx > 0 ? dx : null, dz: dz > 0 ? dz : null} : null;
+  commit('Changed the mesh cells'); renderSettings(); drawGrid(); renderList(); renderForm();
+}));
+$('e-mshow').addEventListener('change', drawGrid);
 ['e-w', 'e-e', 'e-s', 'e-n', 'e-ground', 'e-depth', 'e-ve', 'e-crs'].forEach(id => $(id).addEventListener('change', () => {
   const ext = ['e-w', 'e-e', 'e-s', 'e-n'].map(i => num($(i).value));
   if (ext.every(v => v != null) && ext[0] < ext[1] && ext[2] < ext[3]) M.extent = ext.map(v => r1(v * 1000));
@@ -1174,10 +1355,12 @@ window.addEventListener('message', ev => {
     if (Array.isArray(d.extent) && d.extent.length === 4 && d.extent.every(Number.isFinite)) CTX.extent = d.extent.map(Number);
     if (Number.isFinite(+d.ground)) CTX.ground = +d.ground;
     if (d.crs) CTX.crs = String(d.crs);
+    PAGE_MESH = d.mesh && Array.isArray(d.mesh.rows) && d.mesh.rows.length ? d.mesh : null;
+    PAGE_PROPS = Array.isArray(d.props) ? d.props.filter(p => PROPS[p]) : null;
     Object.assign(M, CTX); M.builder.ground = M.ground;
     if (first && Number.isFinite(+d.depth) && +d.depth > 0) M.depth = Math.max(+d.depth, ...items().map(it => it.kind === 'body' ? depthOf(it, +it.bottom) : 0));
     DATA = Array.isArray(d.data) ? d.data : [];
-    renderSettings(); drawFrame(); drawData(); drawModel();
+    renderSettings(); drawFrame(); drawData(); drawGrid(); drawModel(); renderList(); renderForm(true);
     if (first) setView('3d');
   }
   if (d.type === 'geoinv3d:load' && d.model) {
@@ -1211,7 +1394,7 @@ window.addEventListener('keydown', ev => {
 const setUrl = id => history.replaceState(null, '', (EMBED ? '?embed=1' + (id ? `&id=${id}` : '') : (id ? `?id=${id}` : location.pathname)));
 function setDirty(d) {dirty = d; $('m-dirty').textContent = d ? '•' : ''; document.title = `${d ? '• ' : ''}${M.name} — Model builder`;}
 function say(text, cls = '') {$('msg').innerHTML = `<span class="${cls}">${esc(text)}</span>`;}
-const payload = () => ({name: M.name, crs: M.crs, extent: M.extent, ground: M.ground, depth: M.depth, ve: M.ve,
+const payload = () => ({name: M.name, crs: M.crs, extent: M.extent, ground: M.ground, depth: M.depth, ve: M.ve, mesh: M.mesh || null,
   builder: {...M.builder, version: 2, ground: M.ground}});
 async function api(path, opts = {}) {
   const r = await fetch(API + path, {headers: {'Content-Type': 'application/json'}, ...opts});

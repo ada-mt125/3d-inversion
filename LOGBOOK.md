@@ -2436,3 +2436,81 @@ following the window (400–410 km E), a box and a borehole added there reaching
 "⤓ Save model" spec and the submitted `params.geology` (a body and a boreholes source), a saved
 model through `?model=` and a dropped builder JSON appearing in the frame, every step without a
 script error.
+
+## 2026-10-07 — The builder's missing pieces; a builder model's data inverted for all four methods
+
+**The model builder** got back what the old Model step had (and the 3D one lacked):
+
+- *Paste a table of layers* under a stack's table: `[name] thickness value [lowest highest]`
+  per line (a name may be several words; a first line of words only is a header), for the
+  property chosen there, `-`/`inf` as the last thickness reaching the floor; "Replace the
+  layers" or "Add below". What it set by itself (a middle `-` → 100 m, the old floor layer
+  given a thickness, a last layer with one) is said in the message; skipped lines too.
+- ↑ ↓ on each layer row, and the list's ↑ ↓ with a layer selected, move it within its stack;
+  the layer reaching the floor stays last (the two swap thicknesses when it moves).
+- The mesh's cells on sections: in the upload page's Model step the job's (`mbMesh`: the
+  tensor core, an OcTree's finest levels, an MT mesh's top cells growing by `z_growth`; sent
+  with the context), on the builder's own page uniform cells typed under the area (saved with
+  the model, `mesh: {dx, dz}`, kept by `_clean_model`). A layer or body thinner than the cells
+  at its depth, or a body narrower (its least width over all directions, so a diagonal dyke
+  too), gets a ⚠ with the reason in the list (each layer's row) and its form.
+
+**`geoinv3d/methods/builder.py`**: the page's `mbSpec` / `mbUnit` in Python (`builder_spec`;
+`mbUnit`'s weight now falls back to 5 for a null weight on both sides) and a property's values
+on cells (`model_values`, the spec's reference model: volume averages) — a true model from a
+drawn one.
+
+**`examples/synthetic_builder.py`**: a 2 km × 2 km builder model (a 50 m 20 Ω·m cover over
+1000 Ω·m, a sulphide body dipping 60° E — 3.3 g/cc, 0.05 SI, 3 Ω·m, 100–400 m — and a granite
+stock, 2.57 g/cc, 5000 Ω·m, 150–800 m) and two holes logged through them. Its data (gravity and
+TMI on a 100 m grid from a 50 × 50 × 25 m mesh; DC dipole-dipole a = 100 m, n = 1–4, five
+lines; MT xy/yx at 4 × 4 stations, 10/100/1000 Hz; DC and MT on the inversion meshes — an
+inverse crime) go through `run_data_pipeline` on coarse meshes (100 × 50 m cells to 800 m; MT
+200 m wide, 25 m at the top growing 10 %), free and with the holes' logs as constraints
+(reach 150 m). Correlation with the true model over the core (to 600 m; resistivity in log):
+
+| | χ²/N free / holes | corr. free / holes | sulphide (true) free / holes | time |
+|---|---|---|---|---|
+| gravity (sparse) | 1.10 / 1.05 | 0.74 / 0.72 | 0.32 / 0.32 (0.55 g/cc) | 2 s |
+| magnetics (sparse) | 1.11 / 1.14 | 0.67 / 0.72 | 0.014 / 0.018 (0.044 SI) | 2 s |
+| DC (L2) | 1.66 / 0.98 | 0.26 / 0.29 | 2.07 / 2.03 (0.79 log Ω·m) | 52 s |
+| DC a = 50 m, n = 1–8 (25 m cells, EC2) | 1.06 / — | 0.08 / — | 1.81 / — | 16 min |
+
+Gravity puts the body in the right place (its density spread over the coarse cells); the holes
+pull the magnetic body up where the free inversion smears it down.
+
+**Why DC correlates so poorly** (the a = 100 m run; the depth of investigation from the same
+data inverted from 20 and from 1000 Ω·m, Oldenburg & Li 1999): the data decide the model to
+~200 m (DOI index 0.1–0.2 at 50–200 m, 0.44 at 200–300 m, 0.9–1.0 below), 29 % of the core;
+below 300 m — half the core — the model is its reference, 63 Ω·m, where the truth is 1000 Ω·m.
+Even where the data decide, the correlation is 0.30: under the 20 Ω·m cover the current stays in
+it, and the resistive basement's value hardly matters to the data (50–150 m: 2.95 true, 1.87
+recovered, log Ω·m); and the cover is one 50 m cell, smoothed into the basement (47 Ω·m for
+20). The recovered model's spread is 0.22 decades for the truth's 0.59. Shorter dipoles
+(a = 50 m, n = 1–8, on 25 m cells) resolve the cover but see less deep: 0.08. What would help:
+long offsets (a 200 m set beside the 50 m one; `dc_multi` in the example, not yet run), a
+layered background from a 1D inversion of the soundings (as MT's smooth1d primary) instead of a
+constant, thinner top cells growing with depth, a joint inversion with MT (deep) — and judging
+the model where the DOI is small. (From 1000 Ω·m, 8 iterations left χ²/N at 1539: a start far
+from the data is slow to recover — the background from the data is the right default.)
+
+MT: the plumbing ran locally (synthetic data: 348 s with SciPy's SuperLU; the same on EC2 with
+PARDISO, m5.4xlarge: 12.7 s), but each new model costs ~6 minutes of factorizations here, and
+the two-iteration runs had not finished after 50 minutes; the EC2 run (the DC variants first)
+was stopped to make MT's frequencies parallel first (next). `--ec2` runs the example on one
+instance and fetches its outputs (`--attach` follows a run started before; a bare `tail` with
+no file waited on the SSH channel's input and hung the first follower).
+
+**The DC / MT background from the data** (`worker._backgrounds_from_data`). The page never set
+`sigma_background`, so DC and MT jobs started from, and were pulled towards, 100 Ω·m. Over
+this model's 20 Ω·m cover the DC start was 27 000 times its noise and two iterations left it at
+3878; from the median of the data's apparent resistivity (63 Ω·m: K·V with the halfspace
+geometric factor, poles by NaN electrodes; MT: √(ρxy ρyx)) at 59. Datasets sharing a model label
+share one background from all their data (a group lasso refuses a shared model whose datasets
+differ); a job's own `sigma_background` stays (≤ 0 is an error); without apparent resistivities
+(MT tipper only) 100 Ω·m. Recorded per dataset in the result (`datasets[i].background`).
+
+Reviewed (a reviewer and a web-test agent): the builder spec matches the page's item by item;
+the page's mesh context is keyed on all its rows (an OcTree's levels changed nothing in its
+label). Tests: `tests/test_builder.py` (new), the background and the models' mesh field in
+`test_data_pipeline.py` / `test_api_local.py`; the suite 615 passed, 2 skipped.

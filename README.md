@@ -144,10 +144,13 @@ is engineering, the parameters and the validation: `docs/group_lasso_joint.md`.
   page, the *Model* step is the 3D model builder (also its own page, `/model`): bodies,
   layer stacks and boreholes logged by depth, drawn and moved in 3D over the data (outline,
   depths or elevations, dip or tilted interfaces, a density, susceptibility and/or
-  resistivity per part or interval), coloured by value, cut by sections, and saved on the
-  server or as JSON. Cells hold the volume average of what they contain, so layers
-  thinner than the cells are not lost; "sharp" parts relax the smoothing across their
-  boundaries (like ModEM's covariance tears). See `docs/geology_constraints.md`.
+  resistivity per part or interval; layer tables pasted from a log or a 1D model), coloured
+  by value, cut by sections showing the mesh's cells, and saved on the server or as JSON.
+  Cells hold the volume average of what they contain, so layers thinner than the cells are
+  not lost (and flagged); "sharp" parts relax the smoothing across their boundaries (like
+  ModEM's covariance tears). See `docs/geology_constraints.md`;
+  `examples/synthetic_builder.py` makes synthetic data of such a model for all four methods
+  and inverts them.
 - **Topography**: a DEM (any CRS), x/y/z points, or the data's own station elevations
   (`topography: {"from_data": true}`); the mesh follows the ground and the viewer's 3D
   view draws the terrain and the stations.

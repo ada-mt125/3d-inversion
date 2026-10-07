@@ -1036,6 +1036,19 @@ def _clean_model(body: dict) -> dict:
     for key in ("crs", "notes"):
         if body.get(key) is not None:
             out[key] = str(body[key])[:2000]
+    mesh = body.get("mesh")
+    if isinstance(mesh, dict):        # the cells drawn on its sections: {dx, dz} (m), each optional
+        cells = {}
+        for key in ("dx", "dz"):
+            try:
+                v = float(mesh[key]) if mesh.get(key) is not None else None
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"mesh.{key} must be a number (m)")
+            if v is not None and not (np.isfinite(v) and v > 0):
+                raise HTTPException(status_code=400, detail=f"mesh.{key} must be greater than 0")
+            cells[key] = v
+        if any(v is not None for v in cells.values()):
+            out["mesh"] = cells
     if len(json.dumps(out)) > MODEL_MAX_BYTES:
         raise HTTPException(status_code=413, detail="The model is too large (5 MB at most)")
     return out

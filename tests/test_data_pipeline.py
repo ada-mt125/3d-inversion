@@ -856,6 +856,54 @@ class TestEMData:
         # no padding alarm for a log-conductivity background
         assert not any("outside the core" in n for n in result.get("notes", []))
 
+    def test_background_from_the_data(self, tmp_path, capture):
+        """Without a sigma_background, DC and MT start from (and are pulled towards) the
+        geometric mean of their apparent resistivity rather than 100 ohm m."""
+        from geoinv3d.cloud.worker import _dc_apparent_resistivity
+        rows = np.array([[0, 0, 0, 10, 0, 0, 20, 0, 0, 30, 0, 0],
+                         [0, 0, 0, np.nan, np.nan, np.nan, 20, 0, 0, 30, 0, 0],     # pole-dipole
+                         [0, 5, 0, 10, 5, 0, 40, 5, 0, 70, 5, 0]], float)
+        g = np.array([1 / 20 - 1 / 10 - 1 / 30 + 1 / 20, 1 / 20 - 1 / 30, 1 / 40 - 1 / 30 - 1 / 70 + 1 / 60])
+        volts = 3.0 / (2 * np.pi) * g                     # a 3 ohm m halfspace, 1 A
+        np.testing.assert_allclose(_dc_apparent_resistivity(rows, volts), 3.0)
+        np.testing.assert_allclose(_dc_apparent_resistivity(rows, [5.0, 6.0, 7.0], "apparent_resistivity"), [5, 6, 7])
+        np.savez(tmp_path / "dc.npz", electrodes=rows, values=volts, std=0.03 * abs(volts))
+        params = {"method_type": "dc", "datasets": [{"method": "dc", "files": ["dc.npz"]}],
+                  "regularization_type": "l2", "max_iter": 1, **SMALL_MESH}
+        result = run_data_pipeline(params, str(tmp_path))
+        assert capture["task"].method_kwargs["sigma_background"] == pytest.approx(1 / 3.0)
+        assert result["datasets"][0]["background"] == {
+            "rho_ohm_m": 3.0, "source": "the data's apparent resistivity (median)"}
+        # the start: the background
+        assert np.allclose(capture["task"].initial_model, np.log(1 / 3.0))
+        # a job's own background stays
+        params["datasets"][0]["method_kwargs"] = {"sigma_background": 0.05}
+        result = run_data_pipeline(params, str(tmp_path))
+        assert capture["task"].method_kwargs["sigma_background"] == 0.05
+        assert result["datasets"][0]["background"] == {"rho_ohm_m": 20.0, "source": "given"}
+        params["datasets"][0]["method_kwargs"] = {"sigma_background": 0}
+        with pytest.raises(ValueError, match="sigma_background must be positive"):
+            run_data_pipeline(params, str(tmp_path))
+
+    def test_datasets_sharing_a_model_share_a_background(self):
+        """Datasets with one model label get one background, from all their data (a group
+        lasso refuses a shared model whose datasets differ in it); others keep their own; data
+        without an apparent resistivity (MT tipper only) fall back to 100 ohm m."""
+        from geoinv3d.cloud.worker import PipelineDataset, _backgrounds_from_data
+
+        def mt(rho, model=None):
+            return PipelineDataset(method="mt", component="impedance", locations=np.zeros((1, 3)),
+                                   observed=np.zeros(1), std=np.ones(1), method_kwargs={},
+                                   files=[], noise_pct=0.0, noise_floor=0.0,
+                                   mt={"rho_a": None if rho is None else np.asarray(rho, float)}, model=model)
+
+        a, b, c, d = mt([10.0, 10.0], "sigma"), mt([1000.0], "sigma"), mt([50.0]), mt(None)
+        _backgrounds_from_data([a, b, c, d])
+        assert a.method_kwargs["sigma_background"] == b.method_kwargs["sigma_background"] == 0.1
+        assert "2 datasets sharing a model" in a.background["source"]
+        assert c.background["rho_ohm_m"] == 50.0
+        assert d.background["rho_ohm_m"] == 100.0 and "sigma_background" not in d.method_kwargs
+
     def test_mt_mesh_reaches_into_the_air(self, tmp_path, capture):
         """MT solves in the air too: the mesh reaches the padding distance above the ground,
         whose cells are inactive; the result names the sparse solver."""
@@ -898,6 +946,9 @@ class TestEMData:
         assert used["mt_primary"]["kind"] == "smooth1d"
         np.testing.assert_allclose(used["mt_primary"]["rho_ohm_m"], 100.0, rtol=0.05)
         assert capture["task"].method_kwargs["primary_layers"][0][0] == 0
+        # the background (start and reference): the data's apparent resistivity
+        assert result["datasets"][0]["background"]["rho_ohm_m"] == pytest.approx(100.0, rel=0.01)
+        assert capture["task"].method_kwargs["sigma_background"] == pytest.approx(0.01, rel=0.01)
 
     def test_mt_file_checks(self, tmp_path):
         stations = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])

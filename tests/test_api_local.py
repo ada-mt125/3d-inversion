@@ -724,6 +724,18 @@ class TestModels:
         assert client.get("/api/models/..%2Fjobs").status_code == 404
         assert client.get("/api/models/0123456789ab").status_code == 404
 
+    def test_mesh_cells_are_kept(self, m_api):
+        """The cells the builder draws on its sections: {dx, dz} (m), each optional."""
+        client, _ = m_api
+        made = client.post("/api/models", json={"builder": {"items": []}, "mesh": {"dx": 100, "dz": 25.5}}).json()
+        assert client.get(f"/api/models/{made['id']}").json()["mesh"] == {"dx": 100.0, "dz": 25.5}
+        half = client.post("/api/models", json={"builder": {"items": []}, "mesh": {"dx": None, "dz": 50}}).json()
+        assert half["mesh"] == {"dx": None, "dz": 50.0}
+        for empty in ({}, {"dx": None}, None):
+            assert "mesh" not in client.post("/api/models", json={"builder": {"items": []}, "mesh": empty}).json()
+        for bad in ({"dx": 0}, {"dz": -1}, {"dx": "abc"}):
+            assert client.post("/api/models", json={"builder": {"items": []}, "mesh": bad}).status_code == 400
+
     def test_page_is_served(self, m_api):
         client, _ = m_api
         r = client.get("/model")

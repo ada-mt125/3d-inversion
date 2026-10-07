@@ -1846,6 +1846,8 @@ class PipelineDataset:
     plot_locations: np.ndarray | None = None
     # MT: stations, frequencies, components and the station of each datum (see _mt_arrays)
     mt: dict | None = None
+    # MT / DC: the background resistivity and where it came from (_backgrounds_from_data)
+    background: dict | None = None
 
     @property
     def mesh_points(self) -> np.ndarray:
@@ -2414,6 +2416,68 @@ def _mt_arrays(values, std, stations, freqs, comps, kwargs):
     return values[mask], None if std is None else std[mask], kwargs, info
 
 
+def _dc_apparent_resistivity(rows, values, data_type: str = "volt") -> np.ndarray:
+    """Apparent resistivity (ohm m) of DC data: the values themselves, or for potential
+    differences of a unit current K V, K = 2 pi / (1/AM - 1/BM - 1/AN + 1/BN) of a halfspace
+    (NaN B / N: poles; NaN where K is not finite)."""
+    values = np.asarray(values, dtype=float)
+    if data_type == "apparent_resistivity":
+        return values
+    r = np.asarray(rows, dtype=float).reshape(len(values), 4, 3)
+    a, b, m, n = (r[:, k] for k in range(4))
+
+    def inv(p, q):   # 1 / |pq|, 0 for a missing (pole) electrode
+        d = np.linalg.norm(p - q, axis=1)
+        return np.where(np.isfinite(d), 1.0 / np.where(d > 0, d, np.nan), 0.0)
+
+    g = inv(a, m) - inv(b, m) - inv(a, n) + inv(b, n)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return 2 * np.pi / g * values
+
+
+def _apparent_resistivity_of(ds) -> np.ndarray:
+    """The finite, positive apparent resistivities (ohm m) of an MT or DC dataset."""
+    if ds.method == "mt":
+        rho = (ds.mt or {}).get("rho_a")
+    else:
+        rho = _dc_apparent_resistivity(ds.locations, ds.observed, ds.method_kwargs.get("data_type", "volt"))
+    rho = np.abs(np.asarray(rho, dtype=float)).ravel() if rho is not None else np.array([])
+    return rho[np.isfinite(rho) & (rho > 0)]
+
+
+def _backgrounds_from_data(datasets) -> None:
+    """MT / DC without a ``sigma_background``: the median of the data's apparent resistivity
+    (in log: the halfspace they see, robust to the odd arrays whose geometric factor is near
+    infinite), rather than a fixed 100 ohm m.  The inversion starts there and it is the
+    reference model; 15 times off (a 20 ohm m cover) a DC inversion was still 4000 times its
+    noise after two iterations (LOGBOOK, 2026-10-07).  Datasets sharing a model (the same
+    ``model`` label) share one background, from all their data.  Recorded in ``ds.background``."""
+    groups = {}
+    for k, ds in enumerate(datasets):
+        if ds.method not in _EM_METHODS:
+            continue
+        given = ds.method_kwargs.get("sigma_background")
+        if given is not None:
+            if not float(given) > 0:
+                raise ValueError(f"{ds.method}: sigma_background must be positive (S/m), got {given}")
+            ds.background = {"rho_ohm_m": float(f"{1 / float(given):.6g}"), "source": "given"}
+            continue
+        groups.setdefault(ds.model or f"#{k}", []).append(ds)
+    for members in groups.values():
+        rho = np.concatenate([_apparent_resistivity_of(ds) for ds in members])
+        if rho.size == 0:
+            for ds in members:
+                ds.background = {"rho_ohm_m": 100.0, "source": "default (no apparent resistivity in the data)"}
+            continue
+        bg = float(f"{np.exp(np.median(np.log(rho))):.3g}")
+        for ds in members:
+            ds.method_kwargs = {**ds.method_kwargs, "sigma_background": 1.0 / bg}
+            ds.background = {"rho_ohm_m": bg, "source": "the data's apparent resistivity (median)"
+                             + (f", of {len(members)} datasets sharing a model" if len(members) > 1 else "")}
+        print(f"[Pipeline] {', '.join(ds.method for ds in members)}: background {bg:g} ohm m, the median "
+              f"of the data's apparent resistivity (the start and the reference model)")
+
+
 def _mt_apparent_resistivity(values, freqs, comps):
     """(frequencies, stations) apparent resistivity of the off-diagonal impedance,
     sqrt(rho_xy rho_yx) (either alone if the other is missing), or None without it."""
@@ -2496,7 +2560,9 @@ def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str,
     ``std`` the spec's noise_pct and noise_floor (required: the data have no
     natural floor) give it.  Elevations must be given (z of every point);
     ``method_kwargs`` (e.g. sigma_background) go to the method, whose
-    background is the reference model.
+    background is the reference model; without a sigma_background the
+    pipeline takes the median of the data's apparent resistivity
+    (_backgrounds_from_data).
     """
     from ..methods.dc_resistivity import electrode_rows
 
@@ -3150,7 +3216,9 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 (.tif/.grd/.asc) or station data (.csv/.xyz/.txt/.dat/.obs/
                 .npy/.npz); several files of one dataset are concatenated.
                 Legacy params without `datasets` use data_file / method_type /
-                noise_pct / noise_floor / method_kwargs.
+                noise_pct / noise_floor / method_kwargs.  MT / DC without a
+                method_kwargs sigma_background start from (and are pulled
+                towards) the median of their apparent resistivity.
             gz_convention: "positive_down" (default: Bouguer/field data,
                 negated for SimPEG) or "simpeg" (z-up, as SimPEG models it);
                 also per dataset.
@@ -3230,6 +3298,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     crs = _job_crs(params, data_dir, specs, topo_file)
     datasets = [_load_dataset(s, params, data_dir, single=(mode == "single"), crs=crs)
                 for s in specs]
+    _backgrounds_from_data(datasets)
 
     # ── Topography and station elevations ──
     surface, topo_info, has_dem = _load_topography(params, data_dir, crs, datasets)
@@ -3534,6 +3603,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
              **({"rtp": ds.rtp} if ds.rtp else {}),
              **({"continuation": ds.continuation} if ds.continuation else {}),
              **({"igrf": ds.igrf} if ds.igrf else {}),
+             **({"background": ds.background} if ds.background else {}),
              **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {}),
              **({"mt": {k: v for k, v in ds.mt.items() if k not in ("station_of_datum", "rho_a")}}
                 if ds.mt else {})}

@@ -24,7 +24,12 @@ of the model its data are about.
 - **Layer stacks** (**≡ Layers**): everywhere, or in a box or polygon; a top (below the ground
   or an elevation); the interfaces flat or **tilted** (tilt from horizontal, the azimuth they
   sink towards, about a pivot where the top holds); thicknesses are vertical, and an empty
-  last thickness reaches the bottom of the mesh.
+  last thickness reaches the bottom of the mesh. **↑ ↓** on a layer's row (or the list's
+  ↑ ↓ with the layer selected) move it within its stack; the layer reaching the bottom stays
+  last. **Paste a table of layers** (under the layers table): one per line,
+  `[name] thickness value [lowest highest]` — a well log or a 1D model — for the property
+  chosen there, `-` or `inf` as the last thickness reaching the bottom; it replaces the
+  stack's layers or adds them below.
 - **Boreholes** (**⊙ Boreholes**, **⤒ Boreholes CSV**, or a CSV pasted under the holes table):
   each hole (collar, azimuth, dip) is logged in depth intervals along it, each with a
   lithology and its values; a CSV has one row per interval (`hole,x,y,from,to,…`) or per
@@ -46,12 +51,24 @@ of the model its data are about.
   (below).
 - The view: colour by unit or by a property (with its colour bar), plan / south / east views,
   a west–east or south–north **section**, **Zoom to selected** (or a double-click), undo / redo.
+- **The mesh's cells** on sections: in the *Model* step those of the job's mesh (the Mesh
+  step's core; an OcTree's finest levels; an MT mesh's top cells growing with depth), on the
+  builder's own page uniform cells typed under the area (**Mesh cells**, saved with the
+  model). A body or layer thinner (or a body narrower) than the cells at its depth gets a ⚠
+  in the list and its form: it is not lost — the cells take it by volume (below) — but the
+  inversion cannot tell it from its neighbours.
 - **Save model** (in the step) downloads the spec of the first property with the others under
   `other_properties` and the model under `builder`; dropping it back in the files area, or
   importing it in the builder, restores everything. Bodies and layer stacks with given values
   from any spec come into the builder too. The builder's own **Save / Open** keep models on
   the server; its page's **Use in an inversion** opens the upload page with the model in this
   step.
+
+In Python, `geoinv3d/methods/builder.py` makes the same spec from a saved model
+(`builder_spec(builder, prop)`) and the values of a property on a mesh (`model_values`: each
+cell the volume average of what it holds) — a true model for synthetic data;
+`examples/synthetic_builder.py` models and inverts a builder model's gravity, magnetic, DC and
+MT data that way.
 
 The builder's parts are added to a dropped file spec of the same property (samples,
 boreholes, maps): their units join its units and their sources come after its sources.

@@ -5739,10 +5739,10 @@ window.GeoPreview=GeoPreview;
     return n;
   }
 
-  // ── The spec of one property ──
+  // ── The spec of one property (geoinv3d/methods/builder.py does the same in Python) ──
   function mbUnit(p,v,it){
     const m=MB_P[p].margin, val=+v.value;
-    let lo,hi,w=Number.isFinite(+it.weight)?+it.weight:5;
+    let lo,hi,w=mbNum(it.weight)??5;      // (methods/builder.py: the same rules)
     const given=x=>it.fixed?null:mbNum(x);
     if(p==='resistivity'){
       const f=it.fixed?Math.pow(m,0.1):m;
@@ -5920,6 +5920,26 @@ window.GeoPreview=GeoPreview;
     const v=Number($u('up-flat-elev')&&$u('up-flat-elev').value);
     return !topoFile&&Number.isFinite(v)?v:MB.ground;
   }
+  // The job's mesh as rows of cells from the ground down, {rows:[{z0,z1,dx}],label}: the Model step
+  // draws them on its sections and flags parts thinner than them (the core; an OcTree's finest
+  // levels; an MT mesh's top cells growing with depth — worker._mesh_design / meshing.mt_vertical)
+  function mbMesh(){
+    let v; try{v=meshParams();}catch(err){return null;}
+    const h=v.core_cell_m, dz=v.core_cell_z_m, D=v.depth_core_m, rows=[];
+    if(!(h>0&&dz>0&&D>0))return null;
+    if(mtMesh()){
+      const r=recommended&&recommended.mt?recommended:{}, n0=r.top_layers||3, g=r.z_growth||1.1;
+      for(let z=0,c=dz,i=0;z<D&&i<400;i++){if(i>=n0)c*=g;rows.push({z0:z,z1:z+c,dx:h});z+=c;}
+      return {rows,label:`MT, ${fmtLen(h)} wide; ${n0} rows ${fmtLen(dz)} tall under the ground, then ×${g} a row to ${fmtLen(D)}`};
+    }
+    if(v.octree_levels){
+      let z=0;
+      v.octree_levels.forEach((n,k)=>{const f=2**k;for(let i=0;i<n;i++){rows.push({z0:z,z1:z+f*dz,dx:f*h});z+=f*dz;}});
+      return rows.length?{rows,label:`OcTree, ${fmtLen(h)} × ${fmtLen(dz)} cells to ${fmtLen(v.octree_levels[0]*dz)}, then 2× and 4× to ${fmtLen(z)}; coarser below (not drawn)`}:null;
+    }
+    for(let z=0,i=0;z<D&&i<2000;i++,z+=dz)rows.push({z0:z,z1:z+dz,dx:h});
+    return {rows,label:`${fmtLen(h)} × ${fmtLen(dz)} cells to ${fmtLen(D)} (the core; padding below, not drawn)`};
+  }
   // the step was shown, or the data, the window, the selection or the model changed
   function mbRender(force){
     mbHint();
@@ -5930,8 +5950,8 @@ window.GeoPreview=GeoPreview;
     const data=mbData();
     let depth=null; try{depth=meshParams().depth_core_m;}catch(err){}   // the mesh's core depth, shown
     const ctx={type:'geoinv3d:context',extent:windowRect().map(v=>Math.round(v)),ground:mbGround(),depth,
-      crs:dataCrs()||detectedCrs()||'',props:mbProps(),data};
-    const key=JSON.stringify([ctx.extent,ctx.ground,ctx.crs,ctx.props,data.map(d=>[d.key,d.xs.length,d.lo,d.hi])]);
+      crs:dataCrs()||detectedCrs()||'',props:mbProps(),mesh:mbMesh(),data};
+    const key=JSON.stringify([ctx.extent,ctx.ground,ctx.crs,ctx.props,ctx.mesh,data.map(d=>[d.key,d.xs.length,d.lo,d.hi])]);
     if(force||key!==mbCtxKey){mbCtxKey=key;mbPost(ctx);}
     if(force)mbPost(mbModelMsg());
   }
