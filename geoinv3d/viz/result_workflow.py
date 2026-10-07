@@ -54,7 +54,7 @@ SETTING_LABELS = {"gl_lambda1_selection": "λ1 by", "gl_lambda1": "λ1", "gl_lam
                   "max_irls_iterations": "IRLS iterations", "beta_selection": "β selection",
                   "beta0_ratio": "β0 ratio", "cooling_factor": "β cooling", "alpha_x": "α_x", "alpha_y": "α_y",
                   "alpha_z": "α_z", "gl_weighting": "cell weighting", "gl_relaxation": "ADMM relaxation",
-                  "max_source_depth_m": "sources above (m)"}
+                  "max_source_depth_m": "sources above (m)", "solver": "solver"}
 
 
 def _g(v) -> str:

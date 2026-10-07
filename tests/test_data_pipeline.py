@@ -856,6 +856,23 @@ class TestEMData:
         # no padding alarm for a log-conductivity background
         assert not any("outside the core" in n for n in result.get("notes", []))
 
+    def test_mt_mesh_reaches_into_the_air(self, tmp_path, capture):
+        """MT solves in the air too: the mesh reaches the padding distance above the ground,
+        whose cells are inactive; the result names the sparse solver."""
+        stations = np.array([[0.0, 0.0, 0.0], [300.0, 300.0, 0.0]])
+        np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],
+                 components=np.array(["xy_real", "xy_imag"]), values=np.ones(8), std=np.full(8, 0.1))
+        for mesh_type in ("tensor", "octree"):
+            result = run_data_pipeline({"method_type": "mt", "mesh_type": mesh_type,
+                                        "datasets": [{"method": "mt", "files": ["mt.npz"]}],
+                                        **SMALL_MESH}, str(tmp_path))
+            dmesh = capture["mesh"].to_discretize()
+            air = ~np.asarray(capture["task"].active_cells, bool)
+            assert dmesh.nodes_z[-1] >= SMALL_MESH["pad_distance_m"] - 1e-6, mesh_type
+            assert air.any() and np.all(dmesh.cell_centers[air, 2] > 0), mesh_type
+            assert result["mesh_design"]["used"]["air_m"] == SMALL_MESH["pad_distance_m"]
+            assert result["settings"]["solver"] in ("Pardiso", "Mumps", "SolverLU")
+
     def test_mt_file_checks(self, tmp_path):
         stations = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
         np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],

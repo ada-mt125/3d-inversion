@@ -2198,3 +2198,29 @@ Also moved to the Trash: ten generated workflow viewers (`*.geoinv3d_viewer.html
 `.geoinv3d.json`, 343 MB, not in the repository) of the Karnataka joint, magnetic and gravity-with-
 terrain studies and of `examples/output/ec2_runs`; each study's `scripts/build_workflow.py` makes
 them again.
+
+## 2026-10-07 — MT: air above the ground, an air-over-background primary, the solver named
+
+MT had no air. The tensor mesh ended at the highest ground and the OcTree was padded below only,
+so the secondary field (SimPEG's primary/secondary formulation, zero on the mesh's boundary) was
+held to zero at the ground; the cells above the topography took the background conductivity and
+the primary was a uniform whole space. Now:
+
+- an MT job's mesh reaches as far above the ground as it is padded around and below
+  (`mesh_design.used.air_m`): two core-thick cells, then cells growing by the padding factor
+  (tensor), or the OcTree's padding upwards; the cells above the ground are inactive also on a
+  tensor mesh without a DEM;
+- the inactive cells are air, 1e-8 S/m (`MTMethod(sigma_inactive=...)`, as for DC);
+- the primary is a 1D model on the mesh's vertical cells (`MTMethod.primary_1d`): the
+  background in the layers whose volume is mostly active, the air above; with every cell
+  active, a whole space as before;
+- the sparse solver is chosen explicitly (`geoinv3d.methods.solvers.pde_solver`: PARDISO, then
+  MUMPS, then SciPy's SuperLU; `GEOINV3D_SOLVER` forces one), recorded as `settings.solver`, with
+  a note when it is SuperLU.
+
+Check (`test_two_layers_match_the_1d_solution`, run with `GEOINV3D_SLOW_TESTS=1` or a fast
+solver): 10 Ω·m over 1000 Ω·m from 300 m, 22,264 cells. Against the 1D impedance, at 1 Hz the
+apparent resistivity is off by -1.1 % with air and +7.1 % with conducting "air"; at 10 and 100 Hz
+both are 8 and 16 % off, as 50 m cells are too coarse for a 159 m skin depth (the mesh is next).
+SuperLU took 3 minutes for three frequencies on that mesh: neither PARDISO (Intel MKL, not on
+Apple silicon) nor MUMPS (no wheels on PyPI, no Homebrew formula) is installed here.

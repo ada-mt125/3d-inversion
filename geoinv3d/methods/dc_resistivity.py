@@ -26,6 +26,7 @@ from ..datamodel.mesh import Mesh3D
 from ..datamodel.model import PhysicalModel
 from ..datamodel.survey import SurveyData
 from .base import MethodBase
+from .solvers import pde_solver
 
 DC_DATA_TYPES = ("volt", "apparent_resistivity")
 
@@ -142,6 +143,7 @@ class DCResistivityMethod(MethodBase):
 
         dmesh = mesh.to_discretize()
         kwargs.setdefault("storeJ", self.store_sensitivities)
+        kwargs.setdefault("solver", pde_solver()[0])
         return dc.simulation.Simulation3DNodal(
             mesh=dmesh, survey=self.make_survey(survey),
             sigmaMap=self._sigma_map(dmesh, mapping, active_cells), **kwargs)

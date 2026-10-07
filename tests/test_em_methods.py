@@ -2,6 +2,7 @@
 
 import contextlib
 import io
+import os
 import warnings
 
 import numpy as np
@@ -12,6 +13,7 @@ from geoinv3d.datamodel.mesh import Mesh3D
 from geoinv3d.datamodel.survey import SurveyData
 from geoinv3d.methods.dc_resistivity import DCResistivityMethod, electrode_rows
 from geoinv3d.methods.mt import MTMethod
+from geoinv3d.methods.solvers import pde_solver
 
 warnings.filterwarnings("ignore", message=".*default solver.*")
 
@@ -129,11 +131,54 @@ class TestMT:
         mapped = mt.make_simulation_mapped(mesh, _survey(locs, 2), wires.sigma)
         np.testing.assert_allclose(mapped.dpred(np.r_[np.zeros(5), m]), full, rtol=1e-10)
         active = np.ones(tm.nC, bool)
-        active[:10] = False           # inactive cells stay at the background
+        active[:10] = False           # inactive cells are air (1e-8 S/m); their layer stays ground
         act = mt.make_simulation_active(mesh, _survey(locs, 2), active)
         m_bg = m.copy()
-        m_bg[~active] = np.log(1e-2)
-        np.testing.assert_allclose(act.dpred(m_bg[active]), full, rtol=1e-8)
+        m_bg[~active] = np.log(1e-8)
+        full_bg = mt.make_simulation_full(mesh, _survey(locs, 2)).dpred(m_bg)
+        np.testing.assert_allclose(act.dpred(m_bg[active]), full_bg, rtol=1e-8)
+
+    def test_primary_is_air_over_the_background(self):
+        """The primary 1D model: background in the layers that are mostly ground, air above."""
+        tm = TensorMesh([[(100.0, 4)], [(100.0, 4)], [(50.0, 8)]], origin=[0.0, 0.0, -300.0])
+        cc = tm.cell_centers
+        mt = MTMethod(sigma_background=1e-2)
+        np.testing.assert_array_equal(mt.primary_1d(tm), 1e-2)        # no air: a whole space
+        flat = mt.primary_1d(tm, cc[:, 2] < 0)
+        np.testing.assert_array_equal(flat, [1e-2] * 6 + [1e-8] * 2)
+        # a staircase: the ground at 50 m under three of the four columns, at 0 under one
+        ground = np.where(cc[:, 0] < 100, 0.0, 50.0)
+        stairs = mt.primary_1d(tm, cc[:, 2] < ground)
+        np.testing.assert_array_equal(stairs, [1e-2] * 7 + [1e-8])  # the 0-50 m layer: 3/4 ground
+        sim = mt.make_simulation_active(Mesh3D(hx=tm.h[0], hy=tm.h[1], hz=tm.h[2],
+                                               origin=tuple(tm.origin)),
+                                        _survey(np.zeros((1, 3)), 2), cc[:, 2] < 0)
+        sigma = sim.sigmaMap * np.full(int((cc[:, 2] < 0).sum()), np.log(1e-2))
+        np.testing.assert_allclose(sigma[cc[:, 2] > 0], 1e-8)        # the air cells
+
+    @pytest.mark.skipif(not os.environ.get("GEOINV3D_SLOW_TESTS") and pde_solver()[1] == "SolverLU",
+                        reason="a minute with SuperLU: set GEOINV3D_SLOW_TESTS, or install MUMPS or PARDISO")
+    def test_two_layers_match_the_1d_solution(self):
+        """10 ohm m over 1000 ohm m (300 m): the impedance at 1 Hz is the 1D one only with air
+        above the ground (without it, conducting "air" over the model gives 7 % more)."""
+        mu = 4e-7 * np.pi
+        w = 2 * np.pi * 1.0
+        k = np.sqrt(1j * w * mu * np.array([0.1, 1e-3]))
+        eta = 1j * w * mu / k
+        t = np.tanh(k[0] * 300.0)
+        z1d = eta[0] * (eta[1] + eta[0] * t) / (eta[0] + eta[1] * t)
+        hx = [(400.0, 8, -1.4), (400.0, 6), (400.0, 8, 1.4)]
+        below = [(50.0, 16, -1.3), (50.0, 16)]
+        hzb = TensorMesh([below]).h[0]
+        tm = TensorMesh([hx, hx, below + [(50.0, 4), (50.0, 10, 1.4)]], origin=["C", "C", -hzb.sum()])
+        cc = tm.cell_centers
+        ground = cc[:, 2] < 0
+        mesh = Mesh3D(hx=tm.h[0], hy=tm.h[1], hz=tm.h[2], origin=tuple(tm.origin))
+        mt = MTMethod(frequencies=[1.0], sigma_background=1e-3)
+        m = np.where(cc[:, 2] > -300, np.log(0.1), np.log(1e-3))[ground]
+        d = mt.make_simulation_active(mesh, _survey(np.zeros((1, 3)), 2), ground).dpred(m)
+        rho = abs(d[0] + 1j * d[1]) ** 2 / (w * mu)
+        assert abs(rho / (abs(z1d) ** 2 / (w * mu)) - 1) < 0.03
 
 
 def test_joint_dc_and_mt_share_a_conductivity_model():

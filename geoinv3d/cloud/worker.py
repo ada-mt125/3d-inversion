@@ -2598,8 +2598,10 @@ def _padded_widths(n_core: int, dh: float, n_pad: int, factor: float) -> np.ndar
     return np.concatenate([pad[::-1], core, pad])
 
 
-def _build_tensor_mesh(extent, surface, has_dem, dx, dz, depth_core, pad_distance):
-    """Padded tensor mesh over `extent` whose top follows the ground surface."""
+def _build_tensor_mesh(extent, surface, has_dem, dx, dz, depth_core, pad_distance, pad_above=0.0):
+    """Padded tensor mesh over `extent` whose top follows the ground surface, or, with
+    ``pad_above`` (the air MT needs), reaches that far above the highest ground: two cells
+    as thick as the core's, then cells growing by the padding factor."""
     from ..datamodel.mesh import Mesh3D
     from .meshing import PAD_FACTOR, padding_cells
 
@@ -2627,14 +2629,20 @@ def _build_tensor_mesh(extent, surface, has_dem, dx, dz, depth_core, pad_distanc
 
     core_z = np.full(nz_depth + n_relief, dz)
     pad_z = dz * pad_factor ** np.arange(1, n_pad + 1)
-    hz = np.concatenate([pad_z[::-1], core_z])
+    air_z = np.zeros(0)
+    if pad_above > 0:
+        n_air = padding_cells(dz, pad_above, PAD_FACTOR)
+        air_z = np.r_[np.full(2, dz), dz * pad_factor ** np.arange(1, n_air + 1)]
+    hz = np.concatenate([pad_z[::-1], core_z, air_z])
 
-    origin = (xmin - np.sum(hx[:n_pad]), ymin - np.sum(hy[:n_pad]), z_top - np.sum(hz))
+    origin = (xmin - np.sum(hx[:n_pad]), ymin - np.sum(hy[:n_pad]),
+              z_top - np.sum(pad_z) - np.sum(core_z))
     return Mesh3D(hx=hx, hy=hy, hz=hz, origin=origin)
 
 
-def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels):
-    """Octree mesh refined along the ground surface over the survey area."""
+def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels, pad_above=0.0):
+    """Octree mesh refined along the ground surface over the survey area, reaching
+    ``pad_above`` above the highest ground (the air MT needs)."""
     from discretize.utils import mesh_builder_xyz
     from ..datamodel.mesh import DiscretizeMesh
 
@@ -2647,7 +2655,7 @@ def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels
     tree = mesh_builder_xyz(
         ground, [dx, dx, dz],
         depth_core=depth_core,
-        padding_distance=[[pad_distance] * 2, [pad_distance] * 2, [pad_distance, 0.0]],
+        padding_distance=[[pad_distance] * 2, [pad_distance] * 2, [pad_distance, float(pad_above)]],
         mesh_type="tree",
         tree_diagonal_balance=True,
     )
@@ -2969,6 +2977,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
           f"padding {pad_distance_m:g} m")
 
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
+    # MT solves for the fields in the air too: the mesh reaches as far above the ground as
+    # it is padded around and below (the other methods end at the ground)
+    pad_above = pad_distance_m if any(canonical_method(ds.method) == "mt" for ds in datasets) else 0.0
+    if pad_above:
+        mesh_design["used"]["air_m"] = pad_above
+        print(f"[Pipeline] Air above the ground for MT: {pad_above:g} m")
     if mesh_type == "octree":
         # layers of the finest cells under the ground, then of 2x and 4x their size
         levels = [int(v) for v in (params.get("octree_levels") or [4, 4, 4])]
@@ -2980,19 +2994,20 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
               f"(finest {core_cell_m:g} x {core_cell_z_m:g} m cells to {levels[0] * core_cell_z_m:g} m)")
         mesh = _build_octree_mesh(
             extent, surface, core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m, levels,
+            pad_above=pad_above,
         )
     elif mesh_type == "tensor":
         mesh = _build_tensor_mesh(
             extent, surface, has_dem, core_cell_m, core_cell_z_m, depth_core_m,
-            pad_distance_m,
+            pad_distance_m, pad_above=pad_above,
         )
     else:
         raise ValueError(f"Unknown mesh_type '{mesh_type}' (expected 'tensor' or 'octree')")
     dmesh = mesh.to_discretize()
 
-    # Octree meshes extend above the ground even for flat topography
+    # Octree meshes extend above the ground even for flat topography, and MT's into the air
     active = None
-    if has_dem or mesh_type == "octree":
+    if has_dem or mesh_type == "octree" or pad_above:
         active = _active_below_surface(dmesh, surface)
         if not active.any():
             raise ValueError("No mesh cells lie below the topography surface")
@@ -3294,6 +3309,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         result["settings"]["geology"] = str(params["geology"].get("name") or "constrained")
     if max_src is not None:   # likewise: no sources below this depth
         result["settings"]["max_source_depth_m"] = max_src
+    if any(canonical_method(ds.method) in _EM_METHODS for ds in datasets):
+        from ..methods.solvers import SLOW, SLOW_NOTE, pde_solver
+        result["settings"]["solver"] = pde_solver()[1]      # the sparse solver of MT / DC
+        if result["settings"]["solver"] == SLOW:
+            notes.append(SLOW_NOTE)
 
     # How much of the recovered anomaly sits outside the core (in padding)?
     gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),
