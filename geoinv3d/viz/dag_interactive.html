@@ -62,6 +62,10 @@ header .sub{font-size:11px;color:var(--text3);}
 .tab.tab-upload{margin:5px 12px 5px auto;padding:4px 16px;border:none;border-radius:999px;
     background:var(--accent);color:#fff;font-weight:600;}
 .tab.tab-upload:hover,.tab.tab-upload.active{background:var(--accent-dark);color:#fff;}
+.tab.tab-model{margin:5px 0 5px auto;padding:4px 14px;border:1px solid var(--accent);border-radius:999px;color:var(--accent);
+    font-weight:600;text-decoration:none;}
+.tab.tab-model:hover{background:var(--bg3);}
+.tab.tab-model+.tab.tab-upload{margin-left:8px;}
 
 .main{flex:1;display:flex;overflow:hidden;}
 .panel{display:none;flex:1;overflow:hidden;position:relative;}
@@ -491,6 +495,7 @@ svg#dag:active{cursor:grabbing;}
   <button class="tab disabled" data-tab="convergence" id="tab-conv">Convergence</button>
   <button class="tab disabled" data-tab="datafit" id="tab-fit">Data Fit</button>
   <button class="tab disabled" data-tab="model3d" id="tab-3d">3D View</button>
+  <a class="tab tab-model" href="/model" title="Build a 3D geological model: bodies and layers with densities, susceptibilities and resistivities">◇ Model builder</a>
   <button class="tab tab-upload" data-tab="upload">⬆ Upload</button>
 </div>
 
@@ -882,6 +887,7 @@ svg#dag:active{cursor:grabbing;}
                 <button type="button" class="up-btn up-btn-sm" id="mb-add-cyl">＋ Cylinder</button>
                 <button type="button" class="up-btn up-btn-sm" id="mb-add-layers" title="Layers with thicknesses and values, everywhere or inside an outline">≡ ＋ Layers</button>
                 <button type="button" class="up-btn up-btn-sm" id="mb-save" title="The model as a JSON spec: drop it here again to go on editing">⤓ Save model</button>
+                <select id="mb-from" class="up-in up-in-sm" style="width:auto" title="A model built in the 3D model builder: its bodies and layers are added here"><option value="">From the model builder…</option></select>
                 <span class="up-hint" id="mb-hint"></span>
               </div>
               <div class="mb-grid">
@@ -6021,6 +6027,41 @@ window.GeoPreview=GeoPreview;
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='starting_model.json';
     document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   });
+  // ── Models of the 3D model builder (/model, saved on the server): added to the editor ──
+  async function mbFromBuilder(id){
+    try{
+      const r=await fetch(`${apiBase()}/api/models/${encodeURIComponent(id)}`), d=await r.json().catch(()=>({}));
+      if(!r.ok||!d.ok)throw new Error(d.detail||('HTTP '+r.status));
+      const before=MB.items.length;
+      mbImport({builder:d.builder});
+      mbRender(true);
+      const n=MB.items.length-before;
+      $u('mb-hint').textContent=`“${d.name}” from the model builder: ${n} item${n===1?'':'s'} added`;
+      return d;
+    }catch(err){$u('mb-hint').textContent=`⚠ Could not load the model: ${err.message}`;return null;}
+  }
+  async function mbListModels(){
+    try{
+      const r=await fetch(`${apiBase()}/api/models`), d=await r.json();
+      $u('mb-from').innerHTML='<option value="">From the model builder…</option>'+(d.models||[]).map(m=>
+        `<option value="${escH(m.id)}">${escH(m.name)} — ${m.n_bodies} bod${m.n_bodies===1?'y':'ies'}, ${m.n_stacks} stack${m.n_stacks===1?'':'s'}</option>`).join('')+
+        '<option value="__open">Open the model builder ↗</option>';
+    }catch(err){}
+  }
+  $u('mb-from').addEventListener('pointerenter',mbListModels);
+  $u('mb-from').addEventListener('change',async e=>{
+    const v=e.target.value; e.target.value='';
+    if(v==='__open'){window.open('/model','_blank');return;}
+    if(v)await mbFromBuilder(v);
+  });
+  setTimeout(mbListModels,0);     // once the page's script is all defined (apiBase comes later)
+  // "Use in an inversion" on the model builder opens this page with ?model=<id>
+  const MODEL_FROM_URL=new URLSearchParams(location.search).get('model');
+  if(MODEL_FROM_URL)setTimeout(async()=>{
+    switchTab('upload');
+    const d=await mbFromBuilder(MODEL_FROM_URL);
+    if(d)$u('up-start-msg').innerHTML=`<span class="up-ok">◇</span> The model “${escH(d.name)}” from the model builder is in the <b>Model</b> step: drop the data, then check it there.`;
+  },0);
   $u('mb-sec-dir').addEventListener('change',()=>{MB.secAt=null;mbRender();});
   $u('mb-sec-at').addEventListener('change',()=>{const v=Number($u('mb-sec-at').value);if(Number.isFinite(v)){MB.secAt=v*1000;mbRender();}});
   $u('mb-sec-prop').addEventListener('change',()=>{MB.secProp=$u('mb-sec-prop').value;mbRender();});

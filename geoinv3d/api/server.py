@@ -33,6 +33,9 @@ Endpoints:
                                             jobs submitted with a workspace_id join it
     GET    /api/workspaces/{id}/workflow  — a workspace's finished runs as one workflow
     GET/PUT /api/workspaces/{id}/layers   — a workspace's map layers (points, outlines)
+    GET    /model                         — the 3D model builder (geoinv3d/viz/model_builder.html)
+    …      /api/models[/{id}]             — geological models built there (list, create, open,
+                                            save, delete); the upload page's model step opens them
     GET    /api/health                    — the backends: this machine's cores and memory, AWS
 
 Backends: every job runs either on this machine or on AWS, as chosen when it is submitted.
@@ -981,6 +984,115 @@ async def delete_workspace(workspace_id: str):
     return JSONResponse({"ok": True})
 
 
+# ── Geological models of the model builder (/model): bodies and layer stacks with their
+# densities, susceptibilities and resistivities, in the upload page's model-step format
+# ("builder": {"version": 2, "items": [...], "free": {...}, "ground": m}), so a job can take
+# one as its constraints; plus the page's settings (extent, ground, depth, CRS, name) ──
+MODELS_DIR = Path.home() / ".geoinv3d" / "models"
+MODEL_MAX_BYTES = 5_000_000
+
+
+def _models_dir() -> Path:
+    path = Path(os.environ.get("GEOINV3D_MODELS_DIR", MODELS_DIR))
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _model_path(model_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{12}", model_id or ""):
+        raise HTTPException(status_code=404, detail="Unknown model")
+    path = _models_dir() / f"{model_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Unknown model")
+    return path
+
+
+def _clean_model(body: dict) -> dict:
+    """The parts of a model the page saves, checked."""
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="A model is a JSON object")
+    builder = body.get("builder")
+    if not isinstance(builder, dict) or not isinstance(builder.get("items"), list):
+        raise HTTPException(status_code=400, detail="A model needs builder.items (a list)")
+    name = " ".join(str(body.get("name") or "").split())
+    if len(name) > 120:
+        raise HTTPException(status_code=400, detail="Names are at most 120 characters")
+    out = {"name": name or "Untitled model", "builder": builder}
+    ext = body.get("extent")
+    if ext is not None:
+        try:
+            ext = [float(v) for v in ext]
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="extent must be [west, east, south, north] in metres")
+        if len(ext) != 4 or not (ext[0] < ext[1] and ext[2] < ext[3]) or not all(np.isfinite(ext)):
+            raise HTTPException(status_code=400, detail="extent must be [west, east, south, north] with west < east, south < north")
+        out["extent"] = ext
+    for key in ("ground", "depth", "ve"):
+        if body.get(key) is not None:
+            try:
+                out[key] = float(body[key])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"{key} must be a number")
+    for key in ("crs", "notes"):
+        if body.get(key) is not None:
+            out[key] = str(body[key])[:2000]
+    if len(json.dumps(out)) > MODEL_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The model is too large (5 MB at most)")
+    return out
+
+
+def _model_summary(model: dict) -> dict:
+    items = (model.get("builder") or {}).get("items") or []
+    return {k: model.get(k) for k in ("id", "name", "created_at", "updated_at", "extent", "crs")} | {
+        "n_bodies": sum(1 for it in items if isinstance(it, dict) and it.get("kind") == "body"),
+        "n_stacks": sum(1 for it in items if isinstance(it, dict) and it.get("kind") == "layers")}
+
+
+@app.get("/api/models")
+async def list_models():
+    """Saved models, the one saved last first."""
+    items = []
+    for path in _models_dir().glob("*.json"):
+        try:
+            items.append(_model_summary(json.loads(path.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue
+    items.sort(key=lambda m: m.get("updated_at") or 0, reverse=True)
+    return JSONResponse({"ok": True, "models": items})
+
+
+@app.post("/api/models")
+async def create_model(body: dict = Body(...)):
+    now = int(time.time() * 1000)
+    model = {"id": uuid.uuid4().hex[:12], "created_at": now, "updated_at": now, **_clean_model(body)}
+    _write_json(_models_dir() / f"{model['id']}.json", model)
+    return JSONResponse({"ok": True, **model})
+
+
+@app.get("/api/models/{model_id}")
+async def open_model(model_id: str):
+    return JSONResponse({"ok": True, **json.loads(_model_path(model_id).read_text(encoding="utf-8"))})
+
+
+@app.put("/api/models/{model_id}")
+async def save_model(model_id: str, body: dict = Body(...)):
+    old = json.loads(_model_path(model_id).read_text(encoding="utf-8"))
+    model = {"id": model_id, "created_at": old.get("created_at"), "updated_at": int(time.time() * 1000),
+             **_clean_model(body)}
+    _write_json(_model_path(model_id), model)
+    return JSONResponse({"ok": True, **model})
+
+
+@app.delete("/api/models/{model_id}")
+async def delete_model(model_id: str):
+    """Take a model off the list; it is kept in the models folder's "deleted" folder."""
+    path = _model_path(model_id)
+    trash = _models_dir() / "deleted"
+    trash.mkdir(exist_ok=True)
+    path.replace(trash / path.name)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/workspaces/{workspace_id}/workflow")
 async def workspace_workflow(workspace_id: str, known: str = ""):
     """The workspace's finished runs as one workflow.
@@ -1679,6 +1791,17 @@ CODE_MTIME_AT_START = _code_mtime()
 async def upload_page():
     """The upload page, served from here so it talks to this server whatever the port."""
     page = PAGE_PATH.read_text(encoding="utf-8")
+    page = page.replace("<head>", "<head>\n<script>window.GEOINV3D_API = location.origin;</script>", 1)
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
+
+
+MODEL_PAGE_PATH = PAGE_PATH.parent / "model_builder.html"
+
+
+@app.get("/model", include_in_schema=False)
+async def model_page():
+    """The 3D model builder, served like the upload page."""
+    page = MODEL_PAGE_PATH.read_text(encoding="utf-8")
     page = page.replace("<head>", "<head>\n<script>window.GEOINV3D_API = location.origin;</script>", 1)
     return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 

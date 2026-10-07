@@ -676,3 +676,55 @@ def test_health_says_when_the_code_changed_after_the_start(api, monkeypatch):
     assert client.get("/api/health").json()["code_changed"] is False
     monkeypatch.setattr(server, "_code_mtime", lambda: server.CODE_MTIME_AT_START + 60)
     assert client.get("/api/health").json()["code_changed"] is True
+
+
+class TestModels:
+    """Models of the 3D model builder (/model): saved, listed, opened, deleted (kept aside)."""
+
+    @pytest.fixture
+    def m_api(self, api, tmp_path, monkeypatch):
+        monkeypatch.setenv("GEOINV3D_MODELS_DIR", str(tmp_path / "models"))
+        return api[0], tmp_path / "models"
+
+    BODY = {"kind": "body", "name": "Ore", "shape": "box", "box": [1000, 2000, 1000, 2000], "ref": "depth",
+            "top": 100, "bottom": 600, "dip": 90, "dipdir": 90,
+            "props": {"density": {"value": 3.3, "lower": None, "upper": None}}, "weight": 10}
+
+    def test_save_list_open_delete(self, m_api):
+        client, folder = m_api
+        body = {"name": "  Block   8 ", "extent": [0, 5000, 0, 4000], "ground": 650, "depth": 3000,
+                "builder": {"version": 2, "items": [self.BODY], "free": {}}}
+        a = client.post("/api/models", json=body).json()
+        assert a["name"] == "Block 8" and a["extent"] == [0, 5000, 0, 4000] and a["ground"] == 650
+        time.sleep(0.01)
+        b = client.post("/api/models", json={"builder": {"items": []}}).json()
+        assert b["name"] == "Untitled model"
+        listed = client.get("/api/models").json()["models"]
+        assert [m["name"] for m in listed] == ["Untitled model", "Block 8"]
+        assert listed[1]["n_bodies"] == 1 and listed[1]["n_stacks"] == 0
+        # saved again: the newest first, the same id and creation time
+        time.sleep(0.01)
+        r = client.put(f"/api/models/{a['id']}", json={**body, "name": "Block 8 v2"}).json()
+        assert r["id"] == a["id"] and r["created_at"] == a["created_at"] and r["updated_at"] > a["updated_at"]
+        assert client.get("/api/models").json()["models"][0]["name"] == "Block 8 v2"
+        got = client.get(f"/api/models/{a['id']}").json()
+        assert got["builder"]["items"][0]["props"]["density"]["value"] == 3.3
+        # deleting keeps the file aside
+        assert client.delete(f"/api/models/{a['id']}").status_code == 200
+        assert client.get(f"/api/models/{a['id']}").status_code == 404
+        assert (folder / "deleted" / f"{a['id']}.json").exists()
+
+    def test_checks(self, m_api):
+        client, _ = m_api
+        assert client.post("/api/models", json={"name": "x"}).status_code == 400          # no builder
+        assert client.post("/api/models", json={"builder": {"items": "no"}}).status_code == 400
+        bad = {"builder": {"items": []}, "extent": [5, 0, 0, 1]}
+        assert client.post("/api/models", json=bad).status_code == 400
+        assert client.post("/api/models", json={"builder": {"items": []}, "name": "x" * 121}).status_code == 400
+        assert client.get("/api/models/..%2Fjobs").status_code == 404
+        assert client.get("/api/models/0123456789ab").status_code == 404
+
+    def test_page_is_served(self, m_api):
+        client, _ = m_api
+        r = client.get("/model")
+        assert r.status_code == 200 and "Model builder" in r.text and "window.GEOINV3D_API" in r.text

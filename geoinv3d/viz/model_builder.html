@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Builder — GeoInv3D</title>
+<!-- A 3D geological model: bodies and layer stacks with their densities, susceptibilities and
+     resistivities, in the upload page's model-step format (builder version 2), so that an
+     inversion can take a model built here as its constraints (geoinv3d/methods/geology.py). -->
+<script type="importmap">
+{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+             "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}
+</script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#ffffff;--bg2:#f8f6fd;--bg3:#f0ecfb;--border:#ddd6f0;--border-soft:#ebe6f6;
+  --text:#1e1b2e;--text2:#5b5770;--text3:#8c879e;--accent:#7b4cff;--accent2:#9a74ff;
+  --accent-dark:#6236e8;--warn:#b45309;--red:#c62828;--green:#1e8a7a;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);height:100vh;
+  overflow:hidden;display:flex;flex-direction:column;font-size:13px;}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px 8px;border-bottom:1px solid var(--border);
+  box-shadow:inset 0 3px 0 var(--accent);flex:none;flex-wrap:wrap;}
+header img{height:22px;display:block;}
+header .sep{width:1px;height:22px;background:var(--border);}
+header h1{font-size:16px;font-weight:600;color:var(--accent);}
+header .page{font-size:13px;color:var(--text2);}
+#m-name{font:600 13px 'Segoe UI',system-ui,sans-serif;padding:3px 6px;border:1px dashed transparent;border-radius:4px;
+  background:transparent;color:var(--text);min-width:180px;}
+#m-name:hover,#m-name:focus{border-color:var(--border);background:var(--bg2);outline:none;}
+#m-dirty{color:var(--warn);font-weight:700;}
+.grow{flex:1;}
+.btn{font:500 12px 'Segoe UI',system-ui,sans-serif;padding:5px 10px;border:1px solid var(--border);border-radius:5px;
+  background:var(--bg);color:var(--text);cursor:pointer;white-space:nowrap;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn.primary:hover{background:var(--accent-dark);color:#fff;}
+.btn.on{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
+.btn.sm{padding:3px 7px;font-size:11px;}
+.btn:disabled{opacity:.45;cursor:default;}
+main{flex:1;display:flex;min-height:0;}
+aside{width:360px;flex:none;border-right:1px solid var(--border);overflow-y:auto;background:var(--bg2);}
+.sec{border-bottom:1px solid var(--border-soft);padding:10px 12px;}
+.sec h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:8px;
+  display:flex;align-items:center;gap:6px;}
+.sec h2 .hint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--text3);}
+.row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap;}
+.row label{color:var(--text2);font-size:12px;}
+.f{display:flex;flex-direction:column;gap:2px;flex:1;min-width:70px;}
+.f span{font-size:11px;color:var(--text3);}
+input[type=number],input[type=text],select{font:12px 'Segoe UI',system-ui,sans-serif;padding:4px 6px;border:1px solid var(--border);
+  border-radius:4px;background:var(--bg);color:var(--text);width:100%;}
+input:focus,select:focus{outline:none;border-color:var(--accent);}
+.note{font-size:11px;color:var(--text3);line-height:1.45;}
+.warn{color:var(--warn);}
+.err{color:var(--red);}
+.list{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow-y:auto;}
+.it{display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:4px;cursor:pointer;border:1px solid transparent;}
+.it:hover{background:var(--bg3);}
+.it.sel{background:var(--bg);border-color:var(--accent);}
+.it .sw{width:12px;height:12px;border-radius:3px;flex:none;border:1px solid rgba(0,0,0,.15);}
+.it .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.it .kd{font-size:11px;color:var(--text3);}
+.it input[type=checkbox]{flex:none;}
+.sub{padding-left:22px;}
+table.props{width:100%;border-collapse:collapse;font-size:12px;}
+table.props th{font-weight:500;color:var(--text3);font-size:11px;text-align:left;padding:2px 3px;}
+table.props td{padding:2px 3px;}
+table.props td:first-child{color:var(--text2);white-space:nowrap;}
+table.props input{padding:3px 4px;}
+#view{flex:1;position:relative;min-width:0;background:linear-gradient(#fbfaff,#f1eefa);}
+#view canvas{display:block;}
+.vbar{position:absolute;top:10px;left:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;z-index:5;
+  background:rgba(255,255,255,.92);border:1px solid var(--border);border-radius:6px;padding:6px 8px;box-shadow:0 2px 8px rgba(60,30,140,.08);}
+.vbar select{width:auto;}
+.vbar .lbl{font-size:11px;color:var(--text3);}
+#sec-pos{width:140px;}
+#cbar{position:absolute;right:12px;bottom:34px;z-index:5;background:rgba(255,255,255,.92);border:1px solid var(--border);
+  border-radius:6px;padding:6px 8px;font-size:11px;color:var(--text2);}
+#cbar canvas{display:block;margin:4px 0;}
+#status{flex:none;border-top:1px solid var(--border);padding:4px 12px;font-size:11px;color:var(--text2);display:flex;gap:16px;
+  background:var(--bg2);}
+#status .msg{flex:1;}
+.lab{font:11px 'Segoe UI',system-ui,sans-serif;color:var(--text2);pointer-events:none;white-space:nowrap;}
+.lab.name{color:var(--text);font-weight:600;background:rgba(255,255,255,.75);padding:0 3px;border-radius:3px;}
+.lab.axis{color:var(--text3);}
+.modal{position:fixed;inset:0;background:rgba(30,27,46,.35);display:flex;align-items:center;justify-content:center;z-index:50;}
+.modal[hidden]{display:none;}
+.modal .box{background:var(--bg);border-radius:8px;border:1px solid var(--border);width:min(640px,94vw);max-height:80vh;
+  overflow:auto;padding:16px;box-shadow:0 12px 40px rgba(60,30,140,.25);}
+.modal h3{font-size:15px;margin-bottom:10px;color:var(--accent);}
+.mtab{width:100%;border-collapse:collapse;font-size:12px;}
+.mtab td,.mtab th{padding:6px;border-bottom:1px solid var(--border-soft);text-align:left;}
+.mtab tr:hover td{background:var(--bg2);}
+.kbd{font-family:'SF Mono',Consolas,monospace;font-size:11px;background:var(--bg3);padding:0 4px;border-radius:3px;}
+@media (max-width:820px){main{flex-direction:column;}aside{width:auto;max-height:45vh;border-right:none;border-bottom:1px solid var(--border);}}
+</style>
+</head>
+<body>
+<header>
+  <img src="/assets/altcarbon-logo-black-horizontal.png" alt="Alt Carbon" onerror="this.style.display='none'">
+  <span class="sep"></span>
+  <h1>GeoInv3D</h1>
+  <span class="page">Model builder</span>
+  <input id="m-name" value="Untitled model" title="The model's name" aria-label="Model name"><span id="m-dirty" title="Not saved"></span>
+  <span class="grow"></span>
+  <button class="btn" id="b-new" title="A new, empty model">New</button>
+  <button class="btn" id="b-open" title="A saved model">Open…</button>
+  <button class="btn" id="b-save" title="Save (Ctrl+S)">Save</button>
+  <button class="btn" id="b-saveas">Save as…</button>
+  <button class="btn" id="b-export" title="The model as a JSON file (the upload page's model step takes it too)">⤓ JSON</button>
+  <button class="btn" id="b-import" title="A model JSON (from here or the upload page's ⤓ Save model)">⤒ Import</button>
+  <input type="file" id="f-import" accept=".json,application/json" hidden>
+  <button class="btn primary" id="b-use" title="Save, then open the upload page with this model in its model step">Use in an inversion →</button>
+  <a class="btn" href="/" title="The upload page and the results">← Inversions</a>
+</header>
+<main>
+<aside>
+  <div class="sec">
+    <h2>Model area <span class="hint">metres in the data's coordinate system</span></h2>
+    <div class="row">
+      <div class="f"><span>West (km)</span><input type="number" step="any" id="e-w"></div>
+      <div class="f"><span>East (km)</span><input type="number" step="any" id="e-e"></div>
+      <div class="f"><span>South (km)</span><input type="number" step="any" id="e-s"></div>
+      <div class="f"><span>North (km)</span><input type="number" step="any" id="e-n"></div>
+    </div>
+    <div class="row">
+      <div class="f"><span>Ground (m)</span><input type="number" step="any" id="e-ground" title="Flat ground elevation; depths are below it"></div>
+      <div class="f"><span>Depth shown (m)</span><input type="number" step="any" min="1" id="e-depth" title="The model's floor below the ground (layers without a thickness reach it)"></div>
+      <div class="f"><span>Vert. exagg.</span><input type="number" step="any" min="0.1" id="e-ve"></div>
+      <div class="f"><span>CRS</span><input type="text" id="e-crs" placeholder="EPSG:32643"></div>
+    </div>
+  </div>
+  <div class="sec">
+    <h2>Add</h2>
+    <div class="row">
+      <button class="btn sm" id="a-box" title="A box in the middle of the area">＋ Box</button>
+      <button class="btn sm" id="a-cyl">＋ Cylinder</button>
+      <button class="btn sm" id="a-poly" title="Click the ground to place vertices; double-click or Enter to close; Esc cancels">✎ Polygon body</button>
+      <button class="btn sm" id="a-layers" title="A stack of layers, everywhere (or inside an outline)">≡ Layers</button>
+    </div>
+    <div class="note" id="draw-hint"></div>
+  </div>
+  <div class="sec">
+    <h2>Model <span class="hint">later items win where they overlap</span></h2>
+    <div class="list" id="list"></div>
+    <div class="row" style="margin-top:6px">
+      <button class="btn sm" id="i-up" title="Earlier (lower priority)">↑</button>
+      <button class="btn sm" id="i-down" title="Later (higher priority)">↓</button>
+      <button class="btn sm" id="i-dup">Duplicate</button>
+      <button class="btn sm" id="i-del" title="Delete (Del)">Delete</button>
+    </div>
+  </div>
+  <div class="sec" id="form-sec"><h2>Selected</h2><div id="form" class="note">Click a body or a layer in the view or the list.</div></div>
+  <div class="sec">
+    <h2>Everywhere else <span class="hint">the background and its bounds</span></h2>
+    <div id="free"></div>
+  </div>
+  <div class="sec note">
+    Drag the arrows to move the selected item (the blue one moves it up and down);
+    <span class="kbd">S</span> switches to resizing a box or cylinder, <span class="kbd">G</span> back to moving;
+    <span class="kbd">V</span> edits a polygon's vertices (right-click one to delete it, drag a small one to add one).
+    <span class="kbd">Ctrl+Z</span> / <span class="kbd">Ctrl+Shift+Z</span> undo / redo.
+    Each body and layer with a value becomes a rock unit of the inversion's constraints: its value is the
+    reference model, its range the bounds, its weight how strongly the cells are held to it.
+  </div>
+</aside>
+<div id="view">
+  <div class="vbar">
+    <span class="lbl">View</span>
+    <button class="btn sm" data-view="3d">3D</button>
+    <button class="btn sm" data-view="plan">Plan</button>
+    <button class="btn sm" data-view="south">From south</button>
+    <button class="btn sm" data-view="east">From east</button>
+    <span class="lbl">Colour</span>
+    <select id="color-by">
+      <option value="unit">by unit</option>
+      <option value="density">density</option>
+      <option value="susceptibility">susceptibility</option>
+      <option value="resistivity">resistivity</option>
+    </select>
+    <span class="lbl">Section</span>
+    <select id="sec-dir"><option value="">off</option><option value="ew">west–east</option><option value="ns">south–north</option></select>
+    <input type="range" id="sec-pos" min="0" max="1000" value="500" disabled>
+    <span class="lbl" id="sec-at"></span>
+    <button class="btn sm" id="mode-move" title="Move (G)">Move</button>
+    <button class="btn sm" id="mode-scale" title="Resize a box or cylinder (S)">Resize</button>
+    <button class="btn sm" id="mode-verts" title="Edit a polygon's vertices (V)">Vertices</button>
+  </div>
+  <div id="cbar" hidden></div>
+</div>
+</main>
+<div id="status"><span class="msg" id="msg">Starting…</span><span id="cursor"></span></div>
+<div class="modal" id="open-dlg" hidden><div class="box">
+  <h3>Open a model</h3>
+  <div id="open-list" class="note">Loading…</div>
+  <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" id="open-close">Close</button></div>
+</div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {TransformControls} from 'three/addons/controls/TransformControls.js';
+import {CSS2DRenderer, CSS2DObject} from 'three/addons/renderers/CSS2DRenderer.js';
+
+const API = window.GEOINV3D_API || location.origin;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => v === null || v === '' || v === undefined || !Number.isFinite(+v) ? null : +v;
+
+// ── Properties, as the upload page's model step has them ──
+const PROPS = {
+  density: {label: 'Density', unit: 'g/cc', def: 2.97, log: false},
+  susceptibility: {label: 'Susceptibility', unit: 'SI', def: 0.01, log: false},
+  resistivity: {label: 'Resistivity', unit: 'Ω·m', def: 10, log: true}};
+const COLORS = ['#9a74ff', '#1e88e5', '#43a047', '#e57373', '#ba68c8', '#4dd0e1', '#ffb300', '#a1887f',
+                '#5c6bc0', '#26a69a', '#ef6c00', '#8d6e63'];
+
+// ── The model ──
+// builder.items, in order (later ones win where they overlap):
+//   body    {kind:'body', name, shape:'box'|'cylinder'|'polygon', box:[w,e,s,n] | cyl:{x,y,r} |
+//            poly:[[x,y],…], ref:'depth'|'elevation', top, bottom, dip (from horizontal; 90 =
+//            vertical), dipdir, props:{p:{value,lower,upper}}, weight, fixed, sharp}
+//   layers  {kind:'layers', name, shape:'all'|'box'|'polygon', ref, top, dip, dipdir, origin:[x,y],
+//            layers:[{name, thickness (null on the last: to the floor), props, weight, fixed, sharp}]}
+// (metres in the job's frame; depths below the ground).  Extra fields the upload page ignores:
+// hidden (not drawn here).
+function blankModel() {
+  return {id: null, name: 'Untitled model', crs: '', extent: [0, 10000, 0, 10000], ground: 0, depth: 5000, ve: 1,
+    builder: {version: 2, items: [], ground: 0,
+      free: {density: {value: 2.67, lower: null, upper: null}, susceptibility: {lower: null, upper: null},
+             resistivity: {value: null, lower: null, upper: null, mixing: 'log'}}}};
+}
+let M = blankModel();
+let sel = -1, selLayer = -1, dirty = false, seq = 0;
+const items = () => M.builder.items;
+const cur = () => items()[sel];
+
+function blankProps(withValue) {
+  const o = {};
+  for (const p of Object.keys(PROPS)) o[p] = {value: withValue && p !== 'susceptibility' && p !== 'resistivity' ? PROPS[p].def : null, lower: null, upper: null};
+  if (withValue) {o.susceptibility.value = PROPS.susceptibility.def; o.resistivity.value = PROPS.resistivity.def;}
+  return o;
+}
+function names(skip) {
+  const out = [];
+  for (const it of items()) {
+    if (it.kind === 'layers') {for (const l of it.layers) if (l !== skip) out.push(l.name);}
+    else if (it !== skip) out.push(it.name);
+  }
+  return out;
+}
+function nextName(prefix, extra = [], sep = ' ') {   // "Body 3" after "Body 1" and "Body 2"
+  const taken = names().concat(extra, items().map(it => it.name)); let k = 1;
+  while (taken.includes(`${prefix}${sep}${k}`)) k++;
+  return `${prefix}${sep}${k}`;
+}
+function unique(name, skip, extra = []) {
+  const taken = names(skip).concat(extra); let n = name, k = 2;
+  while (taken.includes(n)) n = `${name} (${k++})`;
+  return n;
+}
+
+// ── Geometry (metres; z is elevation) ──
+function ring(it) {
+  if (it.shape === 'box' && Array.isArray(it.box)) {const [w, e, s, n] = it.box; return [[w, s], [e, s], [e, n], [w, n]];}
+  if (it.shape === 'cylinder' && it.cyl) {const {x, y, r} = it.cyl; return Array.from({length: 40}, (_, k) => [x + r * Math.cos(Math.PI * k / 20), y + r * Math.sin(Math.PI * k / 20)]);}
+  if (it.shape === 'polygon' && Array.isArray(it.poly) && it.poly.length >= 3) return it.poly;
+  return null;
+}
+const extentRing = () => {const [w, e, s, n] = M.extent; return [[w, s], [e, s], [e, n], [w, n]];};
+const depthOf = (it, v) => it.ref === 'elevation' ? M.ground - v : v;      // below the ground
+const elevOf = (it, v) => it.ref === 'elevation' ? v : M.ground - v;
+const floorZ = () => M.ground - M.depth;
+function shift(b, depth) {   // how far a dipping body's outline has moved down-dip at a depth
+  if (!(b.dip < 90)) return [0, 0];
+  const d = Math.max(depth - depthOf(b, b.top), 0) / Math.tan(Math.max(b.dip, 1) * Math.PI / 180), a = b.dipdir * Math.PI / 180;
+  return [d * Math.sin(a), d * Math.cos(a)];
+}
+function tilt(it, x, y) {     // how much deeper a stack's interfaces lie at (x, y) than at its origin
+  if (!(it.dip > 0)) return 0;
+  const a = it.dipdir * Math.PI / 180, o = it.origin || [0, 0];
+  return Math.tan(Math.min(it.dip, 89) * Math.PI / 180) * ((x - o[0]) * Math.sin(a) + (y - o[1]) * Math.cos(a));
+}
+const edges = it => {const e = [0]; for (const l of it.layers) e.push(l.thickness == null || l.thickness === '' ? Infinity : e[e.length - 1] + (+l.thickness || 0)); return e;};
+function centroid(r) {let x = 0, y = 0; for (const p of r) {x += p[0]; y += p[1];} return [x / r.length, y / r.length];}
+function area(r) {let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2;}
+
+// ── Scene ──
+const view = $('view');
+const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.localClippingEnabled = true;
+view.appendChild(renderer.domElement);
+const labels = new CSS2DRenderer();
+labels.domElement.style.position = 'absolute'; labels.domElement.style.top = '0'; labels.domElement.style.pointerEvents = 'none';
+view.appendChild(labels.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 0.01, 5000);
+camera.up.set(0, 0, 1);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true; orbit.dampingFactor = 0.12; orbit.screenSpacePanning = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd8d2ea, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1); sun.position.set(-2, -3, 5); scene.add(sun);
+const frame = new THREE.Group(), bodies = new THREE.Group(), handles = new THREE.Group(), drawn = new THREE.Group();
+scene.add(frame, bodies, handles, drawn);
+const pivot = new THREE.Object3D(); scene.add(pivot);
+const gizmo = new TransformControls(camera, renderer.domElement);
+gizmo.setSize(0.9); scene.add(gizmo);
+const clip = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+// scene units: km about the area's centre, z exaggerated
+let C = [5000, 5000];
+const S = (x, y, z) => new THREE.Vector3((x - C[0]) / 1000, (y - C[1]) / 1000, z * M.ve / 1000);
+const fromS = v => [v.x * 1000 + C[0], v.y * 1000 + C[1], v.z * 1000 / M.ve];
+
+function prismGeometry(top, zt, bot, zb) {
+  // top and bottom rings (same vertex count), their elevations per vertex
+  if (area(top) < 0) {top = [...top].reverse(); zt = [...zt].reverse(); bot = [...bot].reverse(); zb = [...zb].reverse();}
+  const n = top.length, pos = [];
+  const P = (q, z) => {const v = S(q[0], q[1], z); pos.push(v.x, v.y, v.z);};
+  const tris = THREE.ShapeUtils.triangulateShape(top.map(q => new THREE.Vector2(q[0], q[1])), []);
+  for (const [a, b, c] of tris) {P(top[a], zt[a]); P(top[b], zt[b]); P(top[c], zt[c]);}
+  for (const [a, b, c] of tris) {P(bot[a], zb[a]); P(bot[c], zb[c]); P(bot[b], zb[b]);}
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    P(top[i], zt[i]); P(bot[i], zb[i]); P(bot[j], zb[j]);
+    P(top[i], zt[i]); P(bot[j], zb[j]); P(top[j], zt[j]);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// ── Colours ──
+function ramp(t) {   // a perceptual blue–purple–orange ramp, t in [0, 1]
+  const stops = [[0, [49, 54, 149]], [0.25, [69, 117, 180]], [0.5, [171, 140, 226]], [0.75, [244, 109, 67]], [1, [215, 48, 39]]];
+  t = Math.min(1, Math.max(0, t));
+  for (let i = 1; i < stops.length; i++) if (t <= stops[i][0]) {
+    const [t0, a] = stops[i - 1], [t1, b] = stops[i], f = (t - t0) / (t1 - t0);
+    return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * f)).join(',')})`;
+  }
+  return 'rgb(215,48,39)';
+}
+function propRange(p) {
+  const vals = [];
+  for (const it of items()) {
+    const parts = it.kind === 'layers' ? it.layers : [it];
+    for (const u of parts) {const v = num(u.props?.[p]?.value); if (v != null && (!PROPS[p].log || v > 0)) vals.push(PROPS[p].log ? Math.log10(v) : v);}
+  }
+  if (!vals.length) return null;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 1e-9) {lo -= 0.5 * (Math.abs(lo) || 1) * (PROPS[p].log ? 1 : 0.1); hi += 0.5 * (Math.abs(hi) || 1) * (PROPS[p].log ? 1 : 0.1);}
+  return [lo, hi];
+}
+function colourOf(u, k) {
+  const by = $('color-by').value;
+  if (by === 'unit') return {c: COLORS[k % COLORS.length], known: true};
+  const v = num(u.props?.[by]?.value), r = propRange(by);
+  if (v == null || !r || (PROPS[by].log && !(v > 0))) return {c: '#c9c4d6', known: false};
+  const x = PROPS[by].log ? Math.log10(v) : v;
+  return {c: ramp((x - r[0]) / (r[1] - r[0])), known: true};
+}
+function drawColourbar() {
+  const by = $('color-by').value, box = $('cbar');
+  if (by === 'unit') {box.hidden = true; return;}
+  const r = propRange(by);
+  if (!r) {box.hidden = false; box.innerHTML = `${PROPS[by].label}: no values yet`; return;}
+  box.hidden = false;
+  const lab = v => PROPS[by].log ? `${+Math.pow(10, v).toPrecision(3)}` : `${+v.toPrecision(3)}`;
+  box.innerHTML = `${PROPS[by].label} (${PROPS[by].unit})${PROPS[by].log ? ', log' : ''}<canvas width="160" height="10"></canvas>` +
+    `<div style="display:flex;justify-content:space-between"><span>${lab(r[0])}</span><span>${lab(r[1])}</span></div>`;
+  const ctx = box.querySelector('canvas').getContext('2d');
+  for (let i = 0; i < 160; i++) {ctx.fillStyle = ramp(i / 159); ctx.fillRect(i, 0, 1, 10);}
+}
+
+// ── Drawing the model ──
+function clear(group) {
+  while (group.children.length) {
+    const o = group.children.pop();
+    o.traverse(c => {if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose?.(); if (c.isCSS2DObject) c.element.remove();});
+  }
+}
+function addPrism(g, colour, known, isSel, user, label, layer) {
+  // layers are the background the bodies sit in: see-through, so the bodies show
+  const opacity = layer ? (isSel ? 0.45 : known ? 0.2 : 0.08) : (isSel ? 0.9 : known ? 0.72 : 0.25);
+  const mat = new THREE.MeshStandardMaterial({color: colour, transparent: true, opacity,
+    side: THREE.DoubleSide, depthWrite: !layer && known, roughness: 0.75, metalness: 0,
+    clippingPlanes: $('sec-dir').value ? [clip] : []});
+  const mesh = new THREE.Mesh(g, mat); mesh.userData = user; bodies.add(mesh);
+  const e = new THREE.LineSegments(new THREE.EdgesGeometry(g, 25),
+    new THREE.LineBasicMaterial({color: isSel ? 0x6236e8 : 0x3d3654, transparent: true, opacity: isSel ? 1 : layer ? 0.3 : 0.6,
+      clippingPlanes: $('sec-dir').value ? [clip] : []}));
+  mesh.add(e);
+  if (label) {
+    const d = document.createElement('div'); d.className = 'lab name'; d.textContent = label.text;
+    const o = new CSS2DObject(d); o.position.copy(label.at); mesh.add(o);
+  }
+}
+function drawModel() {
+  clear(bodies);
+  const fz = floorZ();
+  items().forEach((it, k) => {
+    if (it.hidden) return;
+    if (it.kind === 'body') {
+      const r = ring(it); if (!r) return;
+      const zt = elevOf(it, +it.top), zb = elevOf(it, +it.bottom);
+      if (!(zt > zb)) return;
+      const [sx, sy] = shift(it, depthOf(it, +it.bottom));
+      const bot = r.map(([x, y]) => [x + sx, y + sy]);
+      const g = prismGeometry(r, r.map(() => zt), bot, bot.map(() => zb));
+      const {c, known} = colourOf(it, k), [cx, cy] = centroid(r);
+      addPrism(g, c, known, k === sel, {k, j: -1}, {text: it.name, at: S(cx, cy, zt)});
+    } else if (it.kind === 'layers') {
+      const r = ring(it) || extentRing(), e = edges(it), top = depthOf(it, +it.top);
+      it.layers.forEach((l, j) => {
+        const d0 = r.map(([x, y]) => top + e[j] + tilt(it, x, y));
+        const d1 = r.map(([x, y]) => top + e[j + 1] + tilt(it, x, y));
+        const zt = d0.map(d => Math.max(M.ground - d, fz)), zb = d1.map(d => Math.max(M.ground - d, fz));
+        if (zt.every((z, i) => z <= zb[i] + 1e-6)) return;
+        const g = prismGeometry(r, zt, r, zb);
+        const {c, known} = colourOf(l, k + j);
+        const [cx, cy] = centroid(r);
+        addPrism(g, c, known, k === sel && (selLayer < 0 || selLayer === j), {k, j},
+          k === sel ? {text: l.name, at: S(cx, cy, (zt.reduce((a, b) => a + b) + zb.reduce((a, b) => a + b)) / (2 * r.length))} : null, true);
+      });
+    }
+  });
+  drawColourbar();
+  placePivot();
+  drawHandles();
+}
+
+// the area: ground, the floor's outline, ticks
+function niceStep(span) {const raw = span / 6, p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 2.5, 5, 10].map(m => m * p).find(s => s >= raw);}
+function drawFrame() {
+  clear(frame);
+  const [w, e, s, n] = M.extent, g = M.ground, fz = floorZ();
+  C = [(w + e) / 2, (s + n) / 2];
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry((e - w) / 1000, (n - s) / 1000),
+    new THREE.MeshBasicMaterial({color: 0x8fbf7a, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false}));
+  ground.position.copy(S(C[0], C[1], g)); ground.userData.ground = true; frame.add(ground);
+  const box = [];
+  const L = (a, b) => {box.push(a.x, a.y, a.z, b.x, b.y, b.z);};
+  const c4 = [[w, s], [e, s], [e, n], [w, n]];
+  for (let i = 0; i < 4; i++) {
+    const [x0, y0] = c4[i], [x1, y1] = c4[(i + 1) % 4];
+    L(S(x0, y0, g), S(x1, y1, g)); L(S(x0, y0, fz), S(x1, y1, fz)); L(S(x0, y0, g), S(x0, y0, fz));
+  }
+  const step = niceStep(Math.max(e - w, n - s));
+  for (let x = Math.ceil(w / step) * step; x <= e + 1e-6; x += step) L(S(x, s, g), S(x, n, g));
+  for (let y = Math.ceil(s / step) * step; y <= n + 1e-6; y += step) L(S(w, y, g), S(e, y, g));
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(box, 3)),
+    new THREE.LineBasicMaterial({color: 0x9b93b8, transparent: true, opacity: 0.5}));
+  frame.add(lines);
+  const tick = (text, at, cls = 'lab axis') => {const d = document.createElement('div'); d.className = cls; d.textContent = text; const o = new CSS2DObject(d); o.position.copy(at); frame.add(o);};
+  const km = v => `${+(v / 1000).toFixed(3)}`;
+  for (let x = Math.ceil(w / step) * step; x <= e + 1e-6; x += step) tick(km(x), S(x, s - step * 0.25, g));
+  for (let y = Math.ceil(s / step) * step; y <= n + 1e-6; y += step) tick(km(y), S(w - step * 0.3, y, g));
+  tick('E (km) →', S(e + step * 0.5, s - step * 0.25, g)); tick('N (km) ↑', S(w - step * 0.3, n + step * 0.4, g));
+  const zs = niceStep(M.depth);
+  for (let d = 0; d <= M.depth + 1e-6; d += zs) tick(`${d ? '−' : ''}${km(d)} km`, S(e + step * 0.15, s, g - d));
+  tick('N', S(C[0], n + step * 0.35, g), 'lab name');
+}
+
+// ── Selection and the gizmo ──
+function anchor(it) {   // where the gizmo sits: the item's top centre
+  if (it.kind === 'body') {const r = ring(it); if (!r) return null; const [x, y] = centroid(r); return [x, y, elevOf(it, +it.top)];}
+  const r = ring(it) || extentRing(), [x, y] = centroid(r);
+  return [x, y, elevOf(it, +it.top) - tilt(it, x, y)];
+}
+let mode = 'translate';
+function placePivot() {
+  const it = cur();
+  if (!it || it.hidden || mode === 'verts') {gizmo.detach(); return;}
+  const a = anchor(it); if (!a) {gizmo.detach(); return;}
+  pivot.position.copy(S(...a)); pivot.scale.set(1, 1, 1);
+  const canScale = it.kind === 'body' && (it.shape === 'box' || it.shape === 'cylinder');
+  gizmo.setMode(mode === 'scale' && canScale ? 'scale' : 'translate');
+  gizmo.attach(pivot);
+}
+function select(k, j = -1) {
+  sel = k; selLayer = j;
+  drawModel(); renderList(); renderForm();
+}
+let dragStart = null;
+gizmo.addEventListener('dragging-changed', ev => {orbit.enabled = !ev.value;});
+gizmo.addEventListener('mouseDown', () => {const it = cur(); if (it) dragStart = {it: JSON.parse(JSON.stringify(it)), p: pivot.position.clone()};});
+gizmo.addEventListener('objectChange', () => {
+  const it = cur(); if (!it || !dragStart) return;
+  const s0 = dragStart.it;
+  if (gizmo.getMode() === 'translate') {
+    const d = pivot.position.clone().sub(dragStart.p);
+    const dx = d.x * 1000, dy = d.y * 1000, dz = d.z * 1000 / M.ve;
+    moveItem(it, s0, dx, dy, dz);
+  } else {
+    scaleItem(it, s0, pivot.scale.x, pivot.scale.y, pivot.scale.z);
+  }
+  const keep = pivot.position.clone(), keepS = pivot.scale.clone();
+  drawModel(); pivot.position.copy(keep); pivot.scale.copy(keepS);
+  renderForm(true);
+});
+gizmo.addEventListener('mouseUp', () => {if (dragStart) {dragStart = null; commit('Moved');} placePivot();});
+const r1 = v => Math.round(v * 10) / 10;
+function moveItem(it, s0, dx, dy, dz) {
+  const mv = ([x, y]) => [r1(x + dx), r1(y + dy)];
+  if (s0.shape === 'box' && s0.box) it.box = [r1(s0.box[0] + dx), r1(s0.box[1] + dx), r1(s0.box[2] + dy), r1(s0.box[3] + dy)];
+  if (s0.shape === 'cylinder' && s0.cyl) it.cyl = {...s0.cyl, x: r1(s0.cyl.x + dx), y: r1(s0.cyl.y + dy)};
+  if (s0.shape === 'polygon' && s0.poly) it.poly = s0.poly.map(mv);
+  if (s0.kind === 'layers' && s0.origin) it.origin = mv(s0.origin);
+  const sign = it.ref === 'elevation' ? 1 : -1;
+  it.top = r1(+s0.top + sign * dz);
+  if (s0.kind === 'body') it.bottom = r1(+s0.bottom + sign * dz);
+}
+function scaleItem(it, s0, sx, sy, sz) {
+  sx = Math.max(sx, 0.02); sy = Math.max(sy, 0.02); sz = Math.max(sz, 0.02);
+  if (s0.shape === 'box') {
+    const [w, e, s, n] = s0.box, cx = (w + e) / 2, cy = (s + n) / 2;
+    it.box = [r1(cx - (e - w) / 2 * sx), r1(cx + (e - w) / 2 * sx), r1(cy - (n - s) / 2 * sy), r1(cy + (n - s) / 2 * sy)];
+  } else if (s0.shape === 'cylinder') {
+    it.cyl = {...s0.cyl, r: r1(s0.cyl.r * Math.sqrt(sx * sy))};
+  }
+  const t = +s0.top, b = +s0.bottom;
+  it.bottom = r1(it.ref === 'elevation' ? t - (t - b) * sz : t + (b - t) * sz);
+}
+
+// ── Polygon vertices ──
+function drawHandles() {
+  clear(handles);
+  const it = cur();
+  if (mode !== 'verts' || !it || it.shape !== 'polygon' || !it.poly) return;
+  const z = it.kind === 'body' ? elevOf(it, +it.top) : elevOf(it, +it.top);
+  const span = Math.max(M.extent[1] - M.extent[0], M.extent[3] - M.extent[2]) / 1000;
+  const big = new THREE.SphereGeometry(span / 70, 16, 12), small = new THREE.SphereGeometry(span / 110, 12, 8);
+  it.poly.forEach(([x, y], i) => {
+    const h = new THREE.Mesh(big, new THREE.MeshBasicMaterial({color: 0x6236e8}));
+    h.position.copy(S(x, y, it.kind === 'layers' ? z - tilt(it, x, y) : z)); h.userData = {vertex: i}; handles.add(h);
+    const [x1, y1] = it.poly[(i + 1) % it.poly.length];
+    const m = new THREE.Mesh(small, new THREE.MeshBasicMaterial({color: 0xffffff}));
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(small), new THREE.LineBasicMaterial({color: 0x6236e8})));
+    m.position.copy(S((x + x1) / 2, (y + y1) / 2, it.kind === 'layers' ? z - tilt(it, (x + x1) / 2, (y + y1) / 2) : z));
+    m.userData = {insert: i + 1}; handles.add(m);
+  });
+}
+
+// ── Pointer: picking, vertex dragging, drawing ──
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+function setPtr(ev) {const b = renderer.domElement.getBoundingClientRect(); ptr.set(((ev.clientX - b.left) / b.width) * 2 - 1, -((ev.clientY - b.top) / b.height) * 2 + 1); ray.setFromCamera(ptr, camera);}
+function onPlane(z) {   // the pointer on the horizontal plane at elevation z (metres)
+  const pl = new THREE.Plane(new THREE.Vector3(0, 0, 1), -z * M.ve / 1000), p = new THREE.Vector3();
+  return ray.ray.intersectPlane(pl, p) ? fromS(p) : null;
+}
+let vdrag = null, drawing = null, downAt = null;
+renderer.domElement.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0 || gizmo.dragging || gizmo.axis) return;
+  setPtr(ev); downAt = [ev.clientX, ev.clientY];
+  if (drawing) return;
+  const hits = ray.intersectObjects(handles.children, false);
+  const hit = hits.find(h => h.object.userData.vertex != null) || hits[0];   // a corner before a midpoint
+  if (hit && cur()) {
+    const it = cur();
+    if (hit.object.userData.insert != null) {
+      const i = hit.object.userData.insert, a = it.poly[i - 1], b = it.poly[i % it.poly.length];
+      it.poly.splice(i, 0, [r1((a[0] + b[0]) / 2), r1((a[1] + b[1]) / 2)]);
+      vdrag = {i, z: elevOf(it, +it.top)};
+    } else vdrag = {i: hit.object.userData.vertex, z: elevOf(it, +it.top)};
+    orbit.enabled = false; ev.stopPropagation();
+  }
+});
+renderer.domElement.addEventListener('pointermove', ev => {
+  setPtr(ev);
+  const p = onPlane(M.ground);
+  $('cursor').textContent = p ? `E ${(p[0] / 1000).toFixed(3)} km, N ${(p[1] / 1000).toFixed(3)} km` : '';
+  if (vdrag && cur()) {
+    const it = cur(), q = onPlane(it.kind === 'layers' ? vdrag.z - tilt(it, ...it.poly[vdrag.i]) : vdrag.z);
+    if (q) {it.poly[vdrag.i] = [r1(q[0]), r1(q[1])]; drawModel(); renderForm(true);}
+  }
+  if (drawing && p) drawDrawing(p);
+});
+window.addEventListener('pointerup', ev => {
+  if (vdrag) {vdrag = null; orbit.enabled = true; commit('Moved a vertex'); return;}
+  if (!downAt || ev.target !== renderer.domElement) {downAt = null; return;}
+  const moved = Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 4; downAt = null;
+  if (moved) return;
+  setPtr(ev);
+  if (drawing) {const p = onPlane(M.ground); if (p) {drawing.pts.push([r1(p[0]), r1(p[1])]); drawDrawing(p);} return;}
+  if (gizmo.dragging) return;
+  const hit = ray.intersectObjects(bodies.children, false)[0];
+  if (hit) select(hit.object.userData.k, hit.object.userData.j);
+  else if (!gizmo.axis) select(-1);
+});
+renderer.domElement.addEventListener('dblclick', () => {if (drawing) finishDrawing();});
+renderer.domElement.addEventListener('contextmenu', ev => {
+  ev.preventDefault(); setPtr(ev);
+  const hit = ray.intersectObjects(handles.children, false)[0], it = cur();
+  if (hit && it && hit.object.userData.vertex != null && it.poly.length > 3) {it.poly.splice(hit.object.userData.vertex, 1); commit('Deleted a vertex'); drawModel(); renderForm();}
+});
+function drawDrawing(p) {
+  clear(drawn);
+  const pts = drawing.pts.concat(p ? [p] : []);
+  if (pts.length < 1) return;
+  const v = pts.map(q => S(q[0], q[1], M.ground + 1));
+  const g = new THREE.BufferGeometry().setFromPoints(v.concat(pts.length > 2 ? [v[0]] : []));
+  drawn.add(new THREE.Line(g, new THREE.LineBasicMaterial({color: 0x6236e8})));
+  for (const q of drawing.pts) {const m = new THREE.Mesh(new THREE.SphereGeometry(Math.max(M.extent[1] - M.extent[0], M.extent[3] - M.extent[2]) / 150000, 10, 8), new THREE.MeshBasicMaterial({color: 0x6236e8})); m.position.copy(S(q[0], q[1], M.ground)); drawn.add(m);}
+}
+function startDrawing() {
+  drawing = {pts: []}; setView('plan');
+  $('draw-hint').innerHTML = 'Click the ground to place vertices; <b>double-click</b> or <b>Enter</b> to close the polygon, <b>Esc</b> to cancel.';
+  $('a-poly').classList.add('on');
+}
+function finishDrawing(cancel) {
+  const d = drawing; drawing = null; clear(drawn); $('draw-hint').textContent = ''; $('a-poly').classList.remove('on');
+  if (cancel || !d) return;
+  const pts = d.pts.filter((q, i, a) => i === 0 || Math.hypot(q[0] - a[i - 1][0], q[1] - a[i - 1][1]) > 1);
+  if (pts.length < 3) {say('A polygon needs at least three vertices', 'warn'); return;}
+  addBody({shape: 'polygon', poly: pts});
+}
+
+// ── Views ──
+function fitCamera(dir) {
+  const [w, e, s, n] = M.extent, span = Math.max(e - w, n - s) / 1000, dz = M.depth * M.ve / 1000;
+  const c = S(C[0], C[1], M.ground - M.depth / 2), r = Math.max(span, dz) * 1.25;
+  orbit.target.copy(c);
+  if (dir === 'plan') camera.position.set(c.x, c.y - 0.001, c.z + r * 1.6);
+  else if (dir === 'south') camera.position.set(c.x, c.y - r * 1.7, c.z);
+  else if (dir === 'east') camera.position.set(c.x + r * 1.7, c.y, c.z);
+  else camera.position.set(c.x - r * 0.9, c.y - r * 1.3, c.z + r * 0.9);
+  camera.near = r / 500; camera.far = r * 50; camera.updateProjectionMatrix(); orbit.update();
+}
+function setView(v) {fitCamera(v); document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === v));}
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+function setSection() {
+  const dir = $('sec-dir').value, pos = +$('sec-pos').value / 1000, [w, e, s, n] = M.extent;
+  $('sec-pos').disabled = !dir;
+  if (!dir) {$('sec-at').textContent = ''; drawModel(); return;}
+  if (dir === 'ew') {const y = s + (n - s) * pos; clip.set(new THREE.Vector3(0, 1, 0), -(y - C[1]) / 1000); $('sec-at').textContent = `N ${(y / 1000).toFixed(2)} km`;}
+  else {const x = w + (e - w) * pos; clip.set(new THREE.Vector3(1, 0, 0), -(x - C[0]) / 1000); $('sec-at').textContent = `E ${(x / 1000).toFixed(2)} km`;}
+  drawModel();
+}
+$('sec-dir').addEventListener('change', () => {setSection(); if ($('sec-dir').value) setView($('sec-dir').value === 'ew' ? 'south' : 'east');});
+$('sec-pos').addEventListener('input', setSection);
+$('color-by').addEventListener('change', () => drawModel());
+function setMode(m) {
+  mode = m;
+  $('mode-move').classList.toggle('on', m === 'translate'); $('mode-scale').classList.toggle('on', m === 'scale'); $('mode-verts').classList.toggle('on', m === 'verts');
+  drawModel();
+}
+$('mode-move').addEventListener('click', () => setMode('translate'));
+$('mode-scale').addEventListener('click', () => setMode('scale'));
+$('mode-verts').addEventListener('click', () => setMode(mode === 'verts' ? 'translate' : 'verts'));
+
+function resize() {
+  const w = view.clientWidth, h = view.clientHeight;
+  renderer.setSize(w, h); labels.setSize(w, h); camera.aspect = w / Math.max(h, 1); camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(view);
+(function loop() {orbit.update(); renderer.render(scene, camera); labels.render(scene, camera); requestAnimationFrame(loop);})();
+
+// ── Adding ──
+function middle(f = 0.15) {const [w, e, s, n] = M.extent; return {cx: (w + e) / 2, cy: (s + n) / 2, hw: (e - w) * f, hh: (n - s) * f};}
+function addBody(geom) {
+  items().push({kind: 'body', name: nextName('Body'), ref: 'depth', top: Math.round(M.depth * 0.05), bottom: Math.round(M.depth * 0.35),
+    dip: 90, dipdir: 90, props: blankProps(true), weight: 10, fixed: false, sharp: false, ...geom});
+  commit('Added a body'); select(items().length - 1);
+}
+$('a-box').addEventListener('click', () => {const m = middle(); addBody({shape: 'box', box: [r1(m.cx - m.hw), r1(m.cx + m.hw), r1(m.cy - m.hh), r1(m.cy + m.hh)]});});
+$('a-cyl').addEventListener('click', () => {const m = middle(); addBody({shape: 'cylinder', cyl: {x: r1(m.cx), y: r1(m.cy), r: r1(Math.min(m.hw, m.hh))}});});
+$('a-poly').addEventListener('click', () => drawing ? finishDrawing(true) : startDrawing());
+$('a-layers').addEventListener('click', () => {
+  const m = middle(), taken = [];
+  const layers = [Math.round(M.depth * 0.04), Math.round(M.depth * 0.12), null].map((t, i) => {
+    const nm = nextName('L', taken, ''); taken.push(nm);
+    return {name: nm, thickness: t, props: blankProps(false), weight: 5, fixed: false, sharp: false};
+  });
+  items().push({kind: 'layers', name: nextName('Layers'), shape: 'all', ref: 'depth', top: 0, dip: 0, dipdir: 90,
+    origin: [r1(m.cx), r1(m.cy)], layers});
+  commit('Added a layer stack'); select(items().length - 1, 0);
+});
+
+// ── List ──
+function renderList() {
+  const L = $('list');
+  if (!items().length) {L.innerHTML = '<div class="note">Empty: add a box, a cylinder, a polygon or a layer stack.</div>'; return;}
+  L.innerHTML = items().map((it, k) => {
+    const kind = it.kind === 'body' ? it.shape : `${it.layers.length} layers`;
+    const row = `<div class="it${k === sel && selLayer < 0 ? ' sel' : ''}" data-k="${k}" data-j="-1">` +
+      `<input type="checkbox" data-vis="${k}" ${it.hidden ? '' : 'checked'} title="Shown">` +
+      `<span class="sw" style="background:${it.kind === 'body' ? COLORS[k % COLORS.length] : 'transparent'}"></span>` +
+      `<span class="nm">${esc(it.name)}</span><span class="kd">${esc(kind)}</span></div>`;
+    const subs = it.kind === 'layers' && k === sel ? it.layers.map((l, j) =>
+      `<div class="it sub${j === selLayer ? ' sel' : ''}" data-k="${k}" data-j="${j}"><span class="sw" style="background:${COLORS[(k + j) % COLORS.length]}"></span>` +
+      `<span class="nm">${esc(l.name)}</span><span class="kd">${l.thickness == null || l.thickness === '' ? 'to the floor' : `${l.thickness} m`}</span></div>`).join('') : '';
+    return row + subs;
+  }).join('');
+}
+$('list').addEventListener('click', ev => {
+  const v = ev.target.closest('[data-vis]');
+  if (v) {items()[+v.dataset.vis].hidden = !v.checked; commit('Shown/hidden'); drawModel(); return;}
+  const r = ev.target.closest('[data-k]'); if (r) select(+r.dataset.k, +r.dataset.j);
+});
+$('i-del').addEventListener('click', delSelected);
+function delSelected() {
+  if (sel < 0) return;
+  const it = cur();
+  if (it.kind === 'layers' && selLayer >= 0 && it.layers.length > 1) {it.layers.splice(selLayer, 1); selLayer = -1; commit('Deleted a layer'); select(sel, -1); return;}
+  items().splice(sel, 1); commit('Deleted'); select(-1);
+}
+$('i-dup').addEventListener('click', () => {
+  if (sel < 0) return;
+  const c = JSON.parse(JSON.stringify(cur())), dx = (M.extent[1] - M.extent[0]) * 0.05;
+  if (c.kind === 'layers') {const taken = []; c.layers.forEach(l => {l.name = unique(l.name, null, taken); taken.push(l.name);}); c.name = unique(c.name);}
+  else c.name = unique(c.name);
+  moveItem(c, JSON.parse(JSON.stringify(c)), dx, 0, 0);
+  items().push(c); commit('Duplicated'); select(items().length - 1);
+});
+$('i-up').addEventListener('click', () => {if (sel > 0) {const a = items(); [a[sel - 1], a[sel]] = [a[sel], a[sel - 1]]; sel--; commit('Reordered'); select(sel, selLayer);}});
+$('i-down').addEventListener('click', () => {const a = items(); if (sel >= 0 && sel < a.length - 1) {[a[sel + 1], a[sel]] = [a[sel], a[sel + 1]]; sel++; commit('Reordered'); select(sel, selLayer);}});
+
+// ── The selected item's form ──
+const km = v => v == null ? '' : +(v / 1000).toFixed(4);
+const inp = (id, v, extra = '') => `<input type="number" step="any" data-f="${id}" value="${v ?? ''}" ${extra}>`;
+function propsTable(u, prefix) {
+  const rows = Object.entries(PROPS).map(([p, P]) => {
+    const v = u.props?.[p] || {};
+    return `<tr><td>${P.label} <span class="note">${P.unit}</span></td>` +
+      ['value', 'lower', 'upper'].map(f => `<td>${inp(`${prefix}props.${p}.${f}`, v[f], f === 'value' ? '' : 'placeholder="auto"')}</td>`).join('') + '</tr>';
+  }).join('');
+  return `<table class="props"><thead><tr><th></th><th>value</th><th>lower</th><th>upper</th></tr></thead><tbody>${rows}</tbody></table>` +
+    `<div class="row" style="margin-top:6px"><div class="f" style="max-width:90px"><span>Weight</span>${inp(`${prefix}weight`, u.weight ?? 5, 'min="0"')}</div>` +
+    `<label title="Hardly moves: a narrow range, weight at least 100"><input type="checkbox" data-f="${prefix}fixed" ${u.fixed ? 'checked' : ''}> fixed</label>` +
+    `<label title="Little smoothing across its boundaries: the model may jump there"><input type="checkbox" data-f="${prefix}sharp" ${u.sharp ? 'checked' : ''}> sharp</label></div>` +
+    `<div class="note">Empty value: this unit says nothing about that property. Empty range: the value ± a margin (×/÷ 2 for resistivity).</div>`;
+}
+function renderForm(quiet) {
+  const F = $('form'), it = cur();
+  if (quiet && F.contains(document.activeElement)) return;     // typing: leave the field alone
+  if (!it) {F.innerHTML = 'Click a body or a layer in the view or the list.'; return;}
+  let h = `<div class="row"><div class="f"><span>Name</span><input type="text" data-f="name" value="${esc(it.name)}"></div></div>`;
+  const ref = `<div class="f" style="max-width:120px"><span>Levels are</span><select data-f="ref"><option value="depth"${it.ref !== 'elevation' ? ' selected' : ''}>depths</option><option value="elevation"${it.ref === 'elevation' ? ' selected' : ''}>elevations</option></select></div>`;
+  if (it.kind === 'body') {
+    if (it.shape === 'box') h += `<div class="row"><div class="f"><span>West (km)</span>${inp('box.0', km(it.box[0]))}</div><div class="f"><span>East</span>${inp('box.1', km(it.box[1]))}</div>` +
+      `<div class="f"><span>South</span>${inp('box.2', km(it.box[2]))}</div><div class="f"><span>North</span>${inp('box.3', km(it.box[3]))}</div></div>`;
+    if (it.shape === 'cylinder') h += `<div class="row"><div class="f"><span>Centre E (km)</span>${inp('cyl.x', km(it.cyl.x))}</div><div class="f"><span>Centre N (km)</span>${inp('cyl.y', km(it.cyl.y))}</div><div class="f"><span>Radius (km)</span>${inp('cyl.r', km(it.cyl.r), 'min="0"')}</div></div>`;
+    if (it.shape === 'polygon') h += `<div class="note" style="margin-bottom:6px">${it.poly.length} vertices — <b>Vertices</b> (V) drags them in the view.</div>`;
+    h += `<div class="row">${ref}<div class="f"><span>Top (m)</span>${inp('top', it.top)}</div><div class="f"><span>Bottom (m)</span>${inp('bottom', it.bottom)}</div></div>` +
+      `<div class="row"><div class="f"><span>Dip (°, 90 = vertical)</span>${inp('dip', it.dip, 'min="1" max="90"')}</div><div class="f"><span>Dip direction (°)</span>${inp('dipdir', it.dipdir)}</div></div>` +
+      (it.shape !== 'polygon' ? `<div class="row"><button class="btn sm" data-act="to-poly" title="Its outline as a polygon: then its vertices can move one by one">Make it a polygon</button></div>` : '') +
+      propsTable(it, '');
+  } else {
+    h += `<div class="row"><div class="f"><span>Outline</span><select data-f="shape"><option value="all"${it.shape === 'all' ? ' selected' : ''}>everywhere</option>` +
+      `<option value="box"${it.shape === 'box' ? ' selected' : ''}>a box</option><option value="polygon"${it.shape === 'polygon' ? ' selected' : ''}>a polygon</option></select></div>${ref}` +
+      `<div class="f"><span>Top (m)</span>${inp('top', it.top)}</div></div>` +
+      (it.shape === 'box' ? `<div class="row"><div class="f"><span>West (km)</span>${inp('box.0', km(it.box?.[0]))}</div><div class="f"><span>East</span>${inp('box.1', km(it.box?.[1]))}</div><div class="f"><span>South</span>${inp('box.2', km(it.box?.[2]))}</div><div class="f"><span>North</span>${inp('box.3', km(it.box?.[3]))}</div></div>` : '') +
+      `<div class="row"><div class="f"><span>Dip (°)</span>${inp('dip', it.dip, 'min="0" max="89"')}</div><div class="f"><span>Dip direction (°)</span>${inp('dipdir', it.dipdir)}</div>` +
+      `<div class="f"><span>About E (km)</span>${inp('origin.0', km(it.origin?.[0]))}</div><div class="f"><span>About N (km)</span>${inp('origin.1', km(it.origin?.[1]))}</div></div>` +
+      `<table class="props"><thead><tr><th>layer</th><th>thickness (m)</th>${Object.values(PROPS).map(P => `<th>${P.label.slice(0, 7)}. ${P.unit}</th>`).join('')}</tr></thead><tbody>` +
+      it.layers.map((l, j) => `<tr${j === selLayer ? ' style="background:var(--bg3)"' : ''}><td><input type="text" data-f="layers.${j}.name" value="${esc(l.name)}" style="width:72px"></td>` +
+        `<td>${inp(`layers.${j}.thickness`, l.thickness, j === it.layers.length - 1 ? 'placeholder="to floor"' : 'min="0"')}</td>` +
+        Object.keys(PROPS).map(p => `<td>${inp(`layers.${j}.props.${p}.value`, l.props?.[p]?.value)}</td>`).join('') + '</tr>').join('') +
+      `</tbody></table><div class="row" style="margin-top:6px"><button class="btn sm" data-act="add-layer">＋ Layer below</button>` +
+      (selLayer >= 0 ? `<button class="btn sm" data-act="del-layer">Delete ${esc(it.layers[selLayer].name)}</button>` : '') + '</div>' +
+      (selLayer >= 0 ? `<div class="note" style="margin:6px 0 4px"><b>${esc(it.layers[selLayer].name)}</b>: ranges and weight</div>` + propsTable(it.layers[selLayer], `layers.${selLayer}.`) :
+        '<div class="note">Click a layer (in the view or the list) for its ranges and weight.</div>');
+  }
+  F.innerHTML = h;
+}
+function setPath(obj, path, val) {
+  const ks = path.split('.'); let o = obj;
+  for (let i = 0; i < ks.length - 1; i++) {const k = ks[i]; if (o[k] == null) o[k] = /^\d+$/.test(ks[i + 1]) ? [] : {}; o = o[k];}
+  o[ks[ks.length - 1]] = val;
+}
+const KM_FIELDS = /^(box\.\d|cyl\.[xyr]|origin\.\d)$/;
+$('form').addEventListener('change', ev => {
+  const el = ev.target, f = el.dataset.f, it = cur(); if (!f || !it) return;
+  let v;
+  if (el.type === 'checkbox') v = el.checked;
+  else if (el.type === 'number') {v = num(el.value); if (v != null && KM_FIELDS.test(f)) v = r1(v * 1000);}
+  else v = el.value;
+  if (f === 'name') v = unique(String(v).trim() || it.name, it);
+  if (/^layers\.\d+\.name$/.test(f)) v = unique(String(v).trim() || 'layer', it.layers[+f.split('.')[1]]);
+  if (f === 'shape' && it.kind === 'layers') {
+    if (v === 'box' && !it.box) {const m = middle(0.3); it.box = [r1(m.cx - m.hw), r1(m.cx + m.hw), r1(m.cy - m.hh), r1(m.cy + m.hh)];}
+    if (v === 'polygon' && !(it.poly && it.poly.length >= 3)) {const r = (it.box ? ring({shape: 'box', box: it.box}) : extentRing()); it.poly = r.map(q => [...q]);}
+  }
+  if (/thickness$/.test(f) && v != null && v < 0) v = 0;
+  setPath(it, f, v);
+  commit('Edited'); drawModel(); renderList(); renderForm();
+});
+$('form').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-act]'); if (!b) return;
+  const it = cur(); if (!it) return;
+  if (b.dataset.act === 'to-poly') {it.poly = ring(it).map(q => [r1(q[0]), r1(q[1])]); it.shape = 'polygon'; delete it.box; delete it.cyl; commit('Made a polygon'); setMode('verts'); renderForm();}
+  if (b.dataset.act === 'add-layer') {
+    const last = it.layers[it.layers.length - 1];
+    if (last.thickness == null || last.thickness === '') last.thickness = Math.round(M.depth * 0.1);
+    it.layers.push({name: nextName('L', [], ''), thickness: null, props: blankProps(false), weight: 5, fixed: false, sharp: false});
+    commit('Added a layer'); select(sel, it.layers.length - 1);
+  }
+  if (b.dataset.act === 'del-layer') delSelected();
+});
+
+// ── Everywhere else ──
+function renderFree() {
+  const f = M.builder.free;
+  $('free').innerHTML =
+    `<table class="props"><thead><tr><th></th><th>value</th><th>lower</th><th>upper</th></tr></thead><tbody>` +
+    `<tr><td>Density <span class="note">g/cc</span></td><td>${inp('density.value', f.density.value)}</td><td>${inp('density.lower', f.density.lower, 'placeholder="none"')}</td><td>${inp('density.upper', f.density.upper, 'placeholder="none"')}</td></tr>` +
+    `<tr><td>Susceptibility <span class="note">SI</span></td><td class="note">0</td><td>${inp('susceptibility.lower', f.susceptibility.lower, 'placeholder="none"')}</td><td>${inp('susceptibility.upper', f.susceptibility.upper, 'placeholder="none"')}</td></tr>` +
+    `<tr><td>Resistivity <span class="note">Ω·m</span></td><td>${inp('resistivity.value', f.resistivity.value, 'placeholder="the job’s"')}</td><td>${inp('resistivity.lower', f.resistivity.lower, 'placeholder="none"')}</td><td>${inp('resistivity.upper', f.resistivity.upper, 'placeholder="none"')}</td></tr>` +
+    `</tbody></table><div class="note">Density: the background the inversion's contrasts are relative to (the Bouguer reduction density). ` +
+    `Cells no unit reaches keep the job's settings, within these bounds.</div>`;
+}
+$('free').addEventListener('change', ev => {
+  const f = ev.target.dataset.f; if (!f) return;
+  setPath(M.builder.free, f, num(ev.target.value)); commit('Edited the background');
+});
+
+// ── Area and settings ──
+function renderSettings() {
+  $('m-name').value = M.name;
+  [['e-w', 0], ['e-e', 1], ['e-s', 2], ['e-n', 3]].forEach(([id, i]) => {$(id).value = km(M.extent[i]);});
+  $('e-ground').value = M.ground; $('e-depth').value = M.depth; $('e-ve').value = M.ve; $('e-crs').value = M.crs || '';
+}
+['e-w', 'e-e', 'e-s', 'e-n', 'e-ground', 'e-depth', 'e-ve', 'e-crs'].forEach(id => $(id).addEventListener('change', () => {
+  const ext = ['e-w', 'e-e', 'e-s', 'e-n'].map(i => num($(i).value));
+  if (ext.every(v => v != null) && ext[0] < ext[1] && ext[2] < ext[3]) M.extent = ext.map(v => r1(v * 1000));
+  else say('The area needs west < east and south < north', 'warn');
+  const g = num($('e-ground').value), d = num($('e-depth').value), ve = num($('e-ve').value);
+  if (g != null) {M.ground = g; M.builder.ground = g;}
+  if (d != null && d > 0) M.depth = d;
+  if (ve != null && ve > 0) M.ve = ve;
+  M.crs = $('e-crs').value.trim();
+  commit('Changed the area'); renderSettings(); drawFrame(); drawModel(); if (id !== 'e-ve' && id !== 'e-crs') setView('3d');
+}));
+$('m-name').addEventListener('change', () => {M.name = $('m-name').value.trim() || 'Untitled model'; commit('Renamed');});
+
+// ── Undo / redo ──
+const undo = [], redo = [];
+const snap = () => JSON.stringify({...M, id: undefined});
+let last = snap();
+function commit(what) {
+  const s = snap(); if (s === last) return;
+  undo.push(last); if (undo.length > 200) undo.shift(); redo.length = 0; last = s;
+  setDirty(true); if (what) say(what);
+}
+function restore(s) {
+  const id = M.id; M = JSON.parse(s); M.id = id; last = s;
+  if (sel >= items().length) sel = -1; selLayer = -1;
+  renderSettings(); renderFree(); drawFrame(); drawModel(); renderList(); renderForm(); setDirty(true);
+}
+function doUndo() {if (undo.length) {redo.push(last); restore(undo.pop()); say('Undone');}}
+function doRedo() {if (redo.length) {undo.push(last); restore(redo.pop()); say('Redone');}}
+window.addEventListener('keydown', ev => {
+  const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '');
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z' && !typing) {ev.preventDefault(); ev.shiftKey ? doRedo() : doUndo(); return;}
+  if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') {ev.preventDefault(); save(false); return;}
+  if (typing) return;
+  if (ev.key === 'Escape' && drawing) finishDrawing(true);
+  else if (ev.key === 'Enter' && drawing) finishDrawing();
+  else if ((ev.key === 'Delete' || ev.key === 'Backspace') && sel >= 0) delSelected();
+  else if (ev.key === 'g' || ev.key === 'G') setMode('translate');
+  else if (ev.key === 's' || ev.key === 'S') setMode('scale');
+  else if (ev.key === 'v' || ev.key === 'V') setMode(mode === 'verts' ? 'translate' : 'verts');
+});
+
+// ── Saving, opening ──
+function setDirty(d) {dirty = d; $('m-dirty').textContent = d ? '•' : ''; document.title = `${d ? '• ' : ''}${M.name} — Model builder`;}
+function say(text, cls = '') {$('msg').innerHTML = `<span class="${cls}">${esc(text)}</span>`;}
+const payload = () => ({name: M.name, crs: M.crs, extent: M.extent, ground: M.ground, depth: M.depth, ve: M.ve,
+  builder: {...M.builder, version: 2, ground: M.ground}});
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, {headers: {'Content-Type': 'application/json'}, ...opts});
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.ok === false) throw new Error(d.detail || `HTTP ${r.status}`);
+  return d;
+}
+async function save(asNew) {
+  try {
+    if (asNew) {const n = prompt('Name of the copy', `${M.name} (copy)`); if (n == null) return false; M.name = n.trim() || M.name; renderSettings();}
+    const d = M.id && !asNew ? await api(`/api/models/${M.id}`, {method: 'PUT', body: JSON.stringify(payload())})
+      : await api('/api/models', {method: 'POST', body: JSON.stringify(payload())});
+    M.id = d.id; setDirty(false); history.replaceState(null, '', `?id=${d.id}`);
+    say(`Saved “${d.name}”`); return true;
+  } catch (e) {say(`Could not save: ${e.message}`, 'err'); return false;}
+}
+function load(d) {
+  M = {...blankModel(), ...d};
+  M.builder = {...blankModel().builder, ...(d.builder || {})};
+  M.builder.free = {...blankModel().builder.free, ...(d.builder?.free || {})};
+  if (!Array.isArray(M.extent) || M.extent.length !== 4) M.extent = guessExtent(M.builder.items) || blankModel().extent;
+  if (d.ground == null && d.builder?.ground != null) M.ground = +d.builder.ground;
+  sel = -1; selLayer = -1; undo.length = 0; redo.length = 0; last = snap();
+  seq = M.builder.items.length;
+  renderSettings(); renderFree(); drawFrame(); drawModel(); renderList(); renderForm(); setView('3d'); setDirty(false);
+}
+function guessExtent(list) {   // the bodies' outlines, widened (a model from the upload page has no area)
+  const pts = [];
+  for (const it of list || []) {const r = ring(it); if (r) pts.push(...r); if (it.origin) pts.push(it.origin);}
+  if (!pts.length) return null;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const w = Math.min(...xs), e = Math.max(...xs), s = Math.min(...ys), n = Math.max(...ys), pad = Math.max(e - w, n - s, 1000) * 0.5;
+  return [w - pad, e + pad, s - pad, n + pad].map(v => Math.round(v));
+}
+async function openModel(id) {
+  try {const d = await api(`/api/models/${id}`); load(d); M.id = d.id; history.replaceState(null, '', `?id=${d.id}`); say(`Opened “${d.name}”`);}
+  catch (e) {say(`Could not open the model: ${e.message}`, 'err');}
+}
+$('b-save').addEventListener('click', () => save(false));
+$('b-saveas').addEventListener('click', () => save(true));
+$('b-new').addEventListener('click', () => {
+  if (dirty && !confirm('Discard the changes to this model?')) return;
+  load(blankModel()); history.replaceState(null, '', location.pathname); say('A new model');
+});
+$('b-open').addEventListener('click', async () => {
+  $('open-dlg').hidden = false; $('open-list').textContent = 'Loading…';
+  try {
+    const d = await api('/api/models');
+    const when = t => t ? new Date(t).toLocaleString() : '';
+    $('open-list').innerHTML = d.models.length ? `<table class="mtab"><thead><tr><th>Name</th><th>Bodies / stacks</th><th>Saved</th><th></th></tr></thead><tbody>` +
+      d.models.map(m => `<tr><td><a href="#" data-open="${m.id}">${esc(m.name)}</a></td><td>${m.n_bodies} / ${m.n_stacks}</td><td>${esc(when(m.updated_at))}</td>` +
+        `<td><button class="btn sm" data-del="${m.id}" data-name="${esc(m.name)}">Delete</button></td></tr>`).join('') + '</tbody></table>'
+      : 'No saved models yet.';
+  } catch (e) {$('open-list').innerHTML = `<span class="err">${esc(e.message)}</span>`;}
+});
+$('open-close').addEventListener('click', () => {$('open-dlg').hidden = true;});
+$('open-list').addEventListener('click', async ev => {
+  const o = ev.target.closest('[data-open]'), d = ev.target.closest('[data-del]');
+  if (o) {ev.preventDefault(); if (dirty && !confirm('Discard the changes to this model?')) return; $('open-dlg').hidden = true; openModel(o.dataset.open);}
+  if (d && confirm(`Delete “${d.dataset.name}”? (It is kept in the models folder's “deleted” folder.)`)) {
+    try {await api(`/api/models/${d.dataset.del}`, {method: 'DELETE'}); d.closest('tr').remove(); if (M.id === d.dataset.del) {M.id = null; setDirty(true);}}
+    catch (e) {say(e.message, 'err');}
+  }
+});
+$('b-export').addEventListener('click', () => {
+  // the upload page's model step takes it as it takes its own "⤓ Save model" (builder version 2)
+  const out = {property: 'density', units: {}, sources: [], geoinv3d_model: 1, ...payload()};
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], {type: 'application/json'}));
+  a.download = `${(M.name || 'model').replace(/[^A-Za-z0-9._-]+/g, '_')}.geoinv3d_model.json`;
+  document.body.appendChild(a); a.click(); setTimeout(() => {URL.revokeObjectURL(a.href); a.remove();}, 0);
+});
+$('b-import').addEventListener('click', () => $('f-import').click());
+$('f-import').addEventListener('change', async ev => {
+  const f = ev.target.files[0]; ev.target.value = ''; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!d.builder || !Array.isArray(d.builder.items)) throw new Error('no model in it (a "builder" with "items")');
+    if (dirty && !confirm('Replace the model on screen?')) return;
+    load({...d, id: null, name: d.name || f.name.replace(/\.json$/i, '')}); setDirty(true);
+    say(`Imported ${f.name}: ${d.builder.items.length} items — save it to keep it`);
+  } catch (e) {say(`Could not import ${f.name}: ${e.message}`, 'err');}
+});
+$('b-use').addEventListener('click', async () => {
+  if (!items().length) {say('Add a body or a layer stack first', 'warn'); return;}
+  if (dirty || !M.id) {if (!(await save(false))) return;}
+  location.href = `/?model=${M.id}`;
+});
+window.addEventListener('beforeunload', ev => {if (dirty) {ev.preventDefault(); ev.returnValue = '';}});
+
+// for checks from the console: the model as it stands (a copy)
+window.GeoModel = {get model() {return JSON.parse(JSON.stringify(M));}, get selected() {return [sel, selLayer];}};
+
+// ── Start ──
+const id = new URLSearchParams(location.search).get('id');
+load(blankModel());
+setMode('translate');
+if (id) openModel(id); else say('A new model: add a box, a cylinder, a polygon or a layer stack, then drag it in the view.');
+</script>
+</body>
+</html>

@@ -2350,3 +2350,32 @@ Memory: SimPEG keeps every frequency's factorization (`Ainv`) unless `forward_on
 frequencies of a 150,000-cell OcTree did not fit 64 GB.  One at a time: 15 GB and 80 s per
 frequency (m5.4xlarge, 150,476 cells), 23 GB and 160 s (221,184-cell tensor).  For inversions
 this is step 5 (frequencies one at a time, or in parallel).
+
+## 2026-10-07 — A 3D model builder of its own page
+
+Modelling now has its own page, `/model` (`geoinv3d/viz/model_builder.html`, three.js 0.160 from
+jsDelivr): a geological model in 3D, edited with the mouse, saved on the server, and opened by
+the upload page's model step as an inversion's constraints.  It keeps the model step's format
+(`builder` version 2: bodies — box, cylinder or polygon between two depths or elevations,
+straight down or dipping — and layer stacks, everywhere or inside an outline, their interfaces
+tilted; each part with a density, susceptibility and/or resistivity, its range, weight, fixed and
+sharp), so nothing changed downstream: the upload page turns it into the spec of
+`geoinv3d/methods/geology.py` (reference model, bounds, smallness weights by volume share) as
+before.  This is MARE2DEM's separation of the model (its .poly regions) from the meshes it is
+put on, in 3D.
+
+The page: the area (extent, ground, depth shown, vertical exaggeration, CRS); bodies and stacks
+added, drawn (a polygon clicked on the ground in plan view), moved and lifted with a gizmo,
+boxes and cylinders resized, polygon vertices dragged, inserted, deleted; dip and dip direction;
+a values table per body and per layer; the background ("everywhere else"); colour by unit or
+by a property (resistivity on a log scale) with a colour bar; plan, south and east views; a
+west–east or south–north section (clipping); undo / redo; save, save as, open, delete; JSON out
+and in (the model step's own ⤓ Save model files too).  "Use in an inversion" saves and opens
+the upload page with `?model=<id>`, whose model step takes the model; the step also lists the
+saved models ("From the model builder…").
+
+Server: `GET /model`; `GET/POST /api/models`, `GET/PUT/DELETE /api/models/{id}`, the models in
+`~/.geoinv3d/models` (`GEOINV3D_MODELS_DIR`); a deleted model goes to its `deleted` folder.
+
+Next: forward data from a model (gravity, magnetics, DC, MT on the job's mesh), so that a model
+built here also makes synthetic surveys.
