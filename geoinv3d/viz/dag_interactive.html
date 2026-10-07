@@ -265,46 +265,13 @@ svg#dag:active{cursor:grabbing;}
 .up-check.ok{border-left-color:#3f9b6b;}
 .up-check b{color:var(--text);}
 .up-check .up-en{display:block;margin-top:3px;}
-/* the starting / reference model builder (Inversion step) */
+/* the starting / reference model: the 3D builder in a frame (Model step) */
 .mb-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;}
 .mb-bar .up-btn.on{border-color:var(--accent);color:var(--accent2);}
-.mb-grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;}
-@media (max-width:900px){.mb-grid{grid-template-columns:1fr;}}
-.mb-map{height:500px;border:1px solid var(--border);border-radius:4px;}
-.mb-map.drawing{cursor:crosshair;}
-.mb-sec{height:340px;border:1px solid var(--border);border-radius:4px;margin-top:6px;}
-.mb-secbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--text2);}
-.mb-secbar select.up-in-sm{width:auto;}
-.mb-secbar input.up-in-sm{width:96px;}
-.mb-secbar label{display:inline-flex;align-items:center;gap:4px;cursor:pointer;}
-.mb-list{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;}
-.mb-item{display:flex;align-items:center;gap:6px;padding:5px 7px;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:12px;}
-.mb-item.sel{border-color:var(--accent);background:var(--bg3);}
-.mb-item .sw{width:10px;height:10px;border-radius:2px;flex:none;}
-.mb-item .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
-.mb-item .x{background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;padding:0 2px;}
-.mb-item .x:hover{color:var(--text);}
-.mb-form{border-top:1px solid var(--border);padding-top:8px;}
-.mb-form textarea,.mb-paste textarea{width:100%;min-height:70px;font:11px monospace;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;box-sizing:border-box;}
-.mb-form .mb-prop{border:1px solid var(--border);border-radius:4px;padding:6px 8px 2px;margin:6px 0;}
-.mb-form .mb-prop legend{font-size:11px;color:var(--text2);padding:0 4px;}
 .mb-checks{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;margin:4px 0 6px;}
 .mb-checks label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
-.mb-layers{margin-top:12px;}
-.mb-layers-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
-.mb-tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:4px;}
-.mb-tbl{border-collapse:collapse;width:100%;font-size:12px;}
-.mb-tbl th{font-weight:500;color:var(--text2);text-align:left;padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg2);}
-.mb-tbl td{padding:3px 4px;border-bottom:1px solid var(--border);white-space:nowrap;}
-.mb-tbl tr.thin td.th-cell input{border-color:var(--accent);}
-.mb-tbl input[type=text],.mb-tbl input[type=number]{width:74px;padding:3px 5px;font-size:12px;background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:3px;}
-.mb-tbl input.nm{width:110px;}
-.mb-tbl .ro{color:var(--text3);font-variant-numeric:tabular-nums;}
-.mb-tbl .sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:middle;}
-.mb-paste{margin:6px 0 10px;}
-.mb-warn{font-size:12px;color:var(--warn);margin:6px 0;}
-.mb-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;margin-top:16px;align-items:start;}
-@media (max-width:900px){.mb-bottom{grid-template-columns:1fr;}}
+.mb-frame{display:block;width:100%;height:min(80vh,780px);border:1px solid var(--border);border-radius:8px;background:#fff;margin-top:8px;}
+.mb-bottom{margin-top:12px;}
 .mb-files{margin-top:2px;}
 .mb-pgi{min-height:74px;font:11.5px monospace;resize:vertical;}
 #up-coupling{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border);}
@@ -879,40 +846,15 @@ svg#dag:active{cursor:grabbing;}
         <div class="up-pane" data-pane="4" hidden>
           <section class="up-sec" id="up-geo-sec">
             <div class="up-sec-h">Starting &amp; reference model<span class="up-hint">optional — skip it for a free inversion</span></div>
-            <p class="up-sec-p">Build what you know of the subsurface: bodies drawn on the data map, layer stacks typed or pasted, rock samples and boreholes from files. Each part carries a density, susceptibility and/or resistivity; every job gets the part of the model its data are about. The inversion starts from it and is pulled towards it — the data still decide.</p>
+            <p class="up-sec-p">Build what you know of the subsurface in 3D, over the data (shown on the ground): bodies, layer stacks and boreholes logged by depth, or a model saved in the builder (Open…). Each part carries a density, susceptibility and/or resistivity; every job gets the part of the model its data are about. The inversion starts from it and is pulled towards it — the data still decide.</p>
             <div class="up-card">
               <div class="mb-bar">
-                <button type="button" class="up-btn up-btn-sm" id="mb-draw" title="Click the map to place vertices; double-click (or click the first one) to close; Esc cancels">✎ Draw a body</button>
-                <button type="button" class="up-btn up-btn-sm" id="mb-add-box">＋ Box</button>
-                <button type="button" class="up-btn up-btn-sm" id="mb-add-cyl">＋ Cylinder</button>
-                <button type="button" class="up-btn up-btn-sm" id="mb-add-layers" title="Layers with thicknesses and values, everywhere or inside an outline">≡ ＋ Layers</button>
-                <button type="button" class="up-btn up-btn-sm" id="mb-save" title="The model as a JSON spec: drop it here again to go on editing">⤓ Save model</button>
-                <select id="mb-from" class="up-in up-in-sm" style="width:auto" title="A model built in the 3D model builder: its bodies and layers are added here"><option value="">From the model builder…</option></select>
+                <button type="button" class="up-btn up-btn-sm" id="mb-save" title="The model as a JSON spec (constraints of each property): drop it here again, or import it in the builder">⤓ Save model</button>
+                <a class="up-btn up-btn-sm" href="/model" target="_blank" title="The model builder on a page of its own, for models kept on the server">◇ Builder on its own page ↗</a>
                 <span class="up-hint" id="mb-hint"></span>
               </div>
-              <div class="mb-grid">
-                <div class="mb-plots">
-                  <div id="mb-map" class="mb-map"></div>
-                  <div class="mb-secbar">Section
-                    <select id="mb-sec-dir" class="up-in up-in-sm"><option value="ew">west–east</option><option value="ns">south–north</option></select>
-                    at <input id="mb-sec-at" type="number" step="any" class="up-in up-in-sm"> km
-                    <select id="mb-sec-prop" class="up-in up-in-sm" title="The property the section is coloured by"></select>
-                    <label title="Depth on a log scale: thin shallow layers get room"><input type="checkbox" id="mb-sec-log"> log depth</label>
-                    <span class="up-hint">Shift-click the map to move it; scroll to zoom</span></div>
-                  <div id="mb-sec" class="mb-sec"></div>
-                </div>
-                <div class="mb-side">
-                  <div class="up-grp">Bodies and layers <span class="up-hint">later ones win where they overlap</span></div>
-                  <div id="mb-list" class="mb-list"></div>
-                  <div id="mb-form"></div>
-                </div>
-              </div>
-              <div id="mb-layers" class="mb-layers" hidden></div>
+              <iframe id="mb-frame" class="mb-frame" title="3D model builder"></iframe>
               <div class="mb-bottom">
-                <div>
-                  <div class="up-grp">Everywhere else</div>
-                  <div id="mb-free"></div>
-                </div>
                 <div>
                   <details class="mb-files">
                 <summary>Rock samples, boreholes and map polygons from files</summary>
@@ -926,7 +868,7 @@ svg#dag:active{cursor:grabbing;}
               </details>
                 </div>
               </div>
-              <div class="up-note">Like the regions of MARE2DEM's model builder, in 3D. A <b>body</b> is an outline on the map extruded between two depths below the ground (or two elevations), straight down or dipping; a <b>layer stack</b> is a list of thicknesses, everywhere or inside an outline, its interfaces flat or tilted. Each carries a value per property of the loaded data — density (entered as rock density, inverted as the contrast to the reduction density), susceptibility, resistivity (Ω·m, inverted as log conductivity) — with a range and a weight. The inversion starts from this model, is pulled towards it (more strongly for a larger weight; <i>fixed</i> hardly moves) and keeps each part within its range; elsewhere the model is free. <i>Sharp</i> relaxes the smoothing across a part's boundaries so the model may jump there (like ModEM's covariance "tears"). Layers or bodies thinner than the mesh cells are mixed into them by volume, so none is lost; finer cells resolve them. The data still decide: compare the misfit with and without the model. Files are optional: whatever they are missing is left out, with a note in the result. See docs/geology_constraints.md.</div>
+              <div class="up-note">Like the regions of MARE2DEM's model builder, in 3D. A <b>body</b> is an outline extruded between two depths below the ground (or two elevations), straight down or dipping; a <b>layer stack</b> is a list of thicknesses, everywhere or inside an outline, its interfaces flat or tilted; a <b>borehole</b> is logged in depth intervals, each with its values, put into the cells it passes through (and, with a reach, partly into those around it). Each part carries a value per property — density (entered as rock density, inverted as the contrast to the reduction density), susceptibility, resistivity (Ω·m, inverted as log conductivity) — with a range and a weight. The inversion starts from this model, is pulled towards it (more strongly for a larger weight; <i>fixed</i> hardly moves) and keeps each part within its range; elsewhere the model is free. <i>Sharp</i> relaxes the smoothing across a part's boundaries so the model may jump there (like ModEM's covariance "tears"). Parts thinner than the mesh cells are mixed into them by volume, so none is lost. The data still decide: compare the misfit with and without the model. Files (rock samples, boreholes, map polygons) are optional; whatever they are missing is left out, with a note in the result. See docs/geology_constraints.md.</div>
             </div>
           </section>
         </div>
@@ -5666,7 +5608,8 @@ window.GeoPreview=GeoPreview;
     try{
       if(!geoRest.has(js)){
         const spec=JSON.parse(await js.text());
-        if(!spec||typeof spec.units!=='object'||!Object.keys(spec.units).length)throw new Error('it has no "units" table');
+        const built=spec&&spec.builder&&Array.isArray(spec.builder.items);     // a model of the builder
+        if(!spec||(!built&&(typeof spec.units!=='object'||!spec.units||!Object.keys(spec.units).length)))throw new Error('it has no "units" table (nor a model of the builder)');
         geoRest.set(js,mbImport(spec));
       }
       geoSpec=geoRest.get(js);
@@ -5711,8 +5654,9 @@ window.GeoPreview=GeoPreview;
     geoFiles.splice(+b.dataset.act.slice(3),1); await readGeoSpec(); renderGeo();
   });
 
-  // ══ Model builder: bodies and layer stacks, drawn or typed — MARE2DEM's regions, in 3D ══
-  // MB.items, in order (later ones win where they overlap):
+  // ══ The model: the 3D model builder (/model) in this step — MARE2DEM's regions, in 3D ══
+  // The editor is the builder's page in a frame (?embed=1); MB holds what it sends back, and the
+  // specs of the jobs come from MB below.  MB.items, in order (later ones win where they overlap):
   //   body    an outline (polygon, box or cylinder; metres of the job's frame) between `top`
   //           and `bottom` (m below the ground, or elevations when ref='elevation'), straight
   //           down or dipping (`dip` from horizontal towards `dipdir`: the outline moves down-dip)
@@ -5728,8 +5672,7 @@ window.GeoPreview=GeoPreview;
   // sharp, holes:[{name, x, y, collar (elevation; empty: on the ground), azimuth, dip (from
   // horizontal; 90: down), intervals:[{from, to, lithology, props:{p:{value,lower,upper}}}]}]}):
   // kept apart from the editor's items, each interval with a value a unit of a "boreholes" source
-  const MB={items:[],holes:[],sel:-1,drawing:null,drawFor:null,secAt:null,seq:0,layerSeq:0,timer:null,
-    paste:false,secProp:null,ground:0,
+  const MB={items:[],holes:[],seq:0,layerSeq:0,ground:0,name:'',
     free:{density:{value:2.67,lower:null,upper:null},susceptibility:{lower:null,upper:null},
           resistivity:{value:null,lower:null,upper:null,mixing:'log'}}};
   const MB_COLORS=[TH.accent2,'#1e88e5','#43a047','#E57373','#BA68C8','#4DD0E1','#FFD54F','#A1887F'];
@@ -5749,11 +5692,6 @@ window.GeoPreview=GeoPreview;
   const mbHas=(p,v)=>!!v&&mbNum(v.value)!=null&&(p!=='resistivity'||+v.value>0);
   const mbFmt=(p,v)=>mbNum(v)==null?'free':`${+(+v).toPrecision(4)} ${MB_P[p].unit}`;
   const mbWindow=()=>analysis&&analysis.extent?windowRect():null;
-  let mbDzCache=null;
-  function mbDz(){   // the mesh's vertical core cell and core depth (m), when the mesh step is valid
-    try{const m=meshParams();mbDzCache={dz:m.core_cell_z_m,core:m.depth_core_m};}catch(e){/* keep the last */}
-    return mbDzCache||{dz:null,core:5000};
-  }
 
   // ── Geometry ──
   function mbRing(it){
@@ -5799,28 +5737,6 @@ window.GeoPreview=GeoPreview;
     const names=mbNames(skip).concat(extra); let n=name,k=2;
     while(names.includes(n))n=`${name} (${k++})`;
     return n;
-  }
-
-  // ── New items ──
-  function mbNewProps(layer){
-    const o={};
-    for(const p of mbProps())o[p]={value:layer?null:p==='density'?+(mbBg()+0.3).toFixed(2):MB_P[p].def,lower:null,upper:null};
-    return o;
-  }
-  function mbNewLayer(thickness,name,taken=[]){
-    const n=mbUnique(name||`L${++MB.layerSeq}`,null,taken);
-    return {name:n,thickness,props:mbNewProps(true),weight:5,fixed:false,sharp:false};
-  }
-  function mbAdd(it){MB.items.push(it);MB.sel=MB.items.length-1;MB.secAt=null;mbRender(true);}
-  function mbAddBody(geom){
-    mbAdd({kind:'body',name:mbUnique(geom.name||`Body ${++MB.seq}`),ref:'depth',top:0,bottom:2000,dip:90,dipdir:90,
-      props:mbNewProps(false),weight:10,fixed:false,sharp:false,...geom});
-  }
-  function mbAddStack(){
-    const w=mbWindow(), taken=[];
-    const layers=[100,200,null].map(t=>{const l=mbNewLayer(t,null,taken);taken.push(l.name);return l;});
-    mbAdd({kind:'layers',name:`Layers ${++MB.seq}`,shape:'all',ref:'depth',top:0,dip:0,dipdir:90,
-      origin:w?[Math.round((w[0]+w[1])/2),Math.round((w[2]+w[3])/2)]:[0,0],layers});
   }
 
   // ── The spec of one property ──
@@ -5968,77 +5884,82 @@ window.GeoPreview=GeoPreview;
     return keep.length?rest:null;
   }
 
-  // ── Drawing on the map ──
-  function mbXY(ev){
-    const el=$u('mb-map'), fl=el._fullLayout; if(!fl||!fl.xaxis)return null;
-    const rc=el.getBoundingClientRect(), xa=fl.xaxis, ya=fl.yaxis;
-    const px=ev.clientX-rc.left-xa._offset, py=ev.clientY-rc.top-ya._offset;
-    if(px<0||py<0||px>xa._length||py>ya._length)return null;
-    return {x:xa.p2l(px)*1000,y:ya.p2l(py)*1000,px,py};
-  }
-  function mbStartDrawing(forItem){
-    MB.drawing=[]; MB.drawFor=forItem||null;
-    $u('mb-draw').classList.add('on'); $u('mb-map').classList.add('drawing'); mbHint(); mbRender();
-  }
-  function mbFinishDrawing(){
-    const v=MB.drawing, target=MB.drawFor;
-    MB.drawing=null; MB.drawFor=null; $u('mb-draw').classList.remove('on'); $u('mb-map').classList.remove('drawing');
-    if(v&&v.length>=3){
-      if(target&&MB.items.includes(target)){target.shape='polygon';target.poly=v;MB.sel=MB.items.indexOf(target);mbRender(true);}
-      else mbAddBody({shape:'polygon',poly:v});
-    }else{   // cancelled: a stack that had no outline yet stays everywhere
-      if(target&&target.shape==='polygon'&&!(target.poly&&target.poly.length>=3))target.shape='all';
-      mbRender(true);
-    }
-    mbHint();
-  }
-  function mbHint(){
-    const s=selection(), joint=s&&(s.gl||s.mode==='joint');
-    $u('mb-hint').textContent=MB.drawing?`Drawing${MB.drawFor?` the outline of ${MB.drawFor.name}`:''}: ${MB.drawing.length} point${MB.drawing.length===1?'':'s'} — double-click or click the first point to close, Esc to cancel`
-      :joint&&(MB.items.length||MB.holes.length)?'⚠ A joint inversion does not use the model yet: pick single (or separate) inversions'
-      :MB.items.length?'Click a body to edit it; Shift-click moves the section':'';
-    const nh=MB.holes.reduce((a,bs)=>a+(bs.holes||[]).length,0);
-    if(nh&&!MB.drawing)$u('mb-hint').textContent+=`${MB.items.length?' · ':''}${nh} borehole${nh===1?'':'s'} from the model builder `+
-      `(${MB.holes.map(b=>b.name).join(', ')}): their logged intervals constrain the cells they pass through — edit them there`;
-  }
-  function mbWire(){
-    const el=$u('mb-map'); if(el._mbWired)return; el._mbWired=true;
-    el.addEventListener('click',ev=>{
-      const p=mbXY(ev); if(!p)return;
-      if(MB.drawing){
-        const v=MB.drawing, fl=el._fullLayout;
-        if(v.length>=3){   // clicking near the first vertex closes the outline
-          const fx=fl.xaxis.l2p(v[0][0]/1000), fy=fl.yaxis.l2p(v[0][1]/1000);
-          if(Math.hypot(fx-p.px,fy-p.py)<9){mbFinishDrawing();return;}
+
+  // ── The editor: the builder's page in a frame. It gets the area (the data window), the
+  // ground, the CRS and the data (points on its ground), and sends the model back at every
+  // change ("geoinv3d:model"); a model from elsewhere (a setup, a dropped spec, ?model=<id>)
+  // goes to it ("geoinv3d:load") ──
+  let mbReady=false, mbCtxKey='';
+  const mbFrame=()=>$u('mb-frame');
+  function mbPost(msg){const w=mbFrame()&&mbFrame().contentWindow; if(w&&mbReady)w.postMessage(msg,location.origin);}
+  const mbModelMsg=()=>({type:'geoinv3d:load',model:{name:MB.name||undefined,
+    builder:JSON.parse(JSON.stringify({version:2,items:MB.items.concat(MB.holes),free:MB.free,ground:MB.ground}))}});
+  function mbData(){   // the loaded data as points, a few thousand per data type
+    const out=[], s=selection();
+    if(!analysis||!s)return out;
+    for(const t of s.types){
+      const rows=analysis.rows.filter(r=>r.t===t&&r.prev&&!r.prev.error);
+      if(!rows.length)continue;
+      const xs=[],ys=[],vs=[];
+      for(const r of rows){
+        const p=r.prev;
+        if(p.kind==='grid'){
+          const sx=Math.max(1,Math.ceil(p.px.length/150)), sy=Math.max(1,Math.ceil(p.py.length/150));
+          for(let j=0;j<p.py.length;j+=sy)for(let i=0;i<p.px.length;i+=sx){const v=p.z[j][i];if(Number.isFinite(v)){xs.push(p.px[i]);ys.push(p.py[j]);vs.push(v);}}
+        }else{
+          const k=Math.max(1,Math.ceil(p.xs.length/20000));
+          for(let i=0;i<p.xs.length;i+=k){xs.push(+p.xs[i]);ys.push(+p.ys[i]);vs.push(p.vs&&Number.isFinite(p.vs[i])?+p.vs[i]:NaN);}
         }
-        v.push([p.x,p.y]); mbRender(); mbHint(); return;
       }
-      if(ev.shiftKey){MB.secAt=$u('mb-sec-dir').value==='ew'?p.y:p.x;mbRenderSection();mbRender();return;}
-      for(let j=MB.items.length-1;j>=0;j--){
-        const r=mbRing(MB.items[j]);
-        if(r&&inRing(p.x,p.y,r)){MB.sel=j;MB.secAt=null;mbRender(true);return;}
-      }
-    });
-    el.addEventListener('dblclick',ev=>{
-      if(!MB.drawing)return;
-      ev.preventDefault();
-      const v=MB.drawing;   // the double-click's two clicks added the same point twice
-      while(v.length>=2&&Math.hypot(v[v.length-1][0]-v[v.length-2][0],v[v.length-1][1]-v[v.length-2][1])<1e-6)v.pop();
-      mbFinishDrawing();
-    });
+      const cr=colourRange(rows.map(r=>r.prev));
+      out.push({key:t.key,label:t.label,unit:t.unit||'',xs,ys,vs,lo:cr.lo,hi:cr.hi});
+    }
+    return out;
   }
-  document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&MB.drawing){MB.drawing=null;mbFinishDrawing();}});
-  $u('mb-draw').addEventListener('click',()=>{if(MB.drawing)mbFinishDrawing();else mbStartDrawing(null);});
-  $u('mb-add-box').addEventListener('click',()=>{
-    const w=mbWindow(); if(!w)return;
-    const cx=(w[0]+w[1])/2, cy=(w[2]+w[3])/2, hx=(w[1]-w[0])/10, hy=(w[3]-w[2])/10;
-    mbAddBody({shape:'box',box:[cx-hx,cx+hx,cy-hy,cy+hy].map(v=>Math.round(v))});
+  function mbGround(){   // flat ground, or the builder's (a DEM's ground varies: depths are below it anyway)
+    const v=Number($u('up-flat-elev')&&$u('up-flat-elev').value);
+    return !topoFile&&Number.isFinite(v)?v:MB.ground;
+  }
+  // the step was shown, or the data, the window, the selection or the model changed
+  function mbRender(force){
+    mbHint();
+    if(!analysis||!analysis.extent)return;
+    const fr=mbFrame(); if(!fr||!fr.offsetParent)return;            // only while the step is shown
+    if(!fr.dataset.loaded){fr.dataset.loaded='1';fr.src='/model?embed=1';return;}   // it says when ready
+    if(!mbReady)return;
+    const data=mbData();
+    let depth=null; try{depth=meshParams().depth_core_m;}catch(err){}   // the mesh's core depth, shown
+    const ctx={type:'geoinv3d:context',extent:windowRect().map(v=>Math.round(v)),ground:mbGround(),depth,
+      crs:dataCrs()||detectedCrs()||'',props:mbProps(),data};
+    const key=JSON.stringify([ctx.extent,ctx.ground,ctx.crs,ctx.props,data.map(d=>[d.key,d.xs.length,d.lo,d.hi])]);
+    if(force||key!==mbCtxKey){mbCtxKey=key;mbPost(ctx);}
+    if(force)mbPost(mbModelMsg());
+  }
+  window.addEventListener('message',ev=>{
+    const fr=mbFrame();
+    if(ev.origin!==location.origin||!fr||ev.source!==fr.contentWindow||!ev.data||typeof ev.data!=='object')return;
+    const d=ev.data;
+    if(d.type==='geoinv3d:ready'){mbReady=true;mbCtxKey='';mbRender(true);}
+    if(d.type==='geoinv3d:model'&&d.builder&&Array.isArray(d.builder.items)){
+      const items=JSON.parse(JSON.stringify(d.builder.items));
+      MB.items=items.filter(it=>it.kind==='body'||it.kind==='layers');
+      MB.holes=items.filter(it=>it.kind==='boreholes');
+      if(d.builder.free)for(const k of Object.keys(MB.free))if(d.builder.free[k])MB.free[k]={...MB.free[k],...d.builder.free[k]};
+      if(Number.isFinite(+d.builder.ground))MB.ground=+d.builder.ground;
+      MB.name=d.name||'';
+      mbHint();
+      if(step===S.REVIEW){try{renderReview(buildJobs());}catch(err){}}
+    }
   });
-  $u('mb-add-cyl').addEventListener('click',()=>{
-    const w=mbWindow(); if(!w)return;
-    mbAddBody({shape:'cylinder',cyl:{x:Math.round((w[0]+w[1])/2),y:Math.round((w[2]+w[3])/2),r:Math.round(Math.min(w[1]-w[0],w[3]-w[2])/10)}});
-  });
-  $u('mb-add-layers').addEventListener('click',()=>{if(mbWindow())mbAddStack();});
+  function mbHint(){
+    const el=$u('mb-hint'); if(!el)return;
+    const s=selection(), joint=s&&(s.gl||s.mode==='joint');
+    const nb=MB.items.filter(i=>i.kind==='body').length, ns=MB.items.length-nb, nh=MB.holes.reduce((a,b)=>a+(b.holes||[]).length,0);
+    const parts=[nb?`${nb} bod${nb===1?'y':'ies'}`:'',ns?`${ns} layer stack${ns===1?'':'s'}`:'',nh?`${nh} borehole${nh===1?'':'s'}`:''].filter(Boolean);
+    el.textContent=joint&&parts.length?'⚠ A joint inversion does not use the model yet: pick single (or separate) inversions'
+      :parts.length?`The model: ${parts.join(', ')} — each job takes the part its data are about`
+      :'Empty: the inversion is free. Add bodies, layer stacks or boreholes below (or open a saved model).';
+  }
   $u('mb-save').addEventListener('click',()=>{
     const specs={};
     for(const p of Object.keys(MB_P)){const s=geoCombined(p);if(s)specs[p]=s;}
@@ -6052,483 +5973,28 @@ window.GeoPreview=GeoPreview;
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='starting_model.json';
     document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   });
-  // ── Models of the 3D model builder (/model, saved on the server): added to the editor ──
+  // ── A model saved in the model builder (/model): "Use in an inversion" opens this page with
+  // ?model=<id>; it becomes the model of this step ──
   async function mbFromBuilder(id){
     try{
       const r=await fetch(`${apiBase()}/api/models/${encodeURIComponent(id)}`), d=await r.json().catch(()=>({}));
       if(!r.ok||!d.ok)throw new Error(d.detail||('HTTP '+r.status));
-      const before=MB.items.length, beforeH=MB.holes.length;
-      mbImport({builder:d.builder});
+      const items=JSON.parse(JSON.stringify(d.builder.items||[]));
+      MB.items=items.filter(it=>it.kind==='body'||it.kind==='layers');
+      MB.holes=items.filter(it=>it.kind==='boreholes');
+      if(d.builder.free)for(const k of Object.keys(MB.free))if(d.builder.free[k])MB.free[k]={...MB.free[k],...d.builder.free[k]};
+      if(Number.isFinite(+d.builder.ground))MB.ground=+d.builder.ground;
+      MB.name=d.name||'';
       mbRender(true);
-      const n=MB.items.length-before, nh=MB.holes.length-beforeH;
-      $u('mb-hint').textContent=`“${d.name}” from the model builder: ${n} item${n===1?'':'s'}`+
-        (nh?` and ${nh} borehole set${nh===1?'':'s'}`:'')+' added';
       return d;
-    }catch(err){$u('mb-hint').textContent=`⚠ Could not load the model: ${err.message}`;return null;}
+    }catch(err){const el=$u('mb-hint');if(el)el.textContent=`⚠ Could not load the model: ${err.message}`;return null;}
   }
-  async function mbListModels(){
-    try{
-      const r=await fetch(`${apiBase()}/api/models`), d=await r.json();
-      $u('mb-from').innerHTML='<option value="">From the model builder…</option>'+(d.models||[]).map(m=>
-        `<option value="${escH(m.id)}">${escH(m.name)} — ${m.n_bodies} bod${m.n_bodies===1?'y':'ies'}, ${m.n_stacks} stack${m.n_stacks===1?'':'s'}</option>`).join('')+
-        '<option value="__open">Open the model builder ↗</option>';
-    }catch(err){}
-  }
-  $u('mb-from').addEventListener('pointerenter',mbListModels);
-  $u('mb-from').addEventListener('change',async e=>{
-    const v=e.target.value; e.target.value='';
-    if(v==='__open'){window.open('/model','_blank');return;}
-    if(v)await mbFromBuilder(v);
-  });
-  setTimeout(mbListModels,0);     // once the page's script is all defined (apiBase comes later)
-  // "Use in an inversion" on the model builder opens this page with ?model=<id>
   const MODEL_FROM_URL=new URLSearchParams(location.search).get('model');
   if(MODEL_FROM_URL)setTimeout(async()=>{
     switchTab('upload');
     const d=await mbFromBuilder(MODEL_FROM_URL);
     if(d)$u('up-start-msg').innerHTML=`<span class="up-ok">◇</span> The model “${escH(d.name)}” from the model builder is in the <b>Model</b> step: drop the data, then check it there.`;
   },0);
-  $u('mb-sec-dir').addEventListener('change',()=>{MB.secAt=null;mbRender();});
-  $u('mb-sec-at').addEventListener('change',()=>{const v=Number($u('mb-sec-at').value);if(Number.isFinite(v)){MB.secAt=v*1000;mbRender();}});
-  $u('mb-sec-prop').addEventListener('change',()=>{MB.secProp=$u('mb-sec-prop').value;mbRender();});
-  $u('mb-sec-log').addEventListener('change',()=>mbRenderSection());
-  function mbSoon(){clearTimeout(MB.timer);MB.timer=setTimeout(()=>mbRender(),200);}
-
-  // ── Rendering ──
-  function mbRender(force){
-    if(!analysis||!analysis.extent)return;
-    const props=mbProps();
-    if(!props.includes(MB.secProp))MB.secProp=props[0];
-    const sp=$u('mb-sec-prop');
-    sp.innerHTML=props.map(p=>`<option value="${p}"${p===MB.secProp?' selected':''}>${MB_P[p].label}</option>`).join('');
-    sp.hidden=props.length<2;
-    mbRenderFree(force); mbRenderList(); mbRenderForm(force); mbRenderLayers(force); mbHint();
-    const el=$u('mb-map'); if(!el.offsetWidth||typeof Plotly==='undefined')return;
-    const ds=analysis.ds.find(d=>d.t.key==='gravity'||d.t.key==='magnetic')||analysis.ds[0];
-    const traces=ds?previewTraces(ds.t.key,{scale:false,opacity:0.5}):[];
-    const km=a=>a.map(v=>v/1000);
-    MB.items.forEach((it,k)=>{
-      const r=mbRing(it); if(!r)return;
-      const col=mbColor(k), sel=k===MB.sel, stack=it.kind==='layers';
-      traces.push({type:'scatter',mode:'lines',x:km([...r.map(p=>p[0]),r[0][0]]),y:km([...r.map(p=>p[1]),r[0][1]]),
-        fill:'toself',fillcolor:col+(stack?(sel?'30':'18'):(sel?'70':'38')),line:{color:col,width:sel?3:1.5,dash:stack?'dash':'solid'},name:it.name,
-        hovertemplate:`${escH(it.name)}<br>${escH(mbSummary(it))}<extra></extra>`});
-      if(it.kind==='body'&&it.dip<90){   // the outline at the bottom, moved down-dip
-        const [dx,dy]=mbShift(it,mbDepth(it,it.bottom));
-        traces.push({type:'scatter',mode:'lines',x:km([...r.map(p=>p[0]+dx),r[0][0]+dx]),y:km([...r.map(p=>p[1]+dy),r[0][1]+dy]),
-          line:{color:col,width:1,dash:'dot'},hoverinfo:'skip'});
-      }
-    });
-    const collars=MB.holes.flatMap(bs=>(bs.holes||[]).map(h=>({...h,set:bs.name})));
-    if(collars.length)traces.push({type:'scatter',mode:'markers+text',x:km(collars.map(h=>+h.x)),y:km(collars.map(h=>+h.y)),
-      text:collars.map(h=>h.name),textposition:'top center',textfont:{size:10,color:TH.text2},
-      marker:{size:8,symbol:'circle-dot',color:'#ffffff',line:{color:TH.accent,width:2}},
-      hovertemplate:collars.map(h=>`${escH(h.set)}: ${escH(h.name)}<br>${(h.intervals||[]).length} intervals<extra></extra>`)});
-    if(MB.drawing&&MB.drawing.length)
-      traces.push({type:'scatter',mode:'lines+markers',x:km(MB.drawing.map(p=>p[0])),y:km(MB.drawing.map(p=>p[1])),
-        line:{color:'#ffffff',width:1.5,dash:'dash'},marker:{size:7,color:'#ffffff'},hoverinfo:'skip'});
-    const w=windowRect(), ew=$u('mb-sec-dir').value==='ew', at=mbSecAt();
-    const shapes=[{type:'rect',xref:'x',yref:'y',x0:w[0]/1000,x1:w[1]/1000,y0:w[2]/1000,y1:w[3]/1000,
-        line:{color:TH.accent,width:1.5},fillcolor:'rgba(0,0,0,0)'},
-      ew?{type:'line',xref:'x',yref:'y',x0:w[0]/1000,x1:w[1]/1000,y0:at/1000,y1:at/1000,line:{color:'#ffffff',width:1,dash:'dash'}}
-        :{type:'line',xref:'x',yref:'y',x0:at/1000,x1:at/1000,y0:w[2]/1000,y1:w[3]/1000,line:{color:'#ffffff',width:1,dash:'dash'}}];
-    const pad=0.06*Math.max(w[1]-w[0],w[3]-w[2])/1000;
-    const layout={margin:{l:52,r:10,t:8,b:40},paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:TH.bg2,
-      font:{color:TH.text2,size:11},dragmode:MB.drawing?false:'pan',hovermode:MB.drawing?false:'closest',showlegend:false,uirevision:'mb-'+analysisKey,
-      xaxis:{title:{text:'Easting (km)'},gridcolor:TH.border,zeroline:false,range:[w[0]/1000-pad,w[1]/1000+pad]},
-      yaxis:{title:{text:'Northing (km)'},gridcolor:TH.border,zeroline:false,scaleanchor:'x',scaleratio:1,range:[w[2]/1000-pad,w[3]/1000+pad]},
-      shapes};
-    Plotly.react(el,traces,layout,{displaylogo:false,responsive:true,scrollZoom:true,doubleClick:false,
-      modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d','toggleSpikelines']});
-    mbWire();
-    mbRenderSection();
-  }
-  function mbSecAt(){
-    const w=windowRect(), ew=$u('mb-sec-dir').value==='ew', it=mbItem(), r=it&&mbRing(it);
-    if(MB.secAt==null&&r){   // through the selected item
-      const c=ew?r.map(p=>p[1]):r.map(p=>p[0]);
-      MB.secAt=(Math.min(...c)+Math.max(...c))/2;
-    }
-    return MB.secAt??(ew?(w[2]+w[3])/2:(w[0]+w[1])/2);
-  }
-  function mbSummary(it){
-    const p=MB.secProp||mbProps()[0];
-    if(it.kind==='body')return `${mbFmt(p,it.props[p]&&it.props[p].value)} · ${it.ref==='elevation'?`${it.top} to ${it.bottom} m elev.`:`${it.top}–${it.bottom} m`}`;
-    const n=it.layers.filter(l=>mbHas(p,l.props[p])).length;
-    return `${it.layers.length} layers (${n} with ${MB_P[p].label.toLowerCase()}) · ${it.shape==='all'?'everywhere':'in an outline'}${it.dip>0?` · tilted ${it.dip}°`:''}`;
-  }
-
-  // Colours of the section: density contrast blue-white-red, susceptibility viridis,
-  // resistivity on a log scale, conductive red to resistive blue (the MT convention)
-  const MB_CS={density:[[0,'#2166ac'],[0.25,'#67a9cf'],[0.5,'#f2f2f2'],[0.75,'#ef8a62'],[1,'#b2182b']],
-    susceptibility:[[0,'#440154'],[0.25,'#3b528b'],[0.5,'#21908d'],[0.75,'#5dc963'],[1,'#fde725']],
-    resistivity:[[0,'#b2182b'],[0.25,'#ef8a62'],[0.5,'#f7e8a0'],[0.75,'#67a9cf'],[1,'#2166ac']]};
-  function mbCsColour(cs,t){
-    t=Math.min(1,Math.max(0,t));
-    let k=0; while(k<cs.length-2&&t>cs[k+1][0])k++;
-    const [t0,c0]=cs[k],[t1,c1]=cs[k+1], f=(t-t0)/((t1-t0)||1);
-    const h=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16));
-    const a=h(c0), b=h(c1);
-    return `rgb(${a.map((v,i)=>Math.round(v+(b[i]-v)*f)).join(',')})`;
-  }
-  function mbScale(p){
-    const vals=[];
-    for(const it of MB.items){
-      if(it.kind==='body'){if(mbHas(p,it.props[p]))vals.push(+it.props[p].value);}
-      else for(const l of it.layers)if(mbHas(p,l.props[p]))vals.push(+l.props[p].value);
-    }
-    if(p==='density'){
-      const m=Math.max(0.05,...vals.map(v=>Math.abs(v-mbBg())));
-      return {cs:MB_CS.density,cmin:-m,cmax:m,t:v=>(v-mbBg()+m)/(2*m),title:'Δρ (g/cc)'};
-    }
-    if(p==='susceptibility'){
-      const lo=Math.min(0,...vals), hi=Math.max(lo+1e-3,...vals);
-      return {cs:MB_CS.susceptibility,cmin:lo,cmax:hi,t:v=>(v-lo)/(hi-lo),title:'χ (SI)'};
-    }
-    const lg=vals.map(v=>Math.log10(v)), lo=Math.floor(Math.min(1,...lg)), hi=Math.max(lo+1,Math.ceil(Math.max(2,...lg)));
-    const ticks=[]; for(let k=lo;k<=hi;k++)ticks.push(k);
-    return {cs:MB_CS.resistivity,cmin:lo,cmax:hi,t:v=>(Math.log10(v)-lo)/(hi-lo),title:'ρ (Ω·m)',
-      tickvals:ticks,ticktext:ticks.map(k=>k>=-3&&k<=5?String(+(10**k).toPrecision(1)):`1e${k}`)};
-  }
-  // where the section line runs inside a ring moved by (dx, dy): intervals along the line
-  function mbCuts(ring,ew,at,a0,a1,dx=0,dy=0){
-    if(!ring)return [[a0,a1]];
-    const xs=[];
-    for(let i=0,j=ring.length-1;i<ring.length;j=i++){
-      const x1=ring[j][0]+dx,y1=ring[j][1]+dy,x2=ring[i][0]+dx,y2=ring[i][1]+dy;
-      if(ew){if((y1>at)!==(y2>at))xs.push(x1+(at-y1)*(x2-x1)/(y2-y1));}
-      else if((x1>at)!==(x2>at))xs.push(y1+(at-x1)*(y2-y1)/(x2-x1));
-    }
-    xs.sort((a,b)=>a-b);
-    const out=[];
-    for(let k=0;k+1<xs.length;k+=2){const s0=Math.max(xs[k],a0),s1=Math.min(xs[k+1],a1);if(s1>s0)out.push([s0,s1]);}
-    return out;
-  }
-  function mbDeepest(ew,at,a0,a1){
-    let z=0, half=false;
-    for(const it of MB.items){
-      if(it.kind==='body'){z=Math.max(z,mbDepth(it,it.bottom),mbDepth(it,it.top));continue;}
-      const e=mbEdges(it), fin=e.filter(Number.isFinite), pt=s=>ew?[s,at]:[at,s];
-      const tilt=Math.max(0,mbTilt(it,...pt(a0)),mbTilt(it,...pt(a1)));
-      z=Math.max(z,mbDepth(it,it.top)+fin[fin.length-1]+tilt);
-      if(!Number.isFinite(e[e.length-1]))half=true;
-    }
-    return z>0?z*(half?1.35:1.2):0;
-  }
-  function mbRenderSection(){
-    const el=$u('mb-sec'); if(!el.offsetWidth||typeof Plotly==='undefined'||!analysis||!analysis.extent)return;
-    const w=windowRect(), ew=$u('mb-sec-dir').value==='ew', at=mbSecAt(), p=MB.secProp||mbProps()[0];
-    if(document.activeElement!==$u('mb-sec-at'))$u('mb-sec-at').value=+(at/1000).toFixed(3);
-    const a0=ew?w[0]:w[2], a1=ew?w[1]:w[3], mesh=mbDz(), logz=$u('mb-sec-log').checked;
-    const deepest=mbDeepest(ew,at,a0,a1), zmax=deepest>0?deepest:Math.min(mesh.core||5000,5000);
-    const zmin=logz?Math.max(0.5,Math.min(zmax/1e4,1)):0, cz=d=>Math.max(zmin,Math.min(zmax,d));
-    const sc=mbScale(p), traces=[], km=v=>v/1000;
-    const add=(name,colour,xs,ys,text,free)=>traces.push({type:'scatter',mode:'lines',x:xs.map(v=>v==null?null:km(v)),y:ys.map(v=>v==null?null:cz(v)),
-      fill:'toself',fillcolor:free?'rgba(255,255,255,0.05)':colour,line:{color:free?'rgba(255,255,255,0.35)':'rgba(0,0,0,0.45)',width:free?1:0.6,dash:free?'dot':'solid'},
-      hoveron:'fills+points',hoverinfo:'text',text,name,showlegend:false});
-    MB.items.forEach(it=>{
-      const r=mbRing(it);
-      if(it.kind==='body'){
-        const v=it.props[p], has=mbHas(p,v), d0=mbDepth(it,it.top), d1=mbDepth(it,it.bottom);
-        const top=Math.min(d0,d1), bot=Math.max(d0,d1), nb=it.dip<90?24:1, xs=[], ys=[];
-        for(let b=0;b<nb;b++){
-          const u0=top+(bot-top)*b/nb, u1=top+(bot-top)*(b+1)/nb, [dx,dy]=mbShift(it,(u0+u1)/2);
-          for(const [s0,s1] of mbCuts(r,ew,at,a0,a1,dx,dy)){xs.push(s0,s1,s1,s0,s0,null);ys.push(u0,u0,u1,u1,u0,null);}
-        }
-        if(xs.length)add(it.name,has?mbCsColour(sc.cs,sc.t(+v.value)):null,xs,ys,
-          `${escH(it.name)}: ${escH(mbFmt(p,v&&v.value))}${it.fixed?' (fixed)':''}${it.sharp?' (sharp)':''}`,!has);
-        return;
-      }
-      const cuts=mbCuts(r,ew,at,a0,a1), e=mbEdges(it), base=mbDepth(it,it.top), pt=s=>ew?[s,at]:[at,s];
-      it.layers.forEach((l,j)=>{
-        const v=l.props[p], has=mbHas(p,v), xs=[], ys=[];
-        for(const [s0,s1] of cuts){
-          const t0=mbTilt(it,...pt(s0)), t1=mbTilt(it,...pt(s1));
-          const top0=base+e[j]+t0, top1=base+e[j]+t1;
-          const bot0=Number.isFinite(e[j+1])?base+e[j+1]+t0:zmax, bot1=Number.isFinite(e[j+1])?base+e[j+1]+t1:zmax;
-          xs.push(s0,s1,s1,s0,s0,null); ys.push(top0,top1,bot1,bot0,top0,null);
-        }
-        if(xs.length)add(l.name,has?mbCsColour(sc.cs,sc.t(+v.value)):null,xs,ys,
-          `${escH(it.name)} · ${escH(l.name)}: ${escH(mbFmt(p,v&&v.value))}, ${l.thickness==null?'to the bottom':`${+l.thickness} m`}${l.fixed?' (fixed)':''}${l.sharp?' (sharp)':''}`,!has);
-      });
-    });
-    // the colour bar
-    traces.push({type:'scatter',mode:'markers',x:[km(a0),km(a0)],y:[cz(zmax),cz(zmax)],hoverinfo:'skip',showlegend:false,
-      marker:{size:0.1,opacity:0,color:[sc.cmin,sc.cmax],cmin:sc.cmin,cmax:sc.cmax,colorscale:sc.cs,showscale:true,
-        colorbar:{title:{text:sc.title,side:'right'},thickness:9,len:0.9,tickfont:{size:10},outlinewidth:0,
-          ...(sc.tickvals?{tickvals:sc.tickvals,ticktext:sc.ticktext}:{})}}});
-    // the mesh's vertical cells, to compare with the layers
-    const shapes=[], ann=[];
-    if(mesh.dz>0){
-      const n=Math.floor(Math.min(zmax,mesh.core)/mesh.dz);
-      if(n>=1&&n<=400)for(let k=1;k<=n;k++)if(k*mesh.dz>zmin)
-        shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:k*mesh.dz,y1:k*mesh.dz,line:{color:'rgba(128,128,128,0.55)',width:1,dash:'dot'}});
-      ann.push({xref:'paper',x:0,xanchor:'left',yref:'paper',y:0,yanchor:'bottom',showarrow:false,
-        text:`mesh cells: ${fmtLen(mesh.dz)} vertical${n>400?' (lines not drawn: too many)':''}`,font:{size:10,color:TH.text2}});
-    }
-    if(mesh.core<zmax){
-      shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:mesh.core,y1:mesh.core,line:{color:TH.accent,width:1,dash:'dash'}});
-      ann.push({xref:'paper',x:1,xanchor:'right',yref:'y',y:mesh.core,yanchor:'bottom',text:'mesh core bottom',showarrow:false,font:{size:10,color:TH.accent}});
-    }
-    Plotly.react(el,traces,{margin:{l:56,r:8,t:22,b:36},paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:TH.bg2,
-      font:{color:TH.text2,size:11},showlegend:false,hovermode:'closest',dragmode:'zoom',uirevision:`sec-${ew}-${logz}-${analysisKey}`,
-      title:{text:`${ew?'West–east':'South–north'} section at ${ew?'N':'E'} ${(at/1000).toFixed(2)} km · ${MB_P[p].label.toLowerCase()} · dark = free`,font:{size:11},x:0.01,y:0.97},
-      xaxis:{title:{text:ew?'Easting (km)':'Northing (km)'},gridcolor:TH.border,range:[km(a0),km(a1)],zeroline:false},
-      yaxis:logz?{title:{text:'Depth below ground (m)'},gridcolor:TH.border,type:'log',range:[Math.log10(zmax),Math.log10(zmin)]}
-        :{title:{text:'Depth below ground (m)'},gridcolor:TH.border,range:[zmax,0],zeroline:false},
-      shapes,annotations:ann},
-      {displaylogo:false,responsive:true,scrollZoom:true,modeBarButtonsToRemove:['select2d','lasso2d','toggleSpikelines']});
-  }
-
-  // ── The list ──
-  function mbRenderList(){
-    $u('mb-list').innerHTML=MB.items.length?MB.items.map((it,k)=>`<div class="mb-item${k===MB.sel?' sel':''}" data-k="${k}">`+
-      `<span class="sw" style="background:${mbColor(k)}${it.kind==='layers'?';border-radius:0;height:4px;box-shadow:0 3px 0 '+mbColor(k)+',0 -3px 0 '+mbColor(k):''}"></span>`+
-      `<span class="nm" title="${escH(mbSummary(it))}">${escH(it.name)}</span>`+
-      `<span class="up-en" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px">${escH(mbSummary(it).split(' · ')[0])}${it.fixed?' · fixed':''}</span>`+
-      `<button type="button" class="x" data-mv="${k}:-1" title="Earlier (later ones win)">↑</button>`+
-      `<button type="button" class="x" data-mv="${k}:1" title="Later">↓</button>`+
-      `<button type="button" class="x" data-del="${k}" title="Remove">×</button></div>`).join('')
-      :'<div class="up-hint">Nothing yet: draw a body on the map, add a box, a cylinder or a layer stack.</div>';
-  }
-  $u('mb-list').addEventListener('click',e=>{
-    const del=e.target.closest('[data-del]'), mv=e.target.closest('[data-mv]');
-    if(del){MB.items.splice(+del.dataset.del,1);MB.sel=Math.min(MB.sel,MB.items.length-1);MB.secAt=null;mbRender(true);return;}
-    if(mv){
-      const [k,d]=mv.dataset.mv.split(':').map(Number), j=k+d;
-      if(j>=0&&j<MB.items.length){[MB.items[k],MB.items[j]]=[MB.items[j],MB.items[k]];if(MB.sel===k)MB.sel=j;else if(MB.sel===j)MB.sel=k;mbRender(true);}
-      return;
-    }
-    const it=e.target.closest('[data-k]'); if(it){MB.sel=+it.dataset.k;MB.secAt=null;mbRender(true);}
-  });
-
-  // ── The selected item's form ──
-  const mbKm=v=>+(v/1000).toFixed(3);
-  const mbField=(f,label,val,extra='',p='')=>
-    `<div class="up-col"><label class="up-lbl">${label}</label><input class="up-in" data-f="${f}"${p?` data-p="${p}"`:''} value="${val??''}" ${extra}></div>`;
-  function mbPropFields(it,layer){
-    return mbProps().map(p=>{
-      const v=it.props[p]||{}, P=MB_P[p], m=p==='resistivity'?`÷ ${P.margin}`:`− ${P.margin}`, M=p==='resistivity'?`× ${P.margin}`:`+ ${P.margin}`;
-      return `<fieldset class="mb-prop"><legend>${P.label} (${P.unit})</legend><div class="up-row up-3">`+
-        mbField('value','Value',v.value,`type="number" step="any" placeholder="${layer?'free':''}"`,p)+
-        mbField('lower','Lowest',v.lower,`type="number" step="any" placeholder="value ${m}"`,p)+
-        mbField('upper','Highest',v.upper,`type="number" step="any" placeholder="value ${M}"`,p)+'</div></fieldset>';
-    }).join('');
-  }
-  function mbOutlineFields(it){
-    const f=mbField;
-    if(it.shape==='box')return `<div class="up-row up-4">${f('w','West (km)',mbKm(it.box[0]))}${f('e','East (km)',mbKm(it.box[1]))}${f('s','South (km)',mbKm(it.box[2]))}${f('n','North (km)',mbKm(it.box[3]))}</div>`;
-    if(it.shape==='cylinder')return `<div class="up-row">${f('cx','Centre E (km)',mbKm(it.cyl.x))}${f('cy','Centre N (km)',mbKm(it.cyl.y))}${f('r','Radius (km)',mbKm(it.cyl.r))}</div>`;
-    if(it.shape==='polygon')return `<label class="up-lbl">Outline: easting, northing (km), one vertex per line</label>`+
-      `<textarea data-f="poly">${(it.poly||[]).map(p=>`${mbKm(p[0])}, ${mbKm(p[1])}`).join('\n')}</textarea>`+
-      `<button type="button" class="up-btn up-btn-sm" data-act="redraw" style="margin:4px 0 6px">✎ Draw it on the map</button>`;
-    return '';
-  }
-  function mbRenderForm(force){
-    const box=$u('mb-form'), it=mbItem();
-    if(!it){box.innerHTML='';return;}
-    if(!force&&box.contains(document.activeElement)&&box.dataset.k===String(MB.sel))return;   // keep the field being typed in
-    box.dataset.k=MB.sel;
-    const f=mbField, elev=it.ref==='elevation', dz=mbDz().dz;
-    const refSel=`<div class="up-col"><label class="up-lbl">Depths</label><select class="up-in" data-f="ref">`+
-      `<option value="depth"${elev?'':' selected'}>below the ground</option><option value="elevation"${elev?' selected':''}>as elevations</option></select></div>`;
-    if(it.kind==='body'){
-      const thin=dz>0&&Math.abs(it.bottom-it.top)<dz;
-      box.innerHTML=`<div class="mb-form">
-        <div class="up-row">${f('name','Name',escH(it.name))}</div>${mbOutlineFields(it)}
-        <div class="up-row up-3">${refSel}${f('top',elev?'Top elevation (m)':'Top (m)',it.top,'type="number" step="any"')}${f('bottom',elev?'Bottom elevation (m)':'Bottom (m)',it.bottom,'type="number" step="any"')}</div>
-        ${thin?`<div class="mb-warn">Thinner than the vertical cells (${fmtLen(dz)}): it is mixed into them by volume.</div>`:''}
-        <div class="up-row">${f('dip','Dip (° from horizontal)',it.dip,'type="number" min="1" max="90" step="any"')}${f('dipdir','Dip direction (°)',it.dipdir,'type="number" min="0" max="360" step="any"')}</div>
-        ${mbPropFields(it,false)}
-        <div class="up-row">${f('weight','Weight',it.weight,'type="number" min="0" step="any"')}</div>
-        <div class="mb-checks"><label title="A tenth of the range and weight ≥ 100"><input type="checkbox" data-f="fixed" ${it.fixed?'checked':''}> Fixed</label>
-          <label title="Little smoothing across its boundaries: the model may jump there"><input type="checkbox" data-f="sharp" ${it.sharp?'checked':''}> Sharp boundaries</label></div>
-        </div>`;
-      return;
-    }
-    const tilted=it.dip>0;
-    box.innerHTML=`<div class="mb-form">
-      <div class="up-row">${f('name','Name',escH(it.name))}</div>
-      <div class="up-row"><div class="up-col"><label class="up-lbl">Where</label><select class="up-in" data-f="shape">`+
-        [['all','everywhere'],['box','in a box'],['cylinder','in a circle'],['polygon','in a polygon']].map(([v,t])=>`<option value="${v}"${it.shape===v?' selected':''}>${t}</option>`).join('')+
-      `</select></div></div>${mbOutlineFields(it)}
-      <div class="up-row">${refSel}${f('top',elev?'Top elevation (m)':'Top (m below ground)',it.top,'type="number" step="any"')}</div>
-      <div class="up-row">${f('dip','Tilt of the interfaces (°)',it.dip,'type="number" min="0" max="80" step="any"')}${f('dipdir','Sinking towards (°)',it.dipdir,'type="number" min="0" max="360" step="any"')}</div>
-      ${tilted?`<div class="up-row">${f('ox','Pivot E (km)',mbKm(it.origin[0]))}${f('oy','Pivot N (km)',mbKm(it.origin[1]))}</div><div class="up-hint" style="margin-bottom:6px">The top is at the pivot; thicknesses are vertical.</div>`:''}
-      <div class="up-hint">The layers are in the table under the map.</div></div>`;
-  }
-  function mbApplyNumber(obj,key,raw,{min=-Infinity,max=Infinity}={}){
-    const v=Number(raw); if(raw!==''&&Number.isFinite(v))obj[key]=Math.min(max,Math.max(min,v));
-  }
-  $u('mb-form').addEventListener('input',e=>{
-    const el=e.target.closest('[data-f]'), it=mbItem(); if(!el||!it)return;
-    const k=el.dataset.f, p=el.dataset.p, raw=el.type==='checkbox'?el.checked:el.value.trim(), num=Number(raw), ok=raw!==''&&Number.isFinite(num), km=num*1000;
-    let structural=false;
-    if(p){const v=it.props[p]||(it.props[p]={value:null,lower:null,upper:null}); v[k]=ok?num:null;}
-    else if(k==='name'){if(raw)it.name=it.kind==='layers'?raw:mbUnique(raw,it);}
-    else if(k==='fixed'||k==='sharp')it[k]=raw;
-    else if(k==='ref'){   // the same levels, as depths below the (preview) ground or as elevations
-      if(raw!==it.ref){const g=MB.ground;it.top=g-it.top;if(it.kind==='body')it.bottom=g-it.bottom;}
-      it.ref=raw; structural=true;
-    }
-    else if(k==='shape'){
-      const w=mbWindow(), cx=(w[0]+w[1])/2, cy=(w[2]+w[3])/2, hx=(w[1]-w[0])/4, hy=(w[3]-w[2])/4;
-      it.shape=raw; structural=true;
-      if(raw==='box'&&!it.box)it.box=[cx-hx,cx+hx,cy-hy,cy+hy].map(Math.round);
-      if(raw==='cylinder'&&!it.cyl)it.cyl={x:Math.round(cx),y:Math.round(cy),r:Math.round(Math.min(hx,hy))};
-      if(raw==='polygon'&&!(it.poly&&it.poly.length>=3)){it.poly=null;mbStartDrawing(it);}
-    }
-    else if(k==='poly'){
-      const pts=raw.split(/\n/).map(l=>l.split(/[\s,;]+/).filter(Boolean).map(Number)).filter(q=>q.length>=2&&q.every(Number.isFinite));
-      if(pts.length>=3)it.poly=pts.map(q=>[q[0]*1000,q[1]*1000]);
-    }
-    else if(['w','e','s','n'].includes(k)){if(ok)it.box[['w','e','s','n'].indexOf(k)]=km;}
-    else if(k==='cx'){if(ok)it.cyl.x=km;} else if(k==='cy'){if(ok)it.cyl.y=km;} else if(k==='r'){if(ok&&num>0)it.cyl.r=km;}
-    else if(k==='ox'){if(ok)it.origin[0]=km;} else if(k==='oy'){if(ok)it.origin[1]=km;}
-    else if(k==='dip'){const was=it.dip>0;mbApplyNumber(it,'dip',raw,it.kind==='body'?{min:1,max:90}:{min:0,max:80});structural=it.kind==='layers'&&(it.dip>0)!==was;}
-    else mbApplyNumber(it,k,raw);
-    if(it.kind==='body'&&(it.ref==='elevation'?it.bottom>it.top:it.bottom<it.top))it.bottom=it.top;
-    if(structural)mbRender(true); else mbSoon();
-  });
-  $u('mb-form').addEventListener('click',e=>{if(e.target.closest('[data-act="redraw"]')&&mbItem())mbStartDrawing(mbItem());});
-
-  // ── The layer table of the selected stack ──
-  function mbRenderLayers(force){
-    const box=$u('mb-layers'), it=mbItem();
-    if(!it||it.kind!=='layers'){box.hidden=true;box.innerHTML='';return;}
-    box.hidden=false;
-    if(!force&&box.contains(document.activeElement)&&box.dataset.k===String(MB.sel)){mbLayerMeta();return;}
-    box.dataset.k=MB.sel;
-    const props=mbProps(), elev=it.ref==='elevation';
-    const head=`<tr><th>#</th><th>Name</th><th>Thickness (m)</th><th>${elev?'Top elev.':'Top'} (m)</th>`+
-      props.map(p=>`<th>${MB_P[p].label} (${MB_P[p].unit})</th><th>lowest</th><th>highest</th>`).join('')+
-      `<th>Weight</th><th title="A tenth of the range and weight ≥ 100">Fixed</th><th title="Little smoothing across its boundaries">Sharp</th><th></th></tr>`;
-    const rows=it.layers.map((l,j)=>{
-      const last=j===it.layers.length-1;
-      return `<tr data-j="${j}"><td class="ro">${j+1}</td>`+
-        `<td><input type="text" class="nm" data-f="name" value="${escH(l.name)}"></td>`+
-        `<td class="th-cell"><input type="number" step="any" min="0" data-f="thickness" value="${l.thickness??''}" placeholder="${last?'to the bottom':''}"></td>`+
-        `<td class="ro" data-top="${j}"></td>`+
-        props.map(p=>{const v=l.props[p]||{};return ['value','lower','upper'].map(f=>
-          `<td><input type="number" step="any" data-p="${p}" data-f="${f}" value="${v[f]??''}" placeholder="${f==='value'?'free':''}"></td>`).join('');}).join('')+
-        `<td><input type="number" step="any" min="0" data-f="weight" value="${l.weight??5}" style="width:56px"></td>`+
-        `<td><input type="checkbox" data-f="fixed" ${l.fixed?'checked':''}></td><td><input type="checkbox" data-f="sharp" ${l.sharp?'checked':''}></td>`+
-        `<td><button type="button" class="x" data-act="up" title="Up">↑</button><button type="button" class="x" data-act="down" title="Down">↓</button>`+
-        `<button type="button" class="x" data-act="del" title="Remove">×</button></td></tr>`;
-    }).join('');
-    const pp=MB.pasteProp&&props.includes(MB.pasteProp)?MB.pasteProp:props[0];
-    box.innerHTML=`<div class="mb-layers-h"><b>${escH(it.name)}</b><span class="up-hint">top to bottom; an empty value leaves that layer free; an empty last thickness reaches the bottom</span>`+
-      `<button type="button" class="up-btn up-btn-sm" data-act="add">＋ Layer</button>`+
-      `<button type="button" class="up-btn up-btn-sm" data-act="paste">⎘ Paste a table…</button></div>`+
-      (MB.paste?`<div class="mb-paste"><div class="up-hint">One layer per line: [name] thickness value [lowest highest] — e.g. a well log or a 1D model. `+
-        `A thickness of - or inf reaches the bottom (last line only). Values go in `+
-        (props.length>1?`<select id="mb-paste-prop" class="up-in up-in-sm" style="width:auto">${props.map(p=>`<option value="${p}"${p===pp?' selected':''}>${MB_P[p].label}</option>`).join('')}</select>`:`<b>${MB_P[pp].label}</b>`)+
-        ` (${MB_P[pp].unit}).</div><textarea id="mb-paste-text" placeholder="cover  30  50\nclay   12  3  1  10\nsand   40  80\nbasement  -  3000  1000  30000"></textarea>`+
-        `<button type="button" class="up-btn up-btn-sm" data-act="replace">Replace the layers</button> <button type="button" class="up-btn up-btn-sm" data-act="append">Add below</button> <span class="mb-warn" id="mb-paste-msg"></span></div>`:'')+
-      `<div class="mb-tbl-wrap"><table class="mb-tbl"><thead>${head}</thead><tbody>${rows}</tbody></table></div><div id="mb-layer-warn"></div>`;
-    mbLayerMeta();
-  }
-  // the computed tops and the thin-layer warning, without redrawing the inputs
-  function mbLayerMeta(){
-    const it=mbItem(); if(!it||it.kind!=='layers')return;
-    const e=mbEdges(it), dz=mbDz().dz, elev=it.ref==='elevation', thin=[];
-    it.layers.forEach((l,j)=>{
-      const td=document.querySelector(`#mb-layers [data-top="${j}"]`);
-      if(td)td.textContent=+((elev?it.top-e[j]:+it.top+e[j]).toFixed(2));
-      const tr=document.querySelector(`#mb-layers tr[data-j="${j}"]`), t=l.thickness;
-      const isThin=dz>0&&t!=null&&t>0&&t<dz;
-      if(tr)tr.classList.toggle('thin',isThin);
-      if(isThin)thin.push(`${l.name} (${+t} m)`);
-    });
-    const warn=document.getElementById('mb-layer-warn');
-    if(warn)warn.innerHTML=thin.length?`<div class="mb-warn">${thin.length} layer${thin.length>1?'s are':' is'} thinner than the vertical cells (${fmtLen(dz)}): ${escH(thin.join(', '))}. `+
-      `${thin.length>1?'They are':'It is'} mixed into the cells ${thin.length>1?'they share':'it shares'} by volume, so the inversion is pulled towards the average; `+
-      `a vertical cell of ${fmtLen(Math.min(...it.layers.filter(l=>l.thickness>0).map(l=>+l.thickness)))} or less (Mesh step) would resolve every layer.</div>`:'';
-  }
-  function mbParseLayers(text){
-    const rows=[], bad=[], inf=/^(-|inf|infinity|half-?space|∞)$/i, isNum=s=>s!==''&&Number.isFinite(Number(s));
-    text.split(/\r?\n/).forEach((line,n)=>{
-      const t=line.trim().split(/[\s,;\t]+/).filter(Boolean); if(!t.length)return;
-      let i=0, name=null;
-      if(!isNum(t[0])&&!inf.test(t[0])){name=t[0];i=1;}
-      if(t.length<i+2||!(isNum(t[i])||inf.test(t[i]))||!isNum(t[i+1])){if(n>0||isNum(t[0]))bad.push(n+1);return;}
-      const num=k=>t.length>k&&isNum(t[k])?Number(t[k]):null;
-      rows.push({name,thickness:isNum(t[i])?Number(t[i]):null,value:Number(t[i+1]),lower:num(i+2),upper:num(i+3)});
-    });
-    return {rows,bad};
-  }
-  $u('mb-layers').addEventListener('input',e=>{
-    const el=e.target, tr=el.closest('tr[data-j]'), it=mbItem();
-    if(el.id==='mb-paste-prop'){MB.pasteProp=el.value;mbRenderLayers(true);return;}
-    if(!tr||!it||!el.dataset.f)return;
-    const j=+tr.dataset.j, l=it.layers[j], k=el.dataset.f, p=el.dataset.p;
-    const raw=el.type==='checkbox'?el.checked:el.value.trim(), num=Number(raw), ok=raw!==''&&Number.isFinite(num);
-    if(p){const v=l.props[p]||(l.props[p]={value:null,lower:null,upper:null}); v[k]=ok?num:null;}
-    else if(k==='name'){if(raw)l.name=mbUnique(raw,l);}
-    else if(k==='thickness'){if(ok&&num>0)l.thickness=num;else if(raw===''&&j===it.layers.length-1)l.thickness=null;}
-    else if(k==='fixed'||k==='sharp')l[k]=raw;
-    else if(k==='weight'){if(ok&&num>=0)l.weight=num;}
-    mbLayerMeta(); mbSoon();
-  });
-  $u('mb-layers').addEventListener('click',e=>{
-    const b=e.target.closest('[data-act]'), it=mbItem(); if(!b||!it||it.kind!=='layers')return;
-    const act=b.dataset.act, tr=b.closest('tr[data-j]'), j=tr?+tr.dataset.j:-1, L=it.layers;
-    if(act==='add'){
-      const last=L[L.length-1], at=last&&last.thickness==null?L.length-1:L.length;   // above a bottom half-space
-      L.splice(at,0,mbNewLayer(100));
-    }
-    else if(act==='del'){if(L.length>1)L.splice(j,1);}
-    else if(act==='up'||act==='down'){const k=act==='up'?j-1:j+1;if(k>=0&&k<L.length)[L[j],L[k]]=[L[k],L[j]];}
-    else if(act==='paste'){MB.paste=!MB.paste;}
-    else if(act==='replace'||act==='append'){
-      const p=MB.pasteProp&&mbProps().includes(MB.pasteProp)?MB.pasteProp:mbProps()[0];
-      const {rows,bad}=mbParseLayers($u('mb-paste-text').value);
-      if(!rows.length){$u('mb-paste-msg').textContent='No layers found: each line needs a thickness and a value';return;}
-      const keep=act==='append'?L.slice():[];
-      if(keep.length&&keep[keep.length-1].thickness==null)keep[keep.length-1].thickness=100;   // it no longer ends the stack
-      it.layers=keep;                       // (replacing frees the old layers' names)
-      const made=[];
-      rows.forEach((r,i)=>{
-        const l=mbNewLayer(i<rows.length-1&&r.thickness==null?100:r.thickness,r.name,made.map(o=>o.name));
-        l.props[p]={value:r.value,lower:r.lower,upper:r.upper};
-        made.push(l);
-      });
-      it.layers=keep.concat(made);
-      MB.paste=false;
-      if(bad.length)setTimeout(()=>{$u('mb-hint').textContent=`Skipped line${bad.length>1?'s':''} ${bad.join(', ')} of the pasted table`;},0);
-    }
-    else return;
-    // only the last layer may reach the bottom
-    for(let i=0;i<it.layers.length-1;i++)if(it.layers[i].thickness==null)it.layers[i].thickness=100;
-    mbRender(true);
-  });
-
-  // ── Everywhere else ──
-  function mbRenderFree(force){
-    const box=$u('mb-free'), props=mbProps(), elev=MB.items.some(it=>it.ref==='elevation');
-    const key=props.join()+'|'+elev;
-    if(!force&&box.dataset.key===key)return;
-    box.dataset.key=key;
-    const f=(p,k,label,val,ph)=>`<div class="up-col"><label class="up-lbl">${label}</label><input class="up-in" type="number" step="any" data-p="${p}" data-f="${k}" value="${val??''}" placeholder="${ph}"></div>`;
-    box.innerHTML=props.map(p=>{
-      const v=MB.free[p];
-      if(p==='density')return `<div class="up-row up-3">${f(p,'value','Reduction density (g/cc)',v.value,'2.67')}${f(p,'lower','Lowest density',v.lower,"job's")}${f(p,'upper','Highest density',v.upper,"job's")}</div>`;
-      if(p==='susceptibility')return `<div class="up-row">${f(p,'lower','Lowest χ (SI)',v.lower,"job's")}${f(p,'upper','Highest χ (SI)',v.upper,"job's")}</div>`;
-      return `<div class="up-row up-3">${f(p,'value','Resistivity (Ω·m)',v.value,"the method's")}${f(p,'lower','Lowest (Ω·m)',v.lower,"job's")}${f(p,'upper','Highest (Ω·m)',v.upper,"job's")}</div>`+
-        `<div class="up-row"><div class="up-col"><label class="up-lbl">A cell holding several layers takes</label><select class="up-in" data-p="resistivity" data-f="mixing">`+
-        [['log','the geometric mean (log σ averaged)'],['conductance','their conductance (horizontal currents: MT)'],['resistance','their transverse resistance (vertical currents: DC)']]
-          .map(([k,t])=>`<option value="${k}"${v.mixing===k?' selected':''}>${t}</option>`).join('')+`</select></div></div>`;
-    }).join('')+(elev?`<div class="up-row"><div class="up-col"><label class="up-lbl">Ground elevation in the section (m)</label><input class="up-in" type="number" step="any" data-f="ground" value="${MB.ground}"></div></div>`+
-      `<div class="up-hint">For drawing elevation-based parts only; the job uses the real ground.</div>`:'');
-  }
-  $u('mb-free').addEventListener('input',e=>{
-    const el=e.target.closest('[data-f]'); if(!el)return;
-    const p=el.dataset.p, k=el.dataset.f, raw=el.value.trim(), num=Number(raw), ok=raw!==''&&Number.isFinite(num);
-    if(k==='ground'){if(ok)MB.ground=num;}
-    else if(k==='mixing')MB.free.resistivity.mixing=raw;
-    else if(p)MB.free[p][k]=ok?num:(p==='density'&&k==='value'?2.67:null);
-    mbSoon();
-  });
 
   // ── Parameter mode ──
   $u('up-pmode').addEventListener('click',e=>{

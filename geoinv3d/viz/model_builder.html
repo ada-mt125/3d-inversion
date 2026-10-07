@@ -95,6 +95,14 @@ table.props input{padding:3px 4px;}
 .mtab td,.mtab th{padding:6px;border-bottom:1px solid var(--border-soft);text-align:left;}
 .mtab tr:hover td{background:var(--bg2);}
 .kbd{font-family:'SF Mono',Consolas,monospace;font-size:11px;background:var(--bg3);padding:0 4px;border-radius:3px;}
+/* in the upload page's Model step (?embed=1): no page chrome; the area follows the data window */
+body.embed header{padding:6px 10px;box-shadow:none;}
+body.embed header img,body.embed header .sep,body.embed header h1,body.embed header .page,
+body.embed #b-use,body.embed a.btn[href="/"]{display:none;}
+body.embed aside{width:330px;}
+#dbar{position:absolute;left:12px;bottom:34px;z-index:5;background:rgba(255,255,255,.92);border:1px solid var(--border);
+  border-radius:6px;padding:6px 8px;font-size:11px;color:var(--text2);}
+#dbar canvas{display:block;margin:4px 0;}
 @media (max-width:820px){main{flex-direction:column;}aside{width:auto;max-height:45vh;border-right:none;border-bottom:1px solid var(--border);}}
 </style>
 </head>
@@ -178,6 +186,8 @@ table.props input{padding:3px 4px;}
     <button class="btn sm" data-view="south">From south</button>
     <button class="btn sm" data-view="east">From east</button>
     <button class="btn sm" id="zoom-sel" title="Zoom to the selected item (or double-click it)">◎ Zoom to selected</button>
+    <span class="lbl" id="data-lbl" hidden>Data</span>
+    <select id="data-sel" hidden title="The data on the ground: draw the bodies over their anomalies"><option value="">none</option></select>
     <span class="lbl">Colour</span>
     <select id="color-by">
       <option value="unit">by unit</option>
@@ -194,6 +204,7 @@ table.props input{padding:3px 4px;}
     <button class="btn sm" id="mode-verts" title="Edit a polygon's vertices (V)">Vertices</button>
   </div>
   <div id="cbar" hidden></div>
+  <div id="dbar" hidden></div>
 </div>
 </main>
 <div id="status"><span class="msg" id="msg">Starting…</span><span id="cursor"></span></div>
@@ -210,6 +221,10 @@ import {TransformControls} from 'three/addons/controls/TransformControls.js';
 import {CSS2DRenderer, CSS2DObject} from 'three/addons/renderers/CSS2DRenderer.js';
 
 const API = window.GEOINV3D_API || location.origin;
+// in the upload page's Model step: the area, ground and CRS are the page's, the data are drawn on
+// the ground, and every change goes back to the page (postMessage, same origin)
+const EMBED = new URLSearchParams(location.search).has('embed') && window.parent !== window;
+if (EMBED) document.body.classList.add('embed');
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = v => v === null || v === '' || v === undefined || !Number.isFinite(+v) ? null : +v;
@@ -442,6 +457,46 @@ function drawModel() {
   placePivot();
   drawHandles();
 }
+
+// ── The data on the ground (embedded: the upload page's previews, a few thousand points) ──
+let DATA = [];
+const dataGroup = new THREE.Group(); scene.add(dataGroup);
+function viridis(t) {
+  const st = [[0, [68, 1, 84]], [0.25, [59, 82, 139]], [0.5, [33, 145, 140]], [0.75, [94, 201, 98]], [1, [253, 231, 37]]];
+  t = Math.min(1, Math.max(0, t));
+  for (let i = 1; i < st.length; i++) if (t <= st[i][0]) {
+    const [t0, a] = st[i - 1], [t1, b] = st[i], f = (t - t0) / (t1 - t0);
+    return a.map((v, k) => (v + (b[k] - v) * f) / 255);
+  }
+  return [253 / 255, 231 / 255, 37 / 255];
+}
+function drawData() {
+  clear(dataGroup);
+  const sel = $('data-sel'), had = sel.value;
+  sel.innerHTML = '<option value="">none</option>' + DATA.map(d => `<option value="${esc(d.key)}">${esc(d.label)}</option>`).join('');
+  sel.value = DATA.some(d => d.key === had) ? had : (DATA[0]?.key || '');
+  sel.hidden = $('data-lbl').hidden = !DATA.length;
+  const d = DATA.find(x => x.key === sel.value), bar = $('dbar');
+  if (!d || !d.xs.length) {bar.hidden = true; return;}
+  const n = d.xs.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  const lo = Number.isFinite(d.lo) ? d.lo : Math.min(...d.vs.filter(Number.isFinite)), hi = Number.isFinite(d.hi) ? d.hi : Math.max(...d.vs.filter(Number.isFinite));
+  for (let i = 0; i < n; i++) {
+    const v = S(d.xs[i], d.ys[i], M.ground); pos.set([v.x, v.y, v.z + 0.002], 3 * i);
+    const c = Number.isFinite(d.vs[i]) && hi > lo ? viridis((d.vs[i] - lo) / (hi - lo)) : [0.6, 0.58, 0.68];
+    col.set(c, 3 * i);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const span = Math.max(M.extent[1] - M.extent[0], M.extent[3] - M.extent[2]) / 1000;
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({size: Math.max(span / Math.sqrt(n) * 1.1, span / 400), vertexColors: true, sizeAttenuation: true}));
+  dataGroup.add(pts);
+  bar.hidden = false;
+  bar.innerHTML = `${esc(d.label)}${d.unit ? ` (${esc(d.unit)})` : ''}<canvas width="140" height="8"></canvas>` +
+    `<div style="display:flex;justify-content:space-between"><span>${+(+lo).toPrecision(3)}</span><span>${+(+hi).toPrecision(3)}</span></div>`;
+  const ctx = bar.querySelector('canvas').getContext('2d');
+  for (let i = 0; i < 140; i++) {const c = viridis(i / 139); ctx.fillStyle = `rgb(${c.map(v => Math.round(v * 255)).join(',')})`; ctx.fillRect(i, 0, 1, 8);}
+}
+$('data-sel').addEventListener('change', drawData);
 
 // ── Boreholes: a hole from its collar along its azimuth and dip, its intervals over it ──
 function holeDir(h) {
@@ -1060,10 +1115,14 @@ function renderFree() {
     `<tr><td>Density <span class="note">g/cc</span></td><td>${inp('density.value', f.density.value)}</td><td>${inp('density.lower', f.density.lower, 'placeholder="none"')}</td><td>${inp('density.upper', f.density.upper, 'placeholder="none"')}</td></tr>` +
     `<tr><td>Susceptibility <span class="note">SI</span></td><td class="note">0</td><td>${inp('susceptibility.lower', f.susceptibility.lower, 'placeholder="none"')}</td><td>${inp('susceptibility.upper', f.susceptibility.upper, 'placeholder="none"')}</td></tr>` +
     `<tr><td>Resistivity <span class="note">Ω·m</span></td><td>${inp('resistivity.value', f.resistivity.value, 'placeholder="the job’s"')}</td><td>${inp('resistivity.lower', f.resistivity.lower, 'placeholder="none"')}</td><td>${inp('resistivity.upper', f.resistivity.upper, 'placeholder="none"')}</td></tr>` +
-    `</tbody></table><div class="note">Density: the background the inversion's contrasts are relative to (the Bouguer reduction density). ` +
+    `</tbody></table><div class="row" style="margin-top:6px"><div class="f"><span>A cell holding several layers takes (resistivity)</span>` +
+    `<select data-mix="1">${[['log', 'the geometric mean (log σ averaged)'], ['conductance', 'their conductance (horizontal currents: MT)'], ['resistance', 'their transverse resistance (vertical currents: DC)']]
+      .map(([k, t]) => `<option value="${k}"${(f.resistivity.mixing || 'log') === k ? ' selected' : ''}>${t}</option>`).join('')}</select></div></div>` +
+    `<div class="note">Density: the background the inversion's contrasts are relative to (the Bouguer reduction density). ` +
     `Cells no unit reaches keep the job's settings, within these bounds.</div>`;
 }
 $('free').addEventListener('change', ev => {
+  if (ev.target.dataset.mix) {M.builder.free.resistivity.mixing = ev.target.value; commit('Edited the background'); return;}
   const f = ev.target.dataset.f; if (!f) return;
   setPath(M.builder.free, f, num(ev.target.value)); commit('Edited the background');
 });
@@ -1071,6 +1130,7 @@ $('free').addEventListener('change', ev => {
 // ── Area and settings ──
 function renderSettings() {
   $('m-name').value = M.name;
+  if (EMBED) for (const id of ['e-w', 'e-e', 'e-s', 'e-n', 'e-ground', 'e-crs']) {$(id).disabled = true; $(id).title = 'Set by the upload page: its data window, ground and coordinate system';}
   [['e-w', 0], ['e-e', 1], ['e-s', 2], ['e-n', 3]].forEach(([id, i]) => {$(id).value = km(M.extent[i]);});
   $('e-ground').value = M.ground; $('e-depth').value = M.depth; $('e-ve').value = M.ve; $('e-crs').value = M.crs || '';
 }
@@ -1095,9 +1155,40 @@ function commit(what) {
   const s = snap(); if (s === last) return;
   undo.push(last); if (undo.length > 200) undo.shift(); redo.length = 0; last = s;
   setDirty(true); if (what) say(what);
+  toPage();
 }
+let toPageTimer = null;
+function toPage() {   // embedded: the model, as the upload page's Model step keeps it
+  if (!EMBED) return;
+  clearTimeout(toPageTimer);
+  toPageTimer = setTimeout(() => window.parent.postMessage({type: 'geoinv3d:model', name: M.name, id: M.id,
+    builder: JSON.parse(JSON.stringify({...M.builder, version: 2, ground: M.ground}))}, location.origin), 120);
+}
+let CTX = null;      // the page's area, ground and CRS
+window.addEventListener('message', ev => {
+  if (!EMBED || ev.origin !== location.origin || ev.source !== window.parent || !ev.data || typeof ev.data !== 'object') return;
+  const d = ev.data;
+  if (d.type === 'geoinv3d:context') {
+    const first = !CTX;
+    CTX = {};
+    if (Array.isArray(d.extent) && d.extent.length === 4 && d.extent.every(Number.isFinite)) CTX.extent = d.extent.map(Number);
+    if (Number.isFinite(+d.ground)) CTX.ground = +d.ground;
+    if (d.crs) CTX.crs = String(d.crs);
+    Object.assign(M, CTX); M.builder.ground = M.ground;
+    if (first && Number.isFinite(+d.depth) && +d.depth > 0) M.depth = Math.max(+d.depth, ...items().map(it => it.kind === 'body' ? depthOf(it, +it.bottom) : 0));
+    DATA = Array.isArray(d.data) ? d.data : [];
+    renderSettings(); drawFrame(); drawData(); drawModel();
+    if (first) setView('3d');
+  }
+  if (d.type === 'geoinv3d:load' && d.model) {
+    const depth = M.depth, ve = M.ve;      // the view's settings stay
+    load({depth, ve, ...d.model, id: null, name: d.model.name || M.name}, true);
+    if (CTX) {Object.assign(M, CTX); renderSettings(); drawFrame(); drawData(); drawModel(); last = snap();}
+  }
+});
 function restore(s) {
   const id = M.id; M = JSON.parse(s); M.id = id; last = s;
+  if (EMBED && CTX) Object.assign(M, CTX);
   if (sel >= items().length) sel = -1; selLayer = -1;
   renderSettings(); renderFree(); drawFrame(); drawModel(); renderList(); renderForm(); setDirty(true);
 }
@@ -1117,6 +1208,7 @@ window.addEventListener('keydown', ev => {
 });
 
 // ── Saving, opening ──
+const setUrl = id => history.replaceState(null, '', (EMBED ? '?embed=1' + (id ? `&id=${id}` : '') : (id ? `?id=${id}` : location.pathname)));
 function setDirty(d) {dirty = d; $('m-dirty').textContent = d ? '•' : ''; document.title = `${d ? '• ' : ''}${M.name} — Model builder`;}
 function say(text, cls = '') {$('msg').innerHTML = `<span class="${cls}">${esc(text)}</span>`;}
 const payload = () => ({name: M.name, crs: M.crs, extent: M.extent, ground: M.ground, depth: M.depth, ve: M.ve,
@@ -1132,11 +1224,11 @@ async function save(asNew) {
     if (asNew) {const n = prompt('Name of the copy', `${M.name} (copy)`); if (n == null) return false; M.name = n.trim() || M.name; renderSettings();}
     const d = M.id && !asNew ? await api(`/api/models/${M.id}`, {method: 'PUT', body: JSON.stringify(payload())})
       : await api('/api/models', {method: 'POST', body: JSON.stringify(payload())});
-    M.id = d.id; setDirty(false); history.replaceState(null, '', `?id=${d.id}`);
+    M.id = d.id; setDirty(false); setUrl(d.id);
     say(`Saved “${d.name}”`); return true;
   } catch (e) {say(`Could not save: ${e.message}`, 'err'); return false;}
 }
-function load(d) {
+function load(d, fromPage = false) {
   M = {...blankModel(), ...d};
   M.builder = {...blankModel().builder, ...(d.builder || {})};
   M.builder.free = {...blankModel().builder.free, ...(d.builder?.free || {})};
@@ -1144,7 +1236,9 @@ function load(d) {
   if (d.ground == null && d.builder?.ground != null) M.ground = +d.builder.ground;
   sel = -1; selLayer = -1; undo.length = 0; redo.length = 0; last = snap();
   seq = M.builder.items.length;
-  renderSettings(); renderFree(); drawFrame(); drawModel(); renderList(); renderForm(); setView('3d'); setDirty(false);
+  if (EMBED && CTX && !fromPage) Object.assign(M, CTX);
+  renderSettings(); renderFree(); drawFrame(); drawData(); drawModel(); renderList(); renderForm(); setView('3d'); setDirty(false);
+  if (!fromPage) toPage();
 }
 function guessExtent(list) {   // the bodies' outlines, widened (a model from the upload page has no area)
   const pts = [];
@@ -1158,14 +1252,14 @@ function guessExtent(list) {   // the bodies' outlines, widened (a model from th
   return [w - pad, e + pad, s - pad, n + pad].map(v => Math.round(v));
 }
 async function openModel(id) {
-  try {const d = await api(`/api/models/${id}`); load(d); M.id = d.id; history.replaceState(null, '', `?id=${d.id}`); say(`Opened “${d.name}”`);}
+  try {const d = await api(`/api/models/${id}`); load(d); M.id = d.id; setUrl(d.id); say(`Opened “${d.name}”`);}
   catch (e) {say(`Could not open the model: ${e.message}`, 'err');}
 }
 $('b-save').addEventListener('click', () => save(false));
 $('b-saveas').addEventListener('click', () => save(true));
 $('b-new').addEventListener('click', () => {
   if (dirty && !confirm('Discard the changes to this model?')) return;
-  load(blankModel()); history.replaceState(null, '', location.pathname); say('A new model');
+  load(blankModel()); setUrl(null); say('A new model');
 });
 $('b-open').addEventListener('click', async () => {
   $('open-dlg').hidden = false; $('open-list').textContent = 'Loading…';
@@ -1211,16 +1305,17 @@ $('b-use').addEventListener('click', async () => {
   if (dirty || !M.id) {if (!(await save(false))) return;}
   location.href = `/?model=${M.id}`;
 });
-window.addEventListener('beforeunload', ev => {if (dirty) {ev.preventDefault(); ev.returnValue = '';}});
+window.addEventListener('beforeunload', ev => {if (dirty && !EMBED) {ev.preventDefault(); ev.returnValue = '';}});
 
 // for checks from the console: the model as it stands (a copy)
 window.GeoModel = {get model() {return JSON.parse(JSON.stringify(M));}, get selected() {return [sel, selLayer];}};
 
 // ── Start ──
 const id = new URLSearchParams(location.search).get('id');
-load(blankModel());
+load(blankModel(), true);            // (embedded, the page sends its model when it has one)
 setMode('translate');
-if (id) openModel(id); else say('A new model: add a box, a cylinder, a polygon or a layer stack, then drag it in the view.');
+if (EMBED) {window.parent.postMessage({type: 'geoinv3d:ready'}, location.origin); say('The model of this job: add bodies, layers or boreholes; the data are on the ground (Data, above).');}
+else if (id) openModel(id); else say('A new model: add a box, a cylinder, a polygon or a layer stack, then drag it in the view.');
 </script>
 </body>
 </html>

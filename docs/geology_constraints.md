@@ -3,35 +3,40 @@
 Code: `geoinv3d/methods/geology.py` (building the constraints), `geoinv3d/io/vector.py`
 (shapefiles and GeoJSON without GIS libraries), the pipeline's `params["geology"]`
 (`cloud/worker.py`, `_apply_geology`), tests: `tests/test_geology.py`.
-Upload page: the *Model* step (4 of 7: after Mesh, before Inversion) (draw or type bodies and layer
-stacks, and/or drop a spec with its files).
+Upload page: the *Model* step (4 of 7: after Mesh, before Inversion): the 3D model builder
+(`geoinv3d/viz/model_builder.html`) in the page, and/or a dropped spec with its files. The
+builder also has a page of its own (`/model`), whose models are kept on the server.
 
-## Building the model on the page (like MARE2DEM's regions, in 3D)
+## Building the model (like MARE2DEM's regions, in 3D)
 
-The *Model* step (the page widens for it) has a plan-view map (the
-data behind it, the analysis window in orange), a section below it, the list of parts, the
-selected part's form and, for a layer stack, its table.
+In the *Model* step the builder takes the page's data window as its area, the ground and the
+coordinate system, and shows the data as points on the ground (**Data**), so the bodies can be
+drawn over their anomalies; every change goes back to the page, and each job takes the part
+of the model its data are about.
 
-- **Bodies.** *Draw a body*: click the vertices, then double-click or click the first
-  vertex (Esc cancels); **+ Box** / **+ Cylinder** add a shape to edit by numbers. A body
-  has an outline (vertices in km, W/E/S/N, or centre and radius), a top and bottom —
-  metres **below the ground**, or **elevations** — and a dip (degrees from horizontal, 90 =
-  vertical) and dip direction (the outline moves that way as it deepens).
-- **Layer stacks** (**≡ + Layers**): everywhere, or in a box, circle or polygon; a top
-  (below the ground or an elevation); the interfaces flat or **tilted** (tilt from
-  horizontal, the azimuth they sink towards, about a pivot where the top holds);
-  thicknesses are vertical, and an empty last thickness reaches the bottom of the mesh.
-  The table lists each layer's name, thickness, computed top, values, weight and switches;
-  rows move up and down. **Paste a table** takes one layer per line,
-  `[name] thickness value [lowest highest]` (a well log, or a 1D MT model), with `-` or
-  `inf` as the last thickness; header lines are skipped.
-- **Values per property.** Every body and layer carries a value (and optionally a lowest
-  and highest value) for each property of the loaded data: **density** (g/cc, a rock
-  density; sent as the contrast to the reduction density), **susceptibility** (SI) and
-  **resistivity** (Ω·m; inverted as log conductivity). An empty value leaves that part free
-  for that property, so one model serves a gravity and a DC/MT job at once: each job gets
-  the spec of its own property. Default ranges: ± 0.05 g/cc, ± 0.005 SI, a factor 2 in
-  resistivity.
+- **Bodies**: **+ Box**, **+ Cylinder**, or **Polygon body** (click the ground in plan view,
+  double-click or Enter to close). A body has an outline, a top and bottom — metres **below
+  the ground**, or **elevations** — and a dip (degrees from horizontal, 90 = vertical) and dip
+  direction (the outline moves that way as it deepens). In the view: drag the gizmo's arrows
+  to move it (the vertical one moves it up and down), **S** to resize a box or cylinder,
+  **V** to edit a polygon's vertices (drag a corner; drag an edge's midpoint to add one;
+  right-click to delete one).
+- **Layer stacks** (**≡ Layers**): everywhere, or in a box or polygon; a top (below the ground
+  or an elevation); the interfaces flat or **tilted** (tilt from horizontal, the azimuth they
+  sink towards, about a pivot where the top holds); thicknesses are vertical, and an empty
+  last thickness reaches the bottom of the mesh.
+- **Boreholes** (**⊙ Boreholes**, **⤒ Boreholes CSV**, or a CSV pasted under the holes table):
+  each hole (collar, azimuth, dip) is logged in depth intervals along it, each with a
+  lithology and its values; a CSV has one row per interval (`hole,x,y,from,to,…`) or per
+  measurement (`hole,x,y,depth,…`, each value standing for the depths half-way to its
+  neighbours). The cells a hole passes through take its intervals by their length in them;
+  a **reach** also puts the log partly (1 − distance / reach) into the cells around.
+- **Values per property.** Every body, layer and interval carries a value (and optionally a
+  lowest and highest value) for each property: **density** (g/cc, a rock density; sent as
+  the contrast to the reduction density), **susceptibility** (SI) and **resistivity** (Ω·m;
+  inverted as log conductivity). An empty value leaves that part free for that property,
+  so one model serves a gravity and a DC/MT job at once. Default ranges: ± 0.05 g/cc,
+  ± 0.005 SI, a factor 2 in resistivity.
 - **Weight** (how strongly the inversion is pulled to the value), **Fixed** (a tenth of the
   range and weight ≥ 100: it hardly moves) and **Sharp** (little smoothing across the
   part's boundaries: the model may jump there, as across ModEM's covariance "tears").
@@ -39,18 +44,16 @@ selected part's form and, for a layer stack, its table.
   reduction density; bounds for the free cells; for resistivity the free cells' value
   (empty = the method's background) and how a cell holding several layers averages them
   (below).
-- The **section** (west–east or south–north; Shift-click the map to move it; scroll to
-  zoom; **log depth** for thin shallow layers) is coloured by the chosen property —
-  density contrast blue–white–red, resistivity on a log scale from conductive red to
-  resistive blue — with free parts dark, the mesh's vertical cells dotted and the mesh core
-  bottom dashed. Layers or bodies thinner than the vertical cells are flagged: they are
-  not lost (below), but only finer cells resolve them.
-- **Save model** downloads the spec of the first property with the others under
-  `other_properties` and the editor's state under `builder`; dropping it back in the files
-  area restores everything. Bodies and layer stacks with given values from any spec come
-  into the editor too.
+- The view: colour by unit or by a property (with its colour bar), plan / south / east views,
+  a west–east or south–north **section**, **Zoom to selected** (or a double-click), undo / redo.
+- **Save model** (in the step) downloads the spec of the first property with the others under
+  `other_properties` and the model under `builder`; dropping it back in the files area, or
+  importing it in the builder, restores everything. Bodies and layer stacks with given values
+  from any spec come into the builder too. The builder's own **Save / Open** keep models on
+  the server; its page's **Use in an inversion** opens the upload page with the model in this
+  step.
 
-The drawn parts are added to a dropped file spec of the same property (samples,
+The builder's parts are added to a dropped file spec of the same property (samples,
 boreholes, maps): their units join its units and their sources come after its sources.
 Files are **optional**: a spec whose samples or borehole files are missing is still
 submitted, and the worker leaves out what needs them, with a note in the result.

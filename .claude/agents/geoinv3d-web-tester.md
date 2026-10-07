@@ -53,8 +53,12 @@ intervals tables, a pasted CSV of intervals and of depth measurements, an inclin
 "Use in an inversion" (the upload page must show the model in its model step, the boreholes as
 markers on its map, and its "⤓ Save model" spec must carry a "boreholes" source per property).
 Upload page (`/`): the data cards (gravity, magnetics, DC, electromagnetic/MT with EDI), the steps
-Data → Area → Mesh → Model → Inversion → Review, the model step's "From the model builder…", the
-review summary and the "Checks before running", the submitted parameters.
+Data → Area → Mesh → Model → Inversion → Review. The Model step is the builder in a frame
+(`#mb-frame`, `/model?embed=1`; reach it with `document.getElementById('mb-frame').contentWindow`):
+its area must follow the data window, the data must show on its ground (Data), a change there must
+reach the page (`#mb-hint`, "⤓ Save model", the submitted `params.geology`), and a model from
+`?model=<id>`, a setup or a JSON dropped on the files area must appear in it. Also the review
+summary, the "Checks before running" and the submitted parameters.
 
 Always read the console (`read_console_messages`, errors only) after each page load and after
 each action group; network failures from before your server started are not findings.

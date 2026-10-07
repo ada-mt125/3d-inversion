@@ -2409,3 +2409,30 @@ with a collar above the ground and of a reversed interval; in the browser, a CSV
 measurements becomes four intervals with midpoint boundaries, the upload page's spec of the saved
 model carries a borehole source per property, and that spec, placed by geology.py on 50 m cells,
 puts the logged resistivities down the right columns (the inclined hole moving east with depth).
+
+## 2026-10-07 — The upload page's Model step is the 3D builder
+
+The Model step's own editor (a plan-view map with a section, a list, forms and a layer table,
+some 800 lines) is gone; the step now holds the 3D model builder in a frame
+(`/model?embed=1`). The page keeps the model (`MB.items`, `MB.holes`, `MB.free`, `MB.ground`)
+and makes the jobs' specs from it as before (`mbSpec`, `geoCombined`, `mbImport` and "⤓ Save
+model" unchanged); the frame and the page talk by `postMessage` (same origin only):
+
+- page → builder `geoinv3d:context`: the area (the data window), the ground (flat, or the
+  model's), the CRS, the mesh's core depth (shown depth, first time) and the data — each type
+  as at most ~20,000 points (grids sampled to 150 × 150) with its colour range — which the
+  builder draws on its ground (Data, Viridis, with a legend), so bodies are drawn over the
+  anomalies as on the old map; the area fields are then the page's, not editable there;
+- page → builder `geoinv3d:load`: a model from elsewhere (`?model=<id>`, a setup, a finished
+  job, a spec dropped on the files area — which now takes a file with only a `builder`);
+- builder → page `geoinv3d:ready`, and `geoinv3d:model` after every change (not after a load
+  from the page, and not for its own empty start, so it never wipes the page's model).
+
+Left out of the new editor for now: pasting a layer table, the section with the mesh's cells
+and the thin-layer flags, and moving a layer within its stack.
+
+Checked in the browser: a 30 × 30 synthetic gravity anomaly on the builder's ground, the area
+following the window (400–410 km E), a box and a borehole added there reaching the page's
+"⤓ Save model" spec and the submitted `params.geology` (a body and a boreholes source), a saved
+model through `?model=` and a dropped builder JSON appearing in the frame, every step without a
+script error.
