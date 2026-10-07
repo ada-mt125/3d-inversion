@@ -1843,6 +1843,8 @@ class PipelineDataset:
     # per datum for plotting (DC: the electrodes' centre; MT: the station)
     extent_points: np.ndarray | None = None
     plot_locations: np.ndarray | None = None
+    # MT: stations, frequencies, components and the station of each datum (see _mt_arrays)
+    mt: dict | None = None
 
     @property
     def mesh_points(self) -> np.ndarray:
@@ -2210,6 +2212,15 @@ def _job_crs(params: dict, data_dir: str, specs: list, topo_file: str | None) ->
                     lonlat.append((pts.locations[:, 0], pts.locations[:, 1]))
         except Exception:   # unreadable here: the loaders report it properly
             continue
+    edi = [os.path.join(data_dir, f) for f in names if f.lower().endswith(".edi")
+           and os.path.exists(os.path.join(data_dir, f))]
+    if edi:                 # MT stations: longitude / latitude in their EDI headers
+        from ..io.edi import read_edi
+        try:
+            sts = [read_edi(p) for p in edi]
+            lonlat.append((np.array([s.lon for s in sts]), np.array([s.lat for s in sts])))
+        except Exception:
+            pass
     crs = working_crs(grid_crs, lonlat, params.get("crs"))
     if crs is None and geographic_grids:
         # data in metres with no CRS, and a longitude/latitude DEM (e.g. SRTM): the data
@@ -2229,7 +2240,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     method = canonical_method(spec.get("method") or spec.get("type")
                               or params.get("method_type", "gravity"))
     if method in _EM_METHODS:
-        return _load_em_dataset(spec, params, data_dir, method)
+        return _load_em_dataset(spec, params, data_dir, method, crs)
     if method not in _PIPELINE_METHODS:
         raise NotImplementedError(
             f"The raw-data pipeline supports {', '.join(_PIPELINE_METHODS + _EM_METHODS)}; "
@@ -2381,15 +2392,84 @@ def _nearest_spacing(points: np.ndarray) -> float | None:
     return float(np.median(dist[:, 1]))
 
 
-def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str) -> PipelineDataset:
-    """An MT or DC resistivity dataset from one .npz file.
+def _mt_arrays(values, std, stations, freqs, comps, kwargs):
+    """MT data as (frequency, component, station) arrays (NaN: no datum) -> the data vector,
+    its errors, the method's arguments (with the mask) and what the result reports."""
+    values = np.asarray(values, dtype=float).reshape(len(freqs), len(comps), len(stations))
+    if std is not None:
+        std = np.asarray(std, dtype=float)
+        std = std.reshape(values.shape) if std.size == values.size else np.broadcast_to(std, values.shape)
+    mask = np.isfinite(values) if std is None else np.isfinite(values) & np.isfinite(std) & (std > 0)
+    if not mask.any():
+        raise ValueError("mt: no data (every value is missing)")
+    kwargs = {**kwargs, "frequencies": [float(f) for f in freqs], "components": [str(c) for c in comps]}
+    if not mask.all():
+        kwargs["mask"] = mask.tolist()
+    station_of = np.broadcast_to(np.arange(len(stations)), values.shape)[mask]
+    info = {"n_stations": int(len(stations)), "frequencies": kwargs["frequencies"],
+            "components": kwargs["components"], "n_missing": int((~mask).sum()),
+            "station_of_datum": station_of}
+    return values[mask], None if std is None else std[mask], kwargs, info
+
+
+def _load_edi_dataset(spec: dict, data_dir: str, files: list, crs: str | None) -> PipelineDataset:
+    """An MT dataset from EDI files, one station each (geoinv3d.io.mt_data)."""
+    from ..io.crs import GEOGRAPHIC, project, utm_crs
+    from ..io.mt_data import mt_dataset, read_edi_files
+
+    paths = [os.path.join(data_dir, f) for f in files]
+    absent = [f for f, p in zip(files, paths) if not os.path.exists(p)]
+    if absent:
+        raise FileNotFoundError(f"mt: EDI files not found in {data_dir}: {absent}")
+    stations = read_edi_files(paths, units=spec.get("edi_units", "field"))
+    lon, lat = np.array([s.lon for s in stations]), np.array([s.lat for s in stations])
+    if not (np.isfinite(lon).all() and np.isfinite(lat).all()):
+        bad = [f for f, a, b in zip(files, lon, lat) if not (np.isfinite(a) and np.isfinite(b))]
+        raise ValueError(f"mt: no LAT / LONG in the EDI header of {bad}")
+    x, y = project(lon, lat, GEOGRAPHIC, crs or utm_crs(lon, lat))
+    error_floor = float(spec.get("error_floor", 0.05))
+    tipper_floor = float(spec.get("tipper_floor", 0.03))
+    arrays = mt_dataset(stations, np.column_stack([x, y]),
+                        impedance=spec.get("impedance", "offdiagonal"),
+                        tipper=bool(spec.get("tipper", True)),
+                        data_type=spec.get("data_type", "impedance"),
+                        error_floor=error_floor, tipper_floor=tipper_floor,
+                        frequency_range=spec.get("frequency_range"),
+                        per_decade=spec.get("frequencies_per_decade"))
+    locs = arrays["locations"]
+    observed, std, kwargs, info = _mt_arrays(arrays["values"], arrays["std"], locs,
+                                             arrays["frequencies"], arrays["components"],
+                                             dict(spec.get("method_kwargs") or {}))
+    info.update(names=arrays["names"], error_floor=error_floor, tipper_floor=tipper_floor,
+                data_type=spec.get("data_type", "impedance"))
+    f = arrays["frequencies"]
+    print(f"[Pipeline] Loading mt data from {len(files)} EDI files: {len(stations)} stations, "
+          f"{len(f)} frequencies ({f.min():.4g}-{f.max():.4g} Hz), {', '.join(arrays['components'])}: "
+          f"{observed.size} data ({info['n_missing']} missing)")
+    return PipelineDataset(
+        method="mt", component=("rho_phase" if info["data_type"] == "rho_phase" else "impedance"),
+        locations=locs, observed=observed, std=std, method_kwargs=kwargs, files=files,
+        noise_pct=error_floor, noise_floor=0.0, spacing=_nearest_spacing(locs), spacing_kind="points",
+        model=spec.get("model") or None,
+        regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
+        extent_points=locs, plot_locations=locs[info["station_of_datum"]], mt=info,
+    )
+
+
+def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str,
+                     crs: str | None = None) -> PipelineDataset:
+    """An MT or DC resistivity dataset from one .npz file, or MT from EDI files.
 
     DC: ``electrodes`` (n, 12: A, B, M, N as x, y, z; NaN B / N for poles) or
     ``a``, ``b``, ``m``, ``n`` (n, 3 each; b, n optional), ``values`` (n), and
     optionally ``std`` and ``data_type`` ("volt" or "apparent_resistivity").
     MT: ``locations`` (stations, 3), ``frequencies``, ``components`` (e.g.
-    "xy_real"), ``values`` ordered frequency by frequency, then component by
-    component, then station by station, and optionally ``std``.  Without
+    "xy_real", in the mesh's frame: see geoinv3d.methods.mt), ``values`` ordered
+    frequency by frequency, then component by component, then station by
+    station (NaN: no datum), and optionally ``std``; or EDI files, one per
+    station (``impedance``, ``tipper``, ``data_type``, ``error_floor``,
+    ``tipper_floor``, ``frequency_range``, ``frequencies_per_decade``: see
+    geoinv3d.io.mt_data).  MT stations are put on the ground.  Without
     ``std`` the spec's noise_pct and noise_floor (required: the data have no
     natural floor) give it.  Elevations must be given (z of every point);
     ``method_kwargs`` (e.g. sigma_background) go to the method, whose
@@ -2398,6 +2478,8 @@ def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str) -> Pi
     from ..methods.dc_resistivity import electrode_rows
 
     files = list(spec.get("files") or ([spec["file"]] if spec.get("file") else []))
+    if method == "mt" and files and all(f.lower().endswith(".edi") for f in files):
+        return _load_edi_dataset(spec, data_dir, files, crs)
     if len(files) != 1 or not files[0].lower().endswith(".npz"):
         raise ValueError(f"{method} data come in one .npz file with their geometry; got {files}")
     path = os.path.join(data_dir, files[0])
@@ -2426,21 +2508,23 @@ def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str) -> Pi
         component = kwargs.get("data_type", "volt")
     else:
         stations = np.atleast_2d(np.asarray(d["locations"], dtype=float))
-        freqs = [float(f) for f in np.ravel(d["frequencies"])]
-        comps = [str(c) for c in np.ravel(d["components"])]
-        kwargs.setdefault("frequencies", freqs)
-        kwargs.setdefault("components", comps)
-        n = len(kwargs["frequencies"]) * len(kwargs["components"]) * len(stations)
+        freqs = [float(f) for f in np.ravel(kwargs.get("frequencies", d["frequencies"]))]
+        comps = [str(c) for c in np.ravel(kwargs.get("components", d["components"]))]
+        n = len(freqs) * len(comps) * len(stations)
         if values.size != n:
-            raise ValueError(f"{files[0]}: {values.size} values for {len(kwargs['frequencies'])} "
-                             f"frequencies x {len(kwargs['components'])} components x "
+            raise ValueError(f"{files[0]}: {values.size} values for {len(freqs)} "
+                             f"frequencies x {len(comps)} components x "
                              f"{len(stations)} stations = {n}")
+        full_std = d.get("std")
+        values, std_mt, kwargs, mt_info = _mt_arrays(values, full_std, stations, freqs, comps, kwargs)
+        if full_std is not None:
+            d["std"] = std_mt
         points = stations
         locations = stations
-        plot = np.tile(stations, (n // len(stations), 1))
+        plot = stations[mt_info["station_of_datum"]]
         component = "impedance"
-    if not np.isfinite(points[:, 2]).all():
-        raise ValueError(f"{method}: every station / electrode needs an elevation (z)")
+    if method == "dc_resistivity" and not np.isfinite(points[:, 2]).all():
+        raise ValueError(f"{method}: every electrode needs an elevation (z)")
     if not np.isfinite(values).all():
         raise ValueError(f"{method}: the data contain NaN or inf")
     noise_pct = float(spec.get("noise_pct", 0.05))
@@ -2455,13 +2539,15 @@ def _load_em_dataset(spec: dict, params: dict, data_dir: str, method: str) -> Pi
     if np.any(std <= 0):
         raise ValueError(f"{method}: uncertainty is zero for {int(np.sum(std <= 0))} data")
     print(f"[Pipeline] Loading {method} data from {files[0]}: {values.size} data")
+    if method == "mt":
+        mt_info["noise"] = "file" if "std" in d else "noise_pct and noise_floor"
     return PipelineDataset(
         method=method, component=component, locations=locations, observed=values, std=std,
         method_kwargs=kwargs, files=files, noise_pct=noise_pct, noise_floor=noise_floor,
         spacing=_nearest_spacing(points), spacing_kind="points",
         model=spec.get("model") or None,
         regularization=dict(spec["regularization"]) if spec.get("regularization") else None,
-        extent_points=points, plot_locations=plot,
+        extent_points=points, plot_locations=plot, mt=mt_info if method == "mt" else None,
     )
 
 
@@ -2948,7 +3034,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     # ── Topography and station elevations ──
     surface, topo_info, has_dem = _load_topography(params, data_dir, crs, datasets)
     for ds, spec in zip(datasets, specs):
-        if ds.extent_points is not None:   # MT / DC: elevations are part of the data
+        if ds.mt is not None:   # MT stations are on the ground (on the DEM, else the flat ground)
+            ds.locations[:, 2] = surface(ds.locations[:, 0], ds.locations[:, 1])
+            ds.plot_locations = ds.locations[ds.mt["station_of_datum"]]
+            continue
+        if ds.extent_points is not None:   # DC: elevations are part of the data
             continue
         # above the ground: per dataset (a flight height), else the job's value; data
         # continued upwards are at the height they were continued to
@@ -3233,7 +3323,8 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
              **({"rtp": ds.rtp} if ds.rtp else {}),
              **({"continuation": ds.continuation} if ds.continuation else {}),
              **({"igrf": ds.igrf} if ds.igrf else {}),
-             **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {})}
+             **({"bouguer_check": ds.bouguer_check} if ds.bouguer_check else {}),
+             **({"mt": {k: v for k, v in ds.mt.items() if k != "station_of_datum"}} if ds.mt else {})}
             for ds in datasets
         ],
     })

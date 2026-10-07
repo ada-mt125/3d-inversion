@@ -4539,8 +4539,35 @@ const GeoMesh=(function(){
     for(let i=0;i<pts.xs.length;i++){const x=+pts.xs[i],y=+pts.ys[i];if(Number.isFinite(x)&&Number.isFinite(y)){xs.push(x);ys.push(y);}}
     return {kind:'points',format,...stationSpacing(xs,ys)};
   }
+  // EDI (MT): one station per file, LAT / LONG (or REFLAT / REFLONG) in its header, as
+  // geoinv3d/io/edi.py reads them: "dd:mm:ss.s" or decimal degrees
+  function ediAngle(t){
+    t=String(t).trim().replace(/^"|"$/g,'');
+    if(!t.includes(':'))return Number(t);
+    const p=t.split(':').map(Number), s=t.startsWith('-')?-1:1;
+    return s*(Math.abs(p[0])+(p[1]||0)/60+(p[2]||0)/3600);
+  }
+  async function readEdiStation(file){
+    const text=await file.text(), kv={};
+    for(const m of text.matchAll(/\b(LAT|LONG|LON|REFLAT|REFLONG|REFLON|ELEV|REFELEV)\s*=\s*("[^"]*"|\S+)/gi)){
+      const k=m[1].toUpperCase(); if(!(k in kv))kv[k]=m[2];
+    }
+    const lat=ediAngle(kv.LAT??kv.REFLAT??'NaN'), lon=ediAngle(kv.LONG??kv.LON??kv.REFLONG??kv.REFLON??'NaN');
+    if(!Number.isFinite(lat)||!Number.isFinite(lon))throw new Error(`${file.name}: no LAT / LONG in its header`);
+    return {lat,lon,elev:Number(kv.ELEV??kv.REFELEV??NaN)};
+  }
+  // all the EDI files of a dataset: their stations, in UTM metres
+  async function inspectEdi(files){
+    const st=await Promise.all(files.map(readEdiStation));
+    const pr=GeoCRS.project(st.map(s=>s.lon),st.map(s=>s.lat));
+    const xs=Array.from(pr?pr.xs:st.map(s=>s.lon)), ys=Array.from(pr?pr.ys:st.map(s=>s.lat));
+    const format=`EDI (MT), ${st.length} station${st.length>1?'s':''}`+(pr?` · lon/lat → UTM ${pr.epsg%100}${pr.epsg>32700?'S':'N'}`:'');
+    const sp=st.length>1?stationSpacing(xs,ys)
+      :{area_spacing:1000,nn_spacing:1000,across_spacing:1000,spacing:1000,extent:[xs[0]-500,xs[0]+500,ys[0]-500,ys[0]+500],n:1};
+    return {kind:'points',format,...sp,xs,ys,elev:st.map(s=>s.elev)};
+  }
   return {niceNumber,nextNiceNumber,paddingCells,tensorShape,octreeCells,recommend,stationSpacing,inspectFile,
-    readNpzValues:readNpz,MAX_CELLS};
+    inspectEdi,readNpzValues:readNpz,MAX_CELLS};
 })();
 window.GeoMesh=GeoMesh;
 
@@ -4761,7 +4788,7 @@ window.GeoPreview=GeoPreview;
 // ══════════════════════════════════════════
 (function(){
   const $u=id=>document.getElementById(id);
-  const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz';
+  const DATA_ACCEPT='.tif,.tiff,.grd,.csv,.xyz,.obs,.txt,.dat,.npz,.edi';
   const AUTO_FLOOR_SHARE=0.015, AUTO_NOISE_PCT=2;   // automatic errors, as worker.auto_noise
   // A single magnetic inversion's cell weighting by default: depth, this β (worker.MAG_DEPTH_BETA).
   // Sensitivity weights make a deep cell as cheap as a shallow one, so a broad anomaly becomes
@@ -4788,7 +4815,13 @@ window.GeoPreview=GeoPreview;
         {id:'reg',label:'Regional field',type:'select',options:[['poly2','Trend surface, order 2'],['none','None'],['mean','Remove the mean'],['poly1','Trend surface, order 1'],['poly3','Trend surface, order 3'],
           ['upward','Upward continuation'],['butterworth','Butterworth low-pass'],['bandpass','Band-pass (keep a band)']]}]},
     {key:'electrical',label:'Electrical',en:'conductivity',color:'#2196F3',unit:'',pct:5,floor:0,
-      opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]}]},
+      opts:[{id:'sub',label:'Method',type:'select',options:[['dc','DC resistivity'],['mt','MT (magnetotellurics)']]},
+        // MT from EDI files (geoinv3d/io/mt_data.py); shown for MT only
+        {id:'mtimp',label:'Impedance',type:'select',options:[['offdiagonal','Off-diagonal: Zxy, Zyx'],['full','Full tensor'],['none','None']]},
+        {id:'mttip',label:'Tipper',type:'select',options:[['yes','Used where present'],['no','Left out']]},
+        {id:'mtdata',label:'Impedance as',type:'select',options:[['impedance','Real and imaginary parts'],['rho_phase','Apparent resistivity and phase']]},
+        {id:'mtfloor',label:'Error floor (% of √|Zxy·Zyx|)',type:'number',value:5},
+        {id:'mttfloor',label:'Tipper error floor',type:'number',value:0.03}]},
   ];
   const files={gravity:[],magnetic:[],electrical:[]};
   let topoFile=null, paramMode='auto', methodPicked=false;
@@ -4964,7 +4997,7 @@ window.GeoPreview=GeoPreview;
       <div class="up-drop" id="up-drop-${t.key}">
         <input type="file" id="up-file-${t.key}" accept="${DATA_ACCEPT}" multiple hidden>
         <div class="up-drop-t">Drop files or click to browse</div>
-        <div class="up-drop-s">.tif .grd (grid) · .csv .xyz .obs (stations)</div>
+        <div class="up-drop-s">.tif .grd (grid) · .csv .xyz .obs (stations)${t.key==='electrical'?' · .edi (MT, one per station) · .npz':''}</div>
       </div>
       <div class="up-files" id="up-files-${t.key}"></div>
       ${t.key==='gravity'?'<div id="up-check-gravity"></div>':''}
@@ -4983,7 +5016,7 @@ window.GeoPreview=GeoPreview;
         <div class="up-col"><label class="up-lbl" for="up-magnetic-date">Survey date</label><input id="up-magnetic-date" type="date" class="up-in"></div>
         <div class="up-col"><label class="up-chk" style="padding-bottom:9px"><input type="checkbox" id="up-magnetic-nodate">&nbsp;Date not known</label></div>
       </div><div class="up-method-desc" id="up-igrf-msg"></div>`:''}
-      <div class="up-row">
+      <div class="up-row" id="up-${t.key}-noise-row">
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-pct">Uncertainty (%)</label><input id="up-${t.key}-pct" type="number" step="any" min="0" class="up-in" value="${t.pct}"${pf?' disabled':''}></div>
         <div class="up-col"><label class="up-lbl" for="up-${t.key}-floor">Noise floor${t.unit?' ('+t.unit+')':''}</label><input id="up-${t.key}-floor" type="number" step="any" min="0" class="up-in" value="${t.floor}"${pf?' disabled':''}></div>
         ${pf?`<div class="up-col"><label class="up-chk" style="padding-bottom:9px" title="2 % of each datum and a floor of ${100*AUTO_FLOOR_SHARE} % of the 5–95 % spread of the data inverted (after the window, thinning and the regional), worked out when the job starts">
@@ -5001,6 +5034,12 @@ window.GeoPreview=GeoPreview;
     });
   });
   $u('up-electrical-sub').addEventListener('change',refresh);
+  // the MT options show for MT only; with EDI files their error floors replace the uncertainty row
+  const MT_OPTS=['mtimp','mttip','mtdata','mtfloor','mttfloor'];
+  const showMtOpts=()=>{const mt=$u('up-electrical-sub').value==='mt';
+    MT_OPTS.forEach(id=>{$u('up-electrical-'+id).closest('.up-col').style.display=mt?'':'none';});
+    $u('up-electrical-noise-row').hidden=mt&&files.electrical.some(f=>/\.edi$/i.test(f.name));};
+  $u('up-electrical-sub').addEventListener('change',showMtOpts); showMtOpts();
 
   // ── Topography ──
   wireDrop($u('up-topo-drop'),$u('up-topo-file'),list=>{
@@ -6386,6 +6425,7 @@ window.GeoPreview=GeoPreview;
       $u('up-chip-'+t.key).textContent=n?`${n} file${n>1?'s':''}`:'empty';
       $u('up-files-'+t.key).innerHTML=files[t.key].map((f,i)=>fileRow(f,i)).join('');
     });
+    showMtOpts();
     $u('up-topo-list').innerHTML=topoFile?fileRow(topoFile,'topo'):'';
     $u('up-topo-flat').hidden=!!topoFile;
     if(pendingSetup)setTimeout(applyPending,0);
@@ -6852,7 +6892,16 @@ window.GeoPreview=GeoPreview;
     GeoCRS.reset();
     for(const f of [...s.types.flatMap(t=>files[t.key]),...(topoFile?[topoFile]:[])])
       if(/\.tiff?$/i.test(f.name))await GeoCRS.scanTiff(f);
-    for(const t of s.types)for(const f of files[t.key])rows.push({t,f,info:await inspect(f),prev:await preview(f)});
+    for(const t of s.types){
+      const edi=files[t.key].filter(f=>/\.edi$/i.test(f.name));
+      for(const f of files[t.key])if(!edi.includes(f))rows.push({t,f,info:await inspect(f),prev:await preview(f)});
+      if(edi.length){   // EDI: a station per file, read together
+        const info=await GeoMesh.inspectEdi(edi).catch(e=>({error:e.message||String(e)}));
+        const prev=info.error?info:{kind:'points',format:info.format,xs:Float64Array.from(info.xs),
+          ys:Float64Array.from(info.ys),vs:Float64Array.from(info.elev),extent:info.extent};
+        rows.push({t,f:{name:`${edi.length} EDI file${edi.length>1?'s':''}`},info,prev});
+      }
+    }
     const ds=s.types.map(t=>{
       const ok=rows.filter(r=>r.t===t&&!r.info.error);
       const best=ok.filter(r=>r.info.spacing>0).sort((a,b)=>a.info.spacing-b.info.spacing)[0];
@@ -7609,10 +7658,15 @@ window.GeoPreview=GeoPreview;
       const ht=$u(`up-${t.key}-height`)?.value, ct=$u(`up-${t.key}-cont`)?.value;
       const where=(+ht?` · ${ht} m above ground`:'')+(+ct?` · continued to ${ct} m before thinning`:'');
       const st=noiseAuto(t.key)?windowStats(t.key):null;
-      const err=noiseAuto(t.key)?` · errors automatic: ${AUTO_NOISE_PCT} % + ${st?'≈ '+(+(AUTO_FLOOR_SHARE*(st.p95-st.p5)).toPrecision(2)).toLocaleString('en-US'):`${100*AUTO_FLOOR_SHARE} % of the spread`} ${t.unit}`
+      const edi=t.key==='electrical'&&methodOf(t)==='mt'&&files.electrical.some(f=>/\.edi$/i.test(f.name));
+      const sel=id=>escH($u('up-electrical-'+id).selectedOptions[0].textContent);
+      const err=edi?` · ${$u('up-electrical-mtimp').value==='none'?'no impedance':sel('mtimp')+' as '+sel('mtdata').toLowerCase()}`+
+          `${$u('up-electrical-mttip').value==='yes'?' + tipper':''} · error floors ${escH($u('up-electrical-mtfloor').value)} % of √|Zxy·Zyx|`+
+          `${$u('up-electrical-mttip').value==='yes'?', '+escH($u('up-electrical-mttfloor').value)+' on the tipper':''}`
+        :noiseAuto(t.key)?` · errors automatic: ${AUTO_NOISE_PCT} % + ${st?'≈ '+(+(AUTO_FLOOR_SHARE*(st.p95-st.p5)).toPrecision(2)).toLocaleString('en-US'):`${100*AUTO_FLOOR_SHARE} % of the spread`} ${t.unit}`
         :$u(`up-${t.key}-pct`)?` · errors ${escH($u(`up-${t.key}-pct`).value)} % + ${escH($u(`up-${t.key}-floor`).value)} ${t.unit}`:'';
       return `${t.label}${rtp?' (reduced to the pole)':''}: ${files[t.key].length} file${files[t.key].length>1?'s':''}${where}${err}`+
-        (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} data, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
+        (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} ${edi?'stations':'data'}, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
         (reg?` · regional: ${escH(reg.textContent)}`:'');
     }).join('<br>');
     const w=aoi, areaTxt=w?`Window ${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])} · W ${Math.round(w[0])}, E ${Math.round(w[1])}, S ${Math.round(w[2])}, N ${Math.round(w[3])} m`
@@ -7770,7 +7824,10 @@ window.GeoPreview=GeoPreview;
     if(bad.length)add('warn',`${bad.map(r=>escH(r.f.name)).join(', ')} could not be read in the browser; the server will try, but nothing here was checked against ${bad.length>1?'them':'it'}`);
     const n=analysis&&analysis.counts?analysis.counts.reduce((a,c)=>a+c.after,0):null;
     if(n===0)add('error','No data are left in the window after thinning: widen the window or keep more data (Area step)');
-    else if(n)add('ok',`${fmtInt(n)} data in the window`);
+    else if(n){   // EDI: a count of stations (each with its frequencies and components)
+      const st=(analysis.rows||[]).filter(r=>/EDI/.test(r.info.format||'')).reduce((a,r)=>a+r.info.n,0);
+      add('ok',st===n?`${fmtInt(n)} MT station${n>1?'s':''} in the window`:`${fmtInt(n)} data in the window`);
+    }
     // the mesh against the data
     if(sp&&e){
       const w=Math.max(e[1]-e[0],e[3]-e[2]);
@@ -8086,6 +8143,15 @@ window.GeoPreview=GeoPreview;
         if(!(c>(h||0)))throw new Error(`${t.label}: continue up to a height above the data's own (${h||0} m)`);
         spec.continue_to_m=c;
       }
+    }
+    // MT from EDI files: which data, and their error floors (the EDI errors are kept above them)
+    if(t.key==='electrical'&&spec.method==='mt'&&files.electrical.some(f=>/\.edi$/i.test(f.name))){
+      spec.impedance=$u('up-electrical-mtimp').value;
+      spec.tipper=$u('up-electrical-mttip').value==='yes';
+      spec.data_type=$u('up-electrical-mtdata').value;
+      spec.error_floor=num('up-electrical-mtfloor','MT error floor',{min:0})/100;
+      spec.tipper_floor=num('up-electrical-mttfloor','tipper error floor',{min:0});
+      if(spec.impedance==='none'&&!spec.tipper)throw new Error('MT: choose the impedance, the tipper or both');
     }
     // Thinning chosen in the area step (per data type)
     const d=analysis&&analysis.ds.find(x=>x.t===t), target=d&&decTarget(d);

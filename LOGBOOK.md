@@ -2231,3 +2231,38 @@ about $0.02): the bootstrap took 0.5 min, `pde_solver()` picked Pardiso, and the
 above (22,264 cells, 71,898 edges) took 3.8 s per frequency against 158.5 s with SuperLU on the
 same instance (42x), with the same answers (-1.1 % at 1 Hz). The Mac keeps SuperLU (pydiso has no
 wheels for Apple silicon), for small tests.
+
+## 2026-10-07 — MT from EDI files: the impedance tensor, the tipper, ρa and phase
+
+MT data came only as a `.npz` already in the mesh's frame. Field data come as EDI files, one
+station each, so:
+
+- `geoinv3d/io/edi.py` reads (and writes) an EDI file's impedance sections: the position
+  (LAT / LONG or REFLAT / REFLONG, `dd:mm:ss` or decimal), the frequencies, Z (field units
+  mV/km/nT, × 4π·10⁻⁴ to ohms) and its variances, the tipper (`TXR.EXP`...) and its variances;
+  data in a turned frame (ZROT, TROT) are turned back to north; an element missing either part
+  (the EMPTY value) is missing; spectra-only files are refused;
+- `geoinv3d/io/mt_data.py` puts the stations on one frequency list (the distinct frequencies
+  within 2 %, or a number per decade), takes the elements asked for in SimPEG's names and
+  frame, and gives their errors: the impedance off-diagonal or full tensor, as real and
+  imaginary parts or as apparent resistivity and phase, the tipper if any. EDI is x north,
+  y east, z down; the mesh x east, y north, z up, so EDI Zxy is SimPEG's Zyx, Zxx and Zyy swap,
+  and the tipper changes sign (SimPEG Tzx = −EDI Tzy, Tzy = −EDI Tzx). Each error is the file's
+  or a floor, whichever is larger: a share of √|Zxy·Zyx| (5 %) for the impedance, 2ρ times it
+  for ρa and its arcsine in degrees for the phase, 0.03 for the tipper;
+- `MTMethod` takes a mask (frequency, component, station): a station without a datum at a
+  frequency gets no receiver there; the worker reads EDI files of an MT dataset
+  (`impedance`, `tipper`, `data_type`, `error_floor`, `tipper_floor`, `frequency_range`,
+  `frequencies_per_decade`), projects the stations into the job's UTM zone and puts them on
+  the ground;
+- the page takes `.edi` files under Electrical → MT, with the choices above shown for MT
+  only (the uncertainty row is hidden: the EDI errors and floors replace it); all the EDI
+  files of a dataset are read together in the browser for the stations' extent and spacing,
+  and the review lists what is inverted and the floors.
+
+Checks (`tests/test_mt_data.py`): a file written and read back, a rotated file turned back,
+the frame mapping and the floors; over a 100 Ω·m halfspace the EDI-converted data match
+SimPEG's prediction within 1 % for both data types; with a conductor to the east the induction
+arrow (Parkinson) points east. In the page, four EDI files went through every step to a job's
+parameters, and the worker ran those parameters here: 4 stations × 3 frequencies × 8 components
+= 96 data, an OcTree with the air above, three iterations.

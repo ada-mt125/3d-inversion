@@ -12,7 +12,13 @@ at the mean ground level and the secondary field accounts for the topography and
 With every cell active (no air in the mesh) the primary is a uniform whole space.
 
 Data order (SimPEG's): frequency by frequency, then component by component
-(``components``), then station by station (``SurveyData.locations``, (n, 3)).
+(``components``), then station by station (``SurveyData.locations``, (n, 3)); with a ``mask``
+(frequency, component, station) only the stations it marks, so stations may miss frequencies.
+
+Components are SimPEG's, in the mesh's frame (x east, y north, z up), as
+``"{orientation}_{part}"``: the impedance ``xx``, ``xy``, ``yx``, ``yy`` with ``real``,
+``imag``, ``rho`` (apparent resistivity, ohm m) or ``phase`` (degrees), and the tipper ``zx``,
+``zy`` with ``real`` or ``imag``.  EDI files use x north, y east: see geoinv3d.io.mt_data.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ class MTMethod(MethodBase):
         sigma_background: float = 1e-2,
         sigma_inactive: float = 1e-8,
         store_sensitivities: bool = True,
+        mask=None,
     ) -> None:
         """
         Args:
@@ -60,6 +67,8 @@ class MTMethod(MethodBase):
             store_sensitivities: keep the sensitivity matrix once computed
                 (``storeJ``: fast Jvec / Jtvec, sensitivity weights and the
                 group lasso's Gauss–Newton steps; n_data x n_cells floats).
+            mask: (frequencies, components, stations) booleans: the data there are; None:
+                every station at every frequency and component.
         """
         self.frequencies = (
             np.asarray(frequencies, dtype=float) if frequencies is not None
@@ -71,6 +80,10 @@ class MTMethod(MethodBase):
         self.sigma_background = float(sigma_background)
         self.sigma_inactive = float(sigma_inactive)
         self.store_sensitivities = bool(store_sensitivities)
+        self.mask = None if mask is None else np.asarray(mask, dtype=bool)
+        if self.mask is not None and self.mask.shape[:2] != (len(self.frequencies), len(self.components)):
+            raise ValueError(f"mask has shape {self.mask.shape}, expected ({len(self.frequencies)}, "
+                             f"{len(self.components)}, stations)")
         self._parse_components()
 
     @property
@@ -87,8 +100,23 @@ class MTMethod(MethodBase):
                     f"Component '{comp}' must be 'orientation_part' "
                     f"(e.g. 'xy_real')"
                 )
-            parsed.append((parts[0], parts[1]))
+            o, part = parts
+            if o in ("xx", "xy", "yx", "yy"):
+                ok = part in ("real", "imag", "rho", "phase")
+            elif o in ("zx", "zy"):
+                ok = part in ("real", "imag")
+            else:
+                ok = False
+            if not ok:
+                raise ValueError(f"Component '{comp}': the impedance (xx, xy, yx, yy) takes real, "
+                                 f"imag, rho or phase, the tipper (zx, zy) real or imag")
+            parsed.append((o, part))
         return parsed
+
+    @property
+    def n_data(self) -> int | None:
+        """The number of data with the mask (None without one: it depends on the stations)."""
+        return None if self.mask is None else int(self.mask.sum())
 
     def _build_survey(self, locations: NDArray, sigma_primary: NDArray | None = None):
         """Build a SimPEG natural source survey; ``sigma_primary``: the primary 1D model on
@@ -98,20 +126,26 @@ class MTMethod(MethodBase):
         )
 
         parsed = self._parse_components()
+        locations = np.atleast_2d(np.asarray(locations, dtype=float))
+        mask = self.mask
+        if mask is None:
+            mask = np.ones((len(self.frequencies), len(parsed), len(locations)), dtype=bool)
+        elif mask.shape[2] != len(locations):
+            raise ValueError(f"mask is for {mask.shape[2]} stations, the survey has {len(locations)}")
 
-        rx_list = []
-        for orientation, part in parsed:
-            rx_list.append(
-                receivers.Impedance(
-                    locations,
-                    orientation=orientation,
-                    component=part,
-                )
-            )
+        def receiver(orientation, part, where):
+            if orientation in ("zx", "zy"):
+                return receivers.Tipper(where, orientation=orientation, component=part)
+            component = {"rho": "apparent_resistivity"}.get(part, part)
+            return receivers.Impedance(where, orientation=orientation, component=component)
 
         src_list = []
         sigma_1d = np.full(1, self.sigma_background) if sigma_primary is None else sigma_primary
-        for freq in self.frequencies:
+        for f, freq in enumerate(self.frequencies):
+            rx_list = [receiver(o, part, locations[mask[f, c]])
+                       for c, (o, part) in enumerate(parsed) if mask[f, c].any()]
+            if not rx_list:
+                continue
             src_list.append(
                 sources.PlanewaveXYPrimary(
                     receiver_list=rx_list,
