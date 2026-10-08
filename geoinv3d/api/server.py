@@ -1152,12 +1152,13 @@ MESH_COUNT_MAX_FINE = 4_000_000     # fine cells in one layer above which no mes
 
 @lru_cache(maxsize=64)
 def _mesh_cells(extent: tuple, h: float, dz: float, depth: float, pad: float, mesh_type: str,
-                levels: tuple) -> dict:
+                levels: tuple, polygon: tuple | None = None) -> dict:
     from ..cloud.worker import _build_octree_mesh, _build_tensor_mesh
     flat = lambda x, y: np.zeros_like(np.asarray(x, dtype=float))   # noqa: E731 (a DEM adds a few layers)
     t0 = time.time()
     if mesh_type == "octree":
-        mesh = _build_octree_mesh(extent, flat, h, dz, depth, pad, list(levels)).to_discretize()
+        mesh = _build_octree_mesh(extent, flat, h, dz, depth, pad, list(levels),
+                                  polygon=None if polygon is None else np.asarray(polygon)).to_discretize()
     else:
         mesh = _build_tensor_mesh(extent, flat, False, h, dz, depth, pad).to_discretize()
     below = int((mesh.cell_centers[:, 2] < 0).sum())
@@ -1168,9 +1169,16 @@ def _mesh_cells(extent: tuple, h: float, dz: float, depth: float, pad: float, me
 def mesh_cells(body: dict = Body(...)):
     """The cells below the ground of the mesh a job would build over ``extent`` [W, E, S, N]
     with core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m and mesh_type (flat ground:
-    a DEM adds a few layers), for the page's memory and time estimates.  ``too_large`` when
-    the finest layer alone would hold more than MESH_COUNT_MAX_FINE cells."""
+    a DEM adds a few layers), for the page's memory and time estimates.  ``polygon`` (the
+    job's area of interest as [[x, y], ...], see worker.parse_aoi): an OcTree refined under it
+    alone, and ``extent`` its box when not given.  ``too_large`` when the finest layer alone
+    would hold more than MESH_COUNT_MAX_FINE cells."""
+    from ..cloud.worker import parse_aoi
     try:
+        polygon = None
+        if body.get("polygon") is not None:
+            box, polygon = parse_aoi(body["polygon"])
+            body = {**body, "extent": body.get("extent") or box}
         ext = tuple(float(v) for v in body["extent"])
         h, dz = float(body["core_cell_m"]), float(body["core_cell_z_m"])
         depth, pad = float(body["depth_core_m"]), float(body.get("pad_distance_m") or 0.0)
@@ -1181,11 +1189,16 @@ def mesh_cells(body: dict = Body(...)):
     if len(ext) != 4 or not (ext[1] > ext[0] and ext[3] > ext[2] and h > 0 and dz > 0 and depth > 0):
         raise HTTPException(status_code=400, detail="Bad mesh extent or cells")
     fine = ((ext[1] - ext[0] + 2 * pad) / h) * ((ext[3] - ext[2] + 2 * pad) / h)
+    if polygon is not None and mesh_type == "octree":   # the finest cells under the polygon only
+        area = 0.5 * abs(np.dot(polygon[:, 0], np.roll(polygon[:, 1], -1))
+                         - np.dot(polygon[:, 1], np.roll(polygon[:, 0], -1)))
+        fine = (np.sqrt(area) + 2 * pad) ** 2 / h ** 2
     if fine > MESH_COUNT_MAX_FINE or (mesh_type != "octree" and fine * depth / dz > 3 * MESH_COUNT_MAX_FINE):
         return JSONResponse({"ok": True, "too_large": True, "n_cells": None})
     try:
+        poly = None if polygon is None or mesh_type != "octree" else tuple(map(tuple, polygon.tolist()))
         return JSONResponse({"ok": True, "too_large": False,
-                             **_mesh_cells(ext, h, dz, depth, pad, mesh_type, levels)})
+                             **_mesh_cells(ext, h, dz, depth, pad, mesh_type, levels, poly)})
     except Exception as e:   # a mesh the worker could not build either
         raise HTTPException(status_code=400, detail=f"The mesh cannot be built: {e}")
 

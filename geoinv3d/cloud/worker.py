@@ -1871,6 +1871,61 @@ def grid_strides(dx: float, dy: float, target: float | None, stride: int = 1) ->
     return sx, sy
 
 
+def parse_aoi(aoi) -> tuple:
+    """A job's area of interest as (bbox [west, east, south, north], polygon (n, 2) or None).
+
+    ``aoi`` is [west, east, south, north] (a rectangle along the axes), or a polygon in the
+    job's CRS: a list of at least 3 [x, y] vertices (e.g. a window turned to the strike), or
+    {"polygon": [[x, y], ...]}.  The data are cropped to the box and then to the polygon, and an
+    OcTree is refined only under the polygon (see _build_octree_mesh), so a turned window costs
+    about what a window along the axes of the same area does.  None: (None, None).
+    """
+    if aoi is None:
+        return None, None
+    if isinstance(aoi, dict):
+        if "polygon" not in aoi:
+            raise ValueError(f"aoi as a dict must have a 'polygon', got {sorted(aoi)}")
+        aoi = aoi["polygon"]
+    try:
+        arr = np.asarray(aoi, dtype=float)
+    except (TypeError, ValueError):
+        raise ValueError(f"aoi must be [west, east, south, north] or a polygon [[x, y], ...], "
+                         f"got {aoi!r}") from None
+    if arr.ndim == 1:
+        if arr.size != 4 or not np.all(np.isfinite(arr)) or not (arr[0] < arr[1] and arr[2] < arr[3]):
+            raise ValueError(f"aoi must be [west, east, south, north] with west < east "
+                             f"and south < north, got {aoi}")
+        return [float(v) for v in arr], None
+    if arr.ndim != 2 or arr.shape[1] != 2 or not np.all(np.isfinite(arr)):
+        raise ValueError(f"aoi as a polygon must be a list of [x, y] vertices, got {aoi!r}")
+    if len(arr) > 3 and np.allclose(arr[0], arr[-1]):
+        arr = arr[:-1]                                    # a closed ring: its last vertex again
+    area = 0.5 * abs(np.dot(arr[:, 0], np.roll(arr[:, 1], -1)) - np.dot(arr[:, 1], np.roll(arr[:, 0], -1)))
+    if len(arr) < 3 or not area > 0:
+        raise ValueError(f"aoi as a polygon needs at least 3 vertices enclosing an area, got {aoi!r}")
+    bbox = [float(arr[:, 0].min()), float(arr[:, 0].max()), float(arr[:, 1].min()), float(arr[:, 1].max())]
+    return bbox, arr
+
+
+def in_polygon(x, y, polygon, margin: float = 0.0) -> np.ndarray:
+    """Points (x, y) inside ``polygon`` (n, 2; even-odd rule), or within ``margin`` metres of
+    its edges."""
+    x, y = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+    poly = np.asarray(polygon, dtype=float)
+    inside = np.zeros(x.shape, dtype=bool)
+    near = np.zeros(x.shape, dtype=bool)
+    for (xi, yi), (xj, yj) in zip(poly, np.roll(poly, 1, axis=0)):
+        crosses = (yi > y) != (yj > y)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            x_at = (xj - xi) * (y - yi) / (yj - yi) + xi
+        inside ^= crosses & (x < x_at)
+        if margin > 0:   # the distance to this edge
+            dx, dy = xj - xi, yj - yi
+            t = np.clip(((x - xi) * dx + (y - yi) * dy) / max(dx * dx + dy * dy, 1e-300), 0.0, 1.0)
+            near |= np.hypot(x - (xi + t * dx), y - (yi + t * dy)) <= margin
+    return inside | near
+
+
 def thin_points(xy: np.ndarray, spacing: float, origin=None) -> np.ndarray:
     """Indices keeping the first point in each ``spacing`` x ``spacing`` cell.
 
@@ -1890,14 +1945,16 @@ def thin_points(xy: np.ndarray, spacing: float, origin=None) -> np.ndarray:
 
 
 def _read_observations(path: str, component: str, stride: int, aoi,
-                       target_spacing: float | None = None, crs: str | None = None) -> tuple:
+                       target_spacing: float | None = None, crs: str | None = None,
+                       polygon=None) -> tuple:
     """Read one data file -> (locations (n, 3), values (n,), metadata).
 
     Gridded files give stations at the grid nodes with unknown elevation
     (z = NaN); point files keep their z if present.  Point files in
     longitude/latitude are projected to ``crs``, the job's working CRS (see
     :func:`_job_crs`), before anything else.  ``aoi`` = [west, east, south,
-    north] (m) crops both.  ``target_spacing`` (m) thins grids by whole
+    north] (m) crops both; ``polygon`` (n, 2), within it, leaves out what lies outside it
+    (grid nodes become NaN, as nodata, and are dropped with them; see parse_aoi).  ``target_spacing`` (m) thins grids by whole
     strides per axis and points to one per cell (see :func:`thin_points`);
     without it, grids use ``stride``.  ``metadata["decimation"]`` records
     what was done.
@@ -1925,6 +1982,8 @@ def _read_observations(path: str, component: str, stride: int, aoi,
         x, y, values = x[::sx], y[::sy], values[::sy, ::sx]
         xx, yy = np.meshgrid(x, y)
         locs = np.column_stack([xx.ravel(), yy.ravel(), np.full(xx.size, np.nan)])
+        if polygon is not None:
+            values = np.where(in_polygon(xx, yy, polygon), values, np.nan)
         steps = [abs(float(a[1] - a[0])) for a in (x, y) if len(a) > 1]
         meta = dict(grid.metadata)
         if steps:
@@ -1966,6 +2025,8 @@ def _read_observations(path: str, component: str, stride: int, aoi,
         west, east, south, north = aoi
         keep = ((locs[:, 0] >= west) & (locs[:, 0] <= east)
                 & (locs[:, 1] >= south) & (locs[:, 1] <= north))
+        if polygon is not None:
+            keep &= in_polygon(locs[:, 0], locs[:, 1], polygon)
         locs, values = locs[keep], values[keep]
     meta = dict(points.metadata)
     if projected:
@@ -2263,12 +2324,8 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     kwargs["component"] = component
 
     stride = int(params.get("decimate_stride", 1) or 1)
-    aoi = params.get("aoi")
-    if aoi is not None:
-        aoi = [float(v) for v in aoi]
-        if len(aoi) != 4 or not (aoi[0] < aoi[1] and aoi[2] < aoi[3]):
-            raise ValueError(f"aoi must be [west, east, south, north] with west < east "
-                             f"and south < north, got {params.get('aoi')}")
+    # the area of interest: a box, or a polygon (its box first, then the polygon itself)
+    aoi, polygon = parse_aoi(params.get("aoi"))
     # Thinning: per dataset ("decimate_spacing_m"), else the job-wide value
     target = spec.get("decimate_spacing_m", params.get("decimate_spacing_m"))
     target = float(target) if target else None
@@ -2278,7 +2335,7 @@ def _load_dataset(spec: dict, params: dict, data_dir: str, single: bool,
     for fname in files:
         path = os.path.join(data_dir, fname)
         print(f"[Pipeline] Loading {method} ({component}) data from {fname}")
-        locs, values, meta = _read_observations(path, component, stride, aoi, target, crs)
+        locs, values, meta = _read_observations(path, component, stride, aoi, target, crs, polygon)
         if meta.get("decimation"):
             thinning[fname] = meta["decimation"]
             print(f"[Pipeline] {fname}: thinned to {len(values)} data ({meta['decimation']})")
@@ -2815,9 +2872,13 @@ def _build_tensor_mesh(extent, surface, has_dem, dx, dz, depth_core, pad_distanc
     return Mesh3D(hx=hx, hy=hy, hz=hz, origin=origin)
 
 
-def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels, pad_above=0.0):
+def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels, pad_above=0.0,
+                       polygon=None):
     """Octree mesh refined along the ground surface over the survey area, reaching
-    ``pad_above`` above the highest ground (the air MT needs)."""
+    ``pad_above`` above the highest ground (the air MT needs).  With ``polygon`` (the job's
+    area of interest, see parse_aoi) only the ground under it and two cells around it is
+    refined: the rest of its box coarsens as the padding does, so a window turned to the
+    strike has about the cells of a window along the axes of the same area."""
     from discretize.utils import mesh_builder_xyz
     from ..datamodel.mesh import DiscretizeMesh
 
@@ -2825,6 +2886,11 @@ def _build_octree_mesh(extent, surface, dx, dz, depth_core, pad_distance, levels
     nxs = max(4, int(np.ceil((xmax - xmin) / dx)) + 1)
     nys = max(4, int(np.ceil((ymax - ymin) / dx)) + 1)
     gx, gy = np.meshgrid(np.linspace(xmin, xmax, nxs), np.linspace(ymin, ymax, nys))
+    if polygon is not None:
+        keep = in_polygon(gx, gy, polygon, margin=2.0 * dx)
+        if keep.sum() < 4:
+            raise ValueError("The polygon of the area of interest holds too few mesh columns")
+        gx, gy = gx[keep], gy[keep]
     ground = np.column_stack([gx.ravel(), gy.ravel(), surface(gx, gy).ravel()])
 
     tree = mesh_builder_xyz(
@@ -3049,10 +3115,21 @@ def _jsonable(obj):
     return obj
 
 
-def _outside_core_share(dmesh, active, model, extent, margin, z_bottom) -> float:
+def _core_columns(cc, extent, margin, polygon=None) -> np.ndarray:
+    """Cell centres ``cc`` within the survey extent plus ``margin``, or within ``margin`` of
+    the polygon of the area of interest when the job has one."""
+    if polygon is not None:
+        return in_polygon(cc[:, 0], cc[:, 1], polygon, margin=margin)
+    xmin, xmax, ymin, ymax = extent
+    return ((cc[:, 0] >= xmin - margin) & (cc[:, 0] <= xmax + margin)
+            & (cc[:, 1] >= ymin - margin) & (cc[:, 1] <= ymax + margin))
+
+
+def _outside_core_share(dmesh, active, model, extent, margin, z_bottom, polygon=None) -> float:
     """Share of the recovered anomaly (|m| x cell volume) outside the core region.
 
-    The core is the survey extent (plus ``margin``) down to ``z_bottom``.  Mass
+    The core is the survey extent (plus ``margin``; or the polygon of the area of interest)
+    down to ``z_bottom``.  Mass
     or moment in the padding cells beyond it is poorly constrained: smooth,
     depth-weighted regularizations tend to spread sources into the large deep
     and lateral padding cells, which fit the data as well as the true body.
@@ -3060,24 +3137,21 @@ def _outside_core_share(dmesh, active, model, extent, margin, z_bottom) -> float
     cc, vol = dmesh.cell_centers, dmesh.cell_volumes
     if active is not None:
         cc, vol = cc[active], vol[active]
-    xmin, xmax, ymin, ymax = extent
-    core = ((cc[:, 0] >= xmin - margin) & (cc[:, 0] <= xmax + margin)
-            & (cc[:, 1] >= ymin - margin) & (cc[:, 1] <= ymax + margin)
-            & (cc[:, 2] >= z_bottom))
+    core = _core_columns(cc, extent, margin, polygon) & (cc[:, 2] >= z_bottom)
     moment = np.abs(np.asarray(model, dtype=float)) * vol
     total = moment.sum()
     return float(moment[~core].sum() / total) if total > 0 else 0.0
 
 
-def _outside_core_parts(dmesh, active, model, extent, margin, z_bottom) -> tuple[float, float]:
+def _outside_core_parts(dmesh, active, model, extent, margin, z_bottom,
+                        polygon=None) -> tuple[float, float]:
     """(beside, below): the shares of the recovered anomaly (|m| x cell volume) beside the
-    core (outside the survey extent plus ``margin``, above ``z_bottom``) and below it."""
+    core (outside the survey extent plus ``margin``, or the polygon of the area of interest,
+    above ``z_bottom``) and below it."""
     cc, vol = dmesh.cell_centers, dmesh.cell_volumes
     if active is not None:
         cc, vol = cc[active], vol[active]
-    xmin, xmax, ymin, ymax = extent
-    inside = ((cc[:, 0] >= xmin - margin) & (cc[:, 0] <= xmax + margin)
-              & (cc[:, 1] >= ymin - margin) & (cc[:, 1] <= ymax + margin))
+    inside = _core_columns(cc, extent, margin, polygon)
     deep = cc[:, 2] < z_bottom
     moment = np.abs(np.asarray(model, dtype=float)) * vol
     total = moment.sum()
@@ -3277,7 +3351,9 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 structural coupling (auto: all 1).
             mesh_type: "tensor" (default) or "octree"; plus core_cell_m,
                 core_cell_z_m, depth_core_m, pad_distance_m, octree_levels.
-            aoi: [west, east, south, north] (m) crops every dataset.
+            aoi: [west, east, south, north] (m) crops every gravity and magnetic
+                dataset; or a polygon [[x, y], ...] (e.g. a window turned to the strike),
+                its data cropped to it and an OcTree refined only under it (parse_aoi).
             decimate_spacing_m: thin the data to about this spacing (m),
                 per dataset or for the whole job: grids by whole strides per
                 axis, points to one per cell.  decimate_stride is the older
@@ -3366,6 +3442,12 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
     _mt_primaries(params, datasets, mesh_design)
     _mt_workers(params, datasets)
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
+    # A polygon as the area of interest (parse_aoi) is the core of gravity and magnetic jobs:
+    # the OcTree is refined under it alone, and the share of the model outside the core is
+    # measured from it (MT and DC stations and electrodes are not cropped to it, so their jobs
+    # keep the box)
+    aoi_box, aoi_polygon = parse_aoi(params.get("aoi"))
+    core_polygon = aoi_polygon if all(ds.extent_points is None for ds in datasets) else None
     # MT solves for the fields in the air too, and its cells follow the skin depths
     # (meshing.recommend_mt_mesh): thin at the ground, growing with depth, air above
     mt_design = mesh_design["used"] if mesh_design["used"].get("mt") else None
@@ -3391,9 +3473,13 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         mesh_design["used"]["octree_levels"] = levels
         print(f"[Pipeline] OcTree refinement under the ground: {levels} layers "
               f"(finest {core_cell_m:g} x {core_cell_z_m:g} m cells to {levels[0] * core_cell_z_m:g} m)")
+        if core_polygon is not None:
+            mesh_design["used"]["refined_under"] = "the polygon of the area of interest"
+            print(f"[Pipeline] OcTree refined only under the polygon of the area of interest "
+                  f"({len(core_polygon)} vertices)")
         mesh = _build_octree_mesh(
             extent, surface, core_cell_m, core_cell_z_m, depth_core_m, pad_distance_m, levels,
-            pad_above=pad_above,
+            pad_above=pad_above, polygon=core_polygon,
         )
     elif mesh_type == "tensor":
         mesh = _build_tensor_mesh(
@@ -3625,6 +3711,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         "cell_centers_y": extent[2:],
         "topography": topo_info,
         "crs": crs,
+        **({"aoi": {"box": aoi_box, "polygon": aoi_polygon.tolist()}} if aoi_polygon is not None else {}),
         "datasets": [
             {"method": ds.method, "component": ds.component, "files": ds.files,
              "n_data": int(ds.observed.size), "noise_pct": ds.noise_pct,
@@ -3743,7 +3830,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             _make_method(ds.method, ds.method_kwargs).default_model_value))
     shares = {
         name: _outside_core_share(dmesh, active, np.asarray(m) - background.get(name, 0.0),
-                                  extent, core_cell_m, z_bottom)
+                                  extent, core_cell_m, z_bottom, core_polygon)
         for name, m in models.items() if np.size(m) == n_params
     }
     if shares:
@@ -3752,7 +3839,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
             if share > PADDING_WARNING_SHARE:
                 beside, below = _outside_core_parts(
                     dmesh, active, np.asarray(models[name]) - background.get(name, 0.0),
-                    extent, core_cell_m, z_bottom)
+                    extent, core_cell_m, z_bottom, core_polygon)
                 notes.append(_padding_note(name, share, beside, below,
                                            str(getattr(task, "regularization_type", ""))))
     if notes:

@@ -623,6 +623,20 @@ class TestMeshCells:
         tensor = client.post("/api/mesh/cells", json={**mesh, "mesh_type": "tensor"}).json()
         assert tensor["n_cells"] > 10 * d["n_cells"]
 
+    def test_an_octree_under_a_turned_window(self, api):
+        """A polygon as the area of interest (a window turned to the strike): the OcTree is
+        refined under it alone, about half the cells of its box refined whole."""
+        pytest.importorskip("discretize")
+        client, _, _ = api
+        c, r = 3000.0, 2828.4
+        poly = [[c, c - r], [c + r, c], [c, c + r], [c - r, c]]
+        mesh = {"core_cell_m": 100, "core_cell_z_m": 50, "depth_core_m": 2000, "pad_distance_m": 1000}
+        turned = client.post("/api/mesh/cells", json={**mesh, "polygon": poly}).json()
+        box = client.post("/api/mesh/cells", json={**mesh, "extent": [c - r, c + r, c - r, c + r]}).json()
+        assert turned["ok"] and not turned["too_large"]
+        assert turned["n_cells"] < 0.65 * box["n_cells"]
+        assert client.post("/api/mesh/cells", json={**mesh, "polygon": [[0, 0], [1, 1]]}).status_code == 400
+
     def test_too_large_or_bad_meshes(self, api):
         client, _, _ = api
         whole = {"extent": [607200, 796725, 1520325, 1743187.5], "core_cell_m": 50,

@@ -182,7 +182,7 @@ class AWSRunner:
                 method_type: "gravity" or "magnetics"
                 regularization_type: "smooth" or "sparse" (default "sparse")
                 data_file: filename of the primary data file (auto-detected if omitted)
-                aoi: [west, east, south, north] (optional)
+                aoi: [west, east, south, north], or a polygon [[x, y], ...] (optional)
                 core_cell_m: horizontal cell size (default 500)
                 core_cell_z_m: vertical cell size (default 250)
                 depth_core_m: depth of fine mesh (default 3000)
