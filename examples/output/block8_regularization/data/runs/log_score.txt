@@ -1,0 +1,8 @@
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+holdout sensitivities: (13467, 49155) in 1426 s
+sp0111           chi2 fit 1.00  holdout 1.03 (rms 131/132 nT)  depth50 796 m  outside 0.80 (below 0.00)  436 s

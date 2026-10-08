@@ -1,0 +1,36 @@
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-default      chi2 fit 1.08  holdout 1.63 (rms 29/35 nT)  depth50 435 m  outside 0.65 (below 0.00)  155 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-sens         chi2 fit 1.01  holdout 1.54 (rms 28/33 nT)  depth50 419 m  outside 0.87 (below 0.00)  119 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-lp0221_L1    chi2 fit 0.94  holdout 1.70 (rms 23/32 nT)  depth50 349 m  outside 0.39 (below 0.00)  149 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-l1l2_irls08  chi2 fit 1.13  holdout 2.09 (rms 35/40 nT)  depth50 149 m  outside 0.43 (below 0.00)  132 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-l2           chi2 fit 1.02  holdout 1.95 (rms 31/38 nT)  depth50 440 m  outside 0.70 (below 0.00)  55 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-beta1        chi2 fit 1.04  holdout 1.74 (rms 27/35 nT)  depth50 288 m  outside 0.53 (below 0.00)  198 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-beta2        chi2 fit 1.06  holdout 1.55 (rms 29/35 nT)  depth50 627 m  outside 0.78 (below 0.00)  258 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-L1           chi2 fit 1.04  holdout 1.72 (rms 26/34 nT)  depth50 350 m  outside 0.59 (below 0.00)  232 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+syn-mgs          chi2 fit 1.06  holdout 1.92 (rms 34/41 nT)  depth50 448 m  outside 0.70 (below 0.00)  112 s

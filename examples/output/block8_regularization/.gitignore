@@ -1,0 +1,9 @@
+# sensitivity matrices: 0.9 GB and 2.6 GB, rebuilt by trials.py in minutes
+data/cache/
+data/holdout_G_*.npy
+# each run's result.json is also inside its result.zip (5 MB each here: the octree is written out)
+data/runs*/*/result.json
+data/runs*/*/holdout_predicted.npy
+# the DAG viewers (80-115 MB, over GitHub's limit): rebuilt by scripts/build_workflow.py
+*.geoinv3d.json
+*.geoinv3d_viewer.html

@@ -1,0 +1,38 @@
+[Pipeline] Working coordinate system: EPSG:32643
+[Pipeline] Loading magnetics (tmi) data from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif
+[Pipeline] C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif: thinned to 4489 data ({'kind': 'grid', 'stride': [2, 2], 'native_spacing_m': [37.5, 37.5]})
+[Pipeline] magnetics: automatic errors: 2 % + 84.63 (floor 1.5 % of the 5-95 % spread of the data, 5642)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+[Pipeline] Mesh design (user): 75 m x 37.5 m cells, core 4000 m deep, padding 2000 m
+[Pipeline] magnetics: 1 of 4489 stations were inside ground cells and moved up to the top of their column (by 15.5 m on average, at most 15.5 m)
+[Pipeline] octree mesh: 66698 cells (49155 active), 4489 observations, topography: dem
+
+Running inversion with SimPEG v0.25.2
+[trials] sensitivities from G_c5ba9d14fef7531e.npy (4489, 49155)
+INFO: Directive TargetMisfit: Target data misfit is 4489.0
+================================================= Projected GNCG =================================================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS   iter_CG   CG |Ax-b|/|b|  CG |Ax-b|   Comment   
+-----------------------------------------------------------------------------------------------------------------
+   0  1.35e-01  9.14e+05  4.36e-01  9.14e+05                         0           inf          inf                
+   1  1.35e-01  1.69e+05  2.12e+05  1.98e+05    3.18e+02      0      30       9.52e-03     3.56e+03              
+   2  6.74e-02  4.22e+04  6.04e+05  8.30e+04    3.02e+02      0      30       1.68e-02     1.00e+03              
+   3  3.37e-02  2.79e+04  8.10e+05  5.53e+04    2.81e+02      0      30       3.30e-02     8.94e+02              
+   4  1.69e-02  2.32e+04  1.05e+06  4.09e+04    2.82e+02      0      30       2.47e-02     8.48e+02              
+   5  8.43e-03  1.45e+04  1.16e+06  2.42e+04    2.91e+02      1      30       1.90e-02     7.12e+02              
+   6  4.21e-03  1.24e+04  1.34e+06  1.80e+04    2.82e+02      1      30       1.52e-02     5.09e+02              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+irls_threshold 1.4946681780044946
+   7  4.21e-03  7.83e+03  2.05e+06  1.65e+04    2.92e+02      0      30       1.97e-02     5.77e+02              
+   8  2.79e-03  5.47e+03  2.52e+06  1.25e+04    2.91e+02      0      30       1.72e-02     2.89e+02              
+   9  2.19e-03  4.87e+03  2.63e+06  1.06e+04    2.84e+02      2      30       3.87e-02     9.55e+02              
+  10  2.19e-03  4.23e+03  2.71e+06  1.02e+04    2.82e+02      2      30       2.27e-02     3.27e+02              
+  11  2.19e-03  3.59e+03  2.84e+06  9.81e+03    2.79e+02      1      30       9.39e-02     8.95e+02              
+  12  2.79e-03  3.46e+03  2.86e+06  1.15e+04    2.51e+02      0      30       2.04e-02     1.90e+02              
+  13  3.58e-03  3.65e+03  2.82e+06  1.38e+04    2.53e+02      1      30       2.02e-02     1.68e+02              
+  14  5.14e-03  3.85e+03  2.84e+06  1.84e+04    2.43e+02      4      30       6.83e-02     4.84e+02              
+  15  7.25e-03  5.11e+03  2.72e+06  2.48e+04    2.41e+02      2      30       6.15e-02     6.18e+02              
+  16  6.71e-03  5.50e+03  2.71e+06  2.37e+04    2.42e+02      3      30       1.81e-02     2.50e+02              
+  17  6.12e-03  5.85e+03  2.61e+06  2.18e+04    2.46e+02      1      30       1.65e-02     2.50e+02              
+  18  5.24e-03  5.90e+03  2.92e+06  2.12e+04    2.42e+02      4      30       4.30e-02     2.89e+02              
+  19  4.48e-03  5.65e+03  2.98e+06  1.90e+04    2.44e+02      2      30       3.86e-02     3.13e+02              
+  20  3.60e-03  4.52e+03  3.27e+06  1.63e+04    2.17e+02      0      30       3.92e-02     2.14e+02              

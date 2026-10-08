@@ -1,0 +1,50 @@
+{
+ "inversion_mode": "single",
+ "param_mode": "manual",
+ "crs": "EPSG:32643",
+ "aoi": [
+  659650.0,
+  664650.0,
+  1664550.0,
+  1669550.0
+ ],
+ "datasets": [
+  {
+   "method": "magnetics",
+   "component": "tmi",
+   "noise_pct": "auto",
+   "noise_floor": "auto",
+   "method_kwargs": {
+    "inducing_field": [
+     42084.9,
+     19.24,
+     -1.32
+    ]
+   },
+   "regional": {
+    "method": "polynomial",
+    "order": 2
+   },
+   "files": [
+    "C:\\Users\\mt125\\OneDrive - Imperial College London\\Desktop\\geofysiikan_opetusmateriaali\\geoinv3d\\examples\\output\\block8_regularization\\data\\inputs\\tmi_window.tif"
+   ],
+   "station_height": 80.0,
+   "decimate_spacing_m": 75.0
+  }
+ ],
+ "topography": {
+  "file": "C:\\Users\\mt125\\OneDrive - Imperial College London\\Desktop\\geofysiikan_opetusmateriaali\\geoinv3d\\examples\\output\\block8_regularization\\data\\inputs\\dem_glo90.tif"
+ },
+ "mesh_type": "octree",
+ "core_cell_m": 75.0,
+ "core_cell_z_m": 37.5,
+ "depth_core_m": 4000.0,
+ "pad_distance_m": 2000.0,
+ "bounds_lower": 0.0,
+ "bounds_upper": 3.0,
+ "regularization_type": "sparse",
+ "max_iter": 60,
+ "max_irls_iterations": 40,
+ "depth_weighting_exponent": 3.0,
+ "task_id": "block8-beta3"
+}

@@ -1,0 +1,62 @@
+[Pipeline] Working coordinate system: EPSG:32643
+[Pipeline] Loading magnetics (tmi) data from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif
+[Pipeline] C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif: thinned to 4489 data ({'kind': 'grid', 'stride': [2, 2], 'native_spacing_m': [37.5, 37.5]})
+[Pipeline] magnetics: automatic errors: 2 % + 84.63 (floor 1.5 % of the 5-95 % spread of the data, 5642)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+[Pipeline] Mesh design (user): 75 m x 37.5 m cells, core 4000 m deep, padding 2000 m
+[Pipeline] magnetics: 1 of 4489 stations were inside ground cells and moved up to the top of their column (by 15.5 m on average, at most 15.5 m)
+[Pipeline] octree mesh: 66698 cells (49155 active), 4489 observations, topography: dem
+
+Running inversion with SimPEG v0.25.2
+[trials] sensitivities from G_c5ba9d14fef7531e.npy (4489, 49155)
+INFO: Directive TargetMisfit: Target data misfit is 4489.0
+================================================= Projected GNCG =================================================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS   iter_CG   CG |Ax-b|/|b|  CG |Ax-b|   Comment   
+-----------------------------------------------------------------------------------------------------------------
+   0  8.10e-02  9.14e+05  4.36e+01  9.14e+05                         0           inf          inf                
+   1  8.10e-02  4.17e+05  1.31e+06  5.23e+05    3.23e+02      0      30       1.03e-08     3.85e-03              
+   2  4.05e-02  2.16e+05  4.00e+06  3.78e+05    3.09e+02      0      30       1.10e-08     1.39e-03              
+   3  2.02e-02  1.41e+05  6.70e+06  2.76e+05    2.99e+02      0      30       5.45e-06     1.50e-01              
+   4  1.01e-02  8.56e+04  1.03e+07  1.90e+05    2.72e+02      0      30       5.25e-05     1.18e+00              
+   5  5.06e-03  5.26e+04  1.49e+07  1.28e+05    2.75e+02      0      30       9.08e-04     7.03e+00              
+   6  2.53e-03  3.05e+04  2.08e+07  8.31e+04    2.69e+02      0      30       3.70e-03     6.31e+01              
+   7  1.27e-03  2.10e+04  2.81e+07  5.65e+04    2.66e+02      0      30       3.68e-02     1.61e+02              
+   8  6.33e-04  1.02e+04  3.64e+07  3.33e+04    2.88e+02      0      30       7.55e-03     2.86e+02              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+   9  6.33e-04  1.02e+04  3.64e+07  3.33e+04    2.73e+02      8      30       1.61e-02     4.88e+02              
+  10  3.76e-04  9.61e+03  3.63e+07  2.33e+04    2.81e+02      3      30       1.79e-02     5.58e+02              
+  11  2.29e-04  6.76e+03  4.19e+07  1.64e+04    2.55e+02      1      30       1.61e-02     3.72e+02              
+  12  1.62e-04  3.58e+03  5.29e+07  1.21e+04    2.84e+02      0      30       2.73e-02     2.48e+02              
+  13  2.06e-04  3.66e+03  5.22e+07  1.44e+04    2.86e+02      3      30       2.36e-02     4.54e+02              
+  14  2.62e-04  3.53e+03  5.03e+07  1.67e+04    2.74e+02      3      30       2.45e-02     5.43e+02              
+  15  3.79e-04  3.92e+03  4.92e+07  2.26e+04    2.44e+02      4      30       5.09e-02     4.43e+02              
+  16  5.33e-04  6.71e+03  4.28e+07  2.95e+04    2.42e+02      1      30       5.26e-02     5.38e+02              
+  17  4.69e-04  6.77e+03  4.26e+07  2.67e+04    2.75e+02      5      30       2.72e-02     2.84e+02              
+  18  4.11e-04  6.83e+03  4.16e+07  2.39e+04    2.78e+02      3      30       3.67e-02     4.28e+02              
+  19  3.38e-04  5.90e+03  4.28e+07  2.04e+04    2.49e+02      1      30       1.95e-02     1.22e+02              
+  20  2.88e-04  4.74e+03  4.46e+07  1.76e+04    2.57e+02      1      30       2.20e-02     1.54e+02              
+Minimum decrease in regularization. End of IRLS
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 6.4750e+02 <= tolF*(1+|f0|) = 9.1376e+04
+0 : |xc-x_last| = 1.6594e+00 <= tolX*(1+|x0|) = 1.0443e-01
+0 : |proj(x-g)-x|    = 2.5735e+02 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 2.5735e+02 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      60    <= iter          =     20
+------------------------- DONE! -------------------------
+== l2: 239 s
+[Pipeline] Working coordinate system: EPSG:32643
+[Pipeline] Loading magnetics (tmi) data from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif
+[Pipeline] C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\tmi_window.tif: thinned to 4489 data ({'kind': 'grid', 'stride': [2, 2], 'native_spacing_m': [37.5, 37.5]})
+[Pipeline] magnetics: automatic errors: 2 % + 84.63 (floor 1.5 % of the 5-95 % spread of the data, 5642)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+[Pipeline] Mesh design (user): 75 m x 37.5 m cells, core 4000 m deep, padding 2000 m
+[Pipeline] magnetics: 1 of 4489 stations were inside ground cells and moved up to the top of their column (by 15.5 m on average, at most 15.5 m)
+[Pipeline] octree mesh: 66698 cells (49155 active), 4489 observations, topography: dem
+
+Running inversion with SimPEG v0.25.2
+[trials] sensitivities from G_c5ba9d14fef7531e.npy (4489, 49155)
+INFO: Directive TargetMisfit: Target data misfit is 4489.0
+================================================= Projected GNCG =================================================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS   iter_CG   CG |Ax-b|/|b|  CG |Ax-b|   Comment   
+-----------------------------------------------------------------------------------------------------------------
+   0  8.10e-02  9.14e+05  4.36e+01  9.14e+05                         0           inf          inf                

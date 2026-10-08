@@ -1,0 +1,48 @@
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+default          chi2 fit 1.02  holdout 1.21 (rms 117/123 nT)  depth50 537 m  outside 0.66 (below 0.00)  171 s
+C:\Users\mt125\AppData\Local\Programs\Python\Python313\Lib\site-packages\discretize\base\base_mesh.py:155: FutureWarning: In discretize v1.0 the TreeMesh will change the default value of diagonal_balance to True, which will likely slightly change meshes you have previously created. If you need to keep the current behavior, explicitly set diagonal_balance=False.
+  return cls(**items)
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+lp0221_L1        chi2 fit 1.03  holdout 1.61 (rms 108/129 nT)  depth50 510 m  outside 0.48 (below 0.00)  158 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+lp0111           chi2 fit 0.89  holdout 1.06 (rms 103/109 nT)  depth50 546 m  outside 0.59 (below 0.00)  181 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+lp0000           chi2 fit 0.89  holdout 1.12 (rms 96/104 nT)  depth50 537 m  outside 0.65 (below 0.00)  195 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+lp0222           chi2 fit 0.91  holdout 1.26 (rms 104/118 nT)  depth50 511 m  outside 0.49 (below 0.00)  181 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+l2               chi2 fit 0.92  holdout 1.09 (rms 119/125 nT)  depth50 622 m  outside 0.74 (below 0.02)  37 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+mgs              chi2 fit 0.93  holdout 1.16 (rms 128/136 nT)  depth50 581 m  outside 0.74 (below 0.00)  212 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+tv               chi2 fit 0.95  holdout 1.17 (rms 128/135 nT)  depth50 572 m  outside 0.74 (below 0.00)  114 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+l1l2_irls08      chi2 fit 1.01  holdout 1.63 (rms 142/159 nT)  depth50 174 m  outside 0.54 (below 0.00)  152 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+beta1            chi2 fit 1.05  holdout 1.38 (rms 123/134 nT)  depth50 368 m  outside 0.54 (below 0.00)  253 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+beta2            chi2 fit 1.07  holdout 1.18 (rms 119/122 nT)  depth50 664 m  outside 0.75 (below 0.00)  195 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+beta3            chi2 fit 1.09  holdout 1.13 (rms 119/121 nT)  depth50 899 m  outside 0.83 (below 0.00)  131 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+sens             chi2 fit 0.95  holdout 1.01 (rms 116/117 nT)  depth50 791 m  outside 0.83 (below 0.00)  173 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+L1               chi2 fit 1.10  holdout 1.42 (rms 124/135 nT)  depth50 503 m  outside 0.62 (below 0.00)  222 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+L6               chi2 fit 1.10  holdout 1.23 (rms 120/124 nT)  depth50 571 m  outside 0.73 (below 0.00)  137 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+as0.1            chi2 fit 1.05  holdout 1.15 (rms 117/119 nT)  depth50 609 m  outside 0.77 (below 0.00)  140 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+as10             chi2 fit 1.09  holdout 1.42 (rms 123/134 nT)  depth50 501 m  outside 0.62 (below 0.00)  134 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+b0inf            chi2 fit 0.97  holdout 1.15 (rms 113/119 nT)  depth50 537 m  outside 0.66 (below 0.00)  137 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+free             chi2 fit 1.05  holdout 1.24 (rms 119/126 nT)  depth50 853 m  outside 0.36 (below 0.06)  124 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+f0.75            chi2 fit 1.09  holdout 0.60 (rms 87/92 nT)  depth50 538 m  outside 0.67 (below 0.00)  153 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+f3               chi2 fit 1.10  holdout 3.39 (rms 193/198 nT)  depth50 557 m  outside 0.67 (below 0.00)  118 s
+[Pipeline] Loading topography from C:\Users\mt125\OneDrive - Imperial College London\Desktop\geofysiikan_opetusmateriaali\geoinv3d\examples\output\block8_regularization\data\inputs\dem_glo90.tif
+notrend          chi2 fit 1.09  holdout 1.73 (rms 141/149 nT)  depth50 1091 m  outside 0.59 (below 0.03)  150 s
