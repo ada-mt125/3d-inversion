@@ -1,0 +1,45 @@
+{
+  "data": {
+    "mt": {
+      "n_data": 192,
+      "n_cells": 28392,
+      "seconds": 76.9
+    }
+  },
+  "runs": {
+    "mt free": {
+      "chi2_per_datum": 32.24,
+      "corr": 0.515,
+      "sulphide": {
+        "true": 0.717,
+        "recovered": 2.693
+      },
+      "granite": {
+        "true": 3.642,
+        "recovered": 2.273
+      },
+      "seconds": 732.6,
+      "iterations": 2,
+      "n_cells": 19604,
+      "n_data": 192,
+      "mt_processes": 1
+    },
+    "mt with the holes": {
+      "chi2_per_datum": 34.45,
+      "corr": 0.611,
+      "sulphide": {
+        "true": 0.717,
+        "recovered": 1.533
+      },
+      "granite": {
+        "true": 3.642,
+        "recovered": 2.719
+      },
+      "seconds": 748.0,
+      "iterations": 2,
+      "n_cells": 19604,
+      "n_data": 192,
+      "mt_processes": 1
+    }
+  }
+}

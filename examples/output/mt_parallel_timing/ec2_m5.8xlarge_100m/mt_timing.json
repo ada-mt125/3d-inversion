@@ -1,0 +1,21 @@
+{
+ "n_cells": 88200,
+ "n_edges": 276662,
+ "cores": 32,
+ "frequencies": [
+  10.0,
+  100.0,
+  1000.0
+ ],
+ "runs": [
+  {
+   "processes": 1,
+   "seconds": 61.9
+  },
+  {
+   "processes": 3,
+   "seconds": 54.5,
+   "threads_per_process": 10
+  }
+ ]
+}

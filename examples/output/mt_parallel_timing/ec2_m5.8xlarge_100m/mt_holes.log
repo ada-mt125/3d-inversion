@@ -1,0 +1,31 @@
+[Pipeline] Loading mt data from mt.npz: 192 data
+[Pipeline] mt: background 122 ohm m, the median of the data's apparent resistivity (the start and the reference model)
+[Pipeline] Mesh design (user): 100 m x 12.5 m cells, core 1000 m deep, padding 6000 m
+[Pipeline] MT mesh from the skin depths: 76 m (1000 Hz over 22.6 ohm m) to 6318 m (10 Hz over 1.58e+03 ohm m); top cells 12.5 m growing 10 % a layer to 1000 m, padding and air 6000 / 6000 m
+[Pipeline] tensor mesh: 88200 cells (61740 active), 192 observations, topography: flat
+[Pipeline] Geology: 80 of 61740 cells constrained, 210 partly — Holes: BH1 0–50 m 20 ohm m [10, 40] x10 on 8, Holes: BH1 50–100 m 1e+03 ohm m [500, 2e+03] x10 on 6, Holes: BH1 100–360 m 3 ohm m [1.5, 6] x10 on 18, Holes: BH1 360–500 m 1e+03 ohm m [500, 2e+03] x10 on 6, Holes: BH2 0–50 m 20 ohm m [10, 40] x10 on 8, Holes: BH2 50–150 m 1e+03 ohm m [500, 2e+03] x10 on 10, Holes: BH2 150–600 m 5e+03 ohm m [2.5e+03, 1e+04] x10 on 24
+[MT] 3 frequencies on 3 processes (10 solver threads each)
+
+Running inversion with SimPEG v0.25.2
+================================================= Projected GNCG =================================================
+  #     beta     phi_d     phi_m       f      |proj(x-g)-x|  LS   iter_CG   CG |Ax-b|/|b|  CG |Ax-b|   Comment   
+-----------------------------------------------------------------------------------------------------------------
+   0  1.14e-05  2.35e+05  2.24e+05  2.35e+05                         0           inf          inf                
+   1  1.14e-05  3.72e+04  1.62e+08  3.90e+04    1.89e+04      0      30       2.68e-03     5.07e+01              
+   2  5.71e-06  1.26e+04  8.88e+07  1.31e+04    3.04e+03      0      30       3.01e-03     9.14e+00              
+   3  2.85e-06  5.54e+03  1.31e+08  5.92e+03    9.90e+02      0      30       8.61e-03     8.53e+00              
+   4  1.43e-06  3.79e+03  1.21e+08  3.96e+03    4.62e+02      0      30       2.71e-02     1.25e+01              
+   5  7.13e-07  1.78e+03  1.32e+08  1.88e+03    3.97e+02      0      30       2.06e-02     8.21e+00              
+   6  3.57e-07  5.25e+02  1.47e+08  5.77e+02    2.65e+02      0      30       2.66e-02     7.03e+00              
+Reached starting chifact with l2-norm regularization: Start IRLS steps...
+   7  3.57e-07  3.22e+02  1.41e+08  3.73e+02    1.29e+02      0      30       5.34e-02     6.86e+00              
+   8  2.40e-07  2.21e+02  1.50e+08  2.57e+02    1.08e+02      0      30       6.45e-02     6.96e+00              
+   9  1.94e-07  1.92e+02  1.45e+08  2.20e+02    9.42e+01      0      30       6.88e-02     6.48e+00              
+Minimum decrease in regularization. End of IRLS
+------------------------- STOP! -------------------------
+1 : |fc-fOld| = 3.0457e+01 <= tolF*(1+|f0|) = 2.3474e+04
+1 : |xc-x_last| = 1.0332e+02 <= tolX*(1+|x0|) = 1.1952e+02
+0 : |proj(x-g)-x|    = 9.4246e+01 <= tolG          = 1.0000e-01
+0 : |proj(x-g)-x|    = 9.4246e+01 <= 1e3*eps       = 1.0000e-02
+0 : maxIter   =      10    <= iter          =      9
+------------------------- DONE! -------------------------

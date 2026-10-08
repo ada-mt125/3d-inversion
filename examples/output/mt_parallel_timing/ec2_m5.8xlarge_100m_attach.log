@@ -1,0 +1,13 @@
+12:27:52 following i-09785af7f57108029
+[MT] 3 frequencies on 3 processes (10 solver threads each)
+data: {"mt": {"n_data": 192, "n_cells": 217800, "seconds": 328.2, "data_mesh_cell": [50.0, 12.5], "inversion_mesh_cell": [100.0, 12.5]}}
+MT timing: {"processes": 1, "seconds": 61.9}
+[MT] 3 frequencies on 3 processes (10 solver threads each)
+MT timing: {"processes": 3, "seconds": 54.5, "threads_per_process": 10}
+mt free: {"chi2_per_datum": 0.46, "corr": 0.143, "sulphide": {"true": 0.785, "recovered": 2.098}, "granite": {"true": 3.66, "recovered": 1.959}, "seconds": 1884.2, "iterations": 10, "n_cells": 61740, "n_data": 192, "mt_processes": 3}
+mt with the holes: {"chi2_per_datum": 1.0, "corr": 0.207, "sulphide": {"true": 0.785, "recovered": 1.718}, "granite": {"true": 3.66, "recovered": 2.32}, "seconds": 1557.9, "iterations": 9, "n_cells": 61740, "n_data": 192, "mt_processes": 3}
+figure: out/sections.png
+done in 3891 s
+12:28:25 fetched into examples\output\mt_parallel_timing\ec2_m5.8xlarge_100m exit 0
+12:28:26 terminated i-09785af7f57108029 (Owner=miaozhou)
+figure: examples\output\mt_parallel_timing\ec2_m5.8xlarge_100m\sections.png

@@ -1,0 +1,9 @@
+11:21:20 launched i-09785af7f57108029 m5.8xlarge ap-south-1 owner miaozhou
+11:22:28 set up
+[MT] 3 frequencies on 3 processes (10 solver threads each)
+data: {"mt": {"n_data": 192, "n_cells": 217800, "seconds": 328.2, "data_mesh_cell": [50.0, 12.5], "inversion_mesh_cell": [100.0, 12.5]}}
+MT timing: {"processes": 1, "seconds": 61.9}
+[MT] 3 frequencies on 3 processes (10 solver threads each)
+MT timing: {"processes": 3, "seconds": 54.5, "threads_per_process": 10}
+    10  6.31e-07  8.77e+01  1.28e+08  1.69e+02    6.60e+01      2
+mt free: {"chi2_per_datum": 0.46, "corr": 0.143, "sulphide": {"true": 0.785, "recovered": 2.098}, "granite": {"true": 3.66, "recovered": 1.959}, "seconds": 1884.2, "iterations": 10, "n_cells": 61740, "n_data": 192, "mt_processes": 3}
