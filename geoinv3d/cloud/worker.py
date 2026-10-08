@@ -3175,6 +3175,29 @@ def _mt_primaries(params: dict, datasets, mesh_design: dict) -> None:
             else {"kind": "uniform", "rho_ohm_m": 1 / float(ds.method_kwargs.get("sigma_background", 1e-2))})
 
 
+MT_WORKERS_DEFAULT = "auto"
+
+
+def _mt_workers(params: dict, datasets) -> None:
+    """The job's ``mt_workers`` (default "auto") as each MT dataset's ``n_workers`` (see
+    MTMethod), unless its method_kwargs give their own."""
+    value = params.get("mt_workers")
+    value = MT_WORKERS_DEFAULT if value is None else value
+    if isinstance(value, str) and value.strip().lower() == "auto":
+        value = "auto"
+    else:
+        try:
+            n = float(value)
+        except (TypeError, ValueError):
+            n = float("nan")
+        if not (n >= 1 and n == int(n)):
+            raise ValueError(f"mt_workers must be 'auto' or a whole number from 1, got {value!r}")
+        value = int(n)
+    for ds in datasets:
+        if canonical_method(ds.method) == "mt" and "n_workers" not in (ds.method_kwargs or {}):
+            ds.method_kwargs = {**(ds.method_kwargs or {}), "n_workers": value}
+
+
 def _mt_mesh_recommendation(mt_datasets, extent, spacings) -> dict:
     """recommend_mt_mesh for the MT datasets: their frequencies and apparent resistivities,
     the background where they have no impedance, the finest spacing of all datasets."""
@@ -3259,6 +3282,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                 per dataset or for the whole job: grids by whole strides per
                 axis, points to one per cell.  decimate_stride is the older
                 grid-only stride.
+            mt_workers: the processes MT's frequencies are solved on, side by
+                side (methods/parallel.py): "auto" (default: one per frequency
+                up to the cores, on meshes of MTMethod.PARALLEL_MIN_CELLS cells
+                or more) or a number; an MT dataset's method_kwargs n_workers
+                overrides it.  The result records settings.mt_processes.
         data_dir: Local directory containing the downloaded data files.
         progress: Optional callable ``progress(stage, message="", **fields)``
             told about the stages and each inversion iteration (the cloud
@@ -3336,6 +3364,7 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
           f"padding {pad_distance_m:g} m")
 
     _mt_primaries(params, datasets, mesh_design)
+    _mt_workers(params, datasets)
     mesh_type = str(params.get("mesh_type") or "tensor").lower()
     # MT solves for the fields in the air too, and its cells follow the skin depths
     # (meshing.recommend_mt_mesh): thin at the ground, growing with depth, air above
@@ -3570,8 +3599,11 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
                history=history[-HISTORY_POINTS:], **getattr(snap, "extra", {}))
 
     IterationCollector.on_iteration = on_iteration
+    from ..methods.parallel import closing_opened
     try:
-        result = execute_task(task, mesh=mesh)
+        # MT's simulation processes (mt_workers) stop when the inversion ends, also on an error
+        with closing_opened() as started:
+            result = execute_task(task, mesh=mesh)
     finally:
         IterationCollector.on_iteration = None
     convergence = assess_convergence(result, n_data, task.max_iter)
@@ -3687,6 +3719,15 @@ def run_data_pipeline(params: dict, data_dir: str, progress=None) -> dict:
         result["settings"]["solver"] = pde_solver()[1]      # the sparse solver of MT / DC
         if result["settings"]["solver"] == SLOW:
             notes.append(SLOW_NOTE)
+    if any(canonical_method(ds.method) == "mt" for ds in datasets):
+        # the workers MT's frequencies were solved on (1: one process), each one's threads, and
+        # the transport ("processes", or "mpi": the ranks of an MPI job)
+        n, threads, kind = max(started, default=(1, None, None), key=lambda r: r[0])
+        result["settings"]["mt_processes"] = int(n)
+        if n > 1:
+            result["settings"]["mt_parallel"] = kind
+            if threads:
+                result["settings"]["mt_threads_per_process"] = int(threads)
 
     # How much of the recovered anomaly sits outside the core (in padding)?
     gx, gy = np.meshgrid(np.linspace(extent[0], extent[1], 20),
@@ -3909,7 +3950,16 @@ def pack_result(result: dict, output_path: str) -> str:
 
 
 def main():
-    """Entry point for AWS Batch container (or ``--local`` on an EC2 instance)."""
+    """Entry point for AWS Batch container (or ``--local`` on an EC2 instance or a cluster).
+
+    Started by an MPI launcher on N + 1 ranks (``mpiexec -n 4 python -m geoinv3d.cloud.worker
+    --local params.json DATA OUT``; Slurm: ``srun``), rank 0 runs the job and ranks 1..N solve
+    MT's frequencies (methods/parallel.py: mpi_run, serve_mpi)."""
+    from ..methods.parallel import mpi_run
+    sys.exit(mpi_run(_main))
+
+
+def _main():
     if len(sys.argv) > 1 and sys.argv[1] == "--local":
         if len(sys.argv) != 5:
             print("usage: python -m geoinv3d.cloud.worker --local params.json DATA_DIR OUT_DIR")

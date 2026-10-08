@@ -68,3 +68,46 @@ def test_n_workers_checks_and_auto():
     assert m.workers_for(1000) == 1                     # small meshes: one process
     assert 1 <= m.workers_for(10 ** 6) <= len(FREQS)
     assert MTMethod(frequencies=FREQS, n_workers=8).workers_for(10 ** 6) == len(FREQS)
+
+
+def test_parallel_frequencies_in_a_joint_model():
+    """A joint inversion gives each method its slice of the joint model (a Wires projection,
+    joint.py): on processes the slice is taken there, with the same numbers as one process."""
+    from simpeg import maps
+    mesh, active, mask, survey = _setup()
+    n_act = int(active.sum())
+    wires = maps.Wires(("density", 7), ("sigma", n_act))
+    rng = np.random.default_rng(1)
+    m = np.r_[rng.standard_normal(7), np.log(1e-2) + 0.5 * rng.standard_normal(n_act)]
+    one = MTMethod(frequencies=FREQS, components=COMPS, mask=mask).make_simulation_mapped(
+        mesh, survey, wires.sigma, active_cells=active)
+    par = MTMethod(frequencies=FREQS, components=COMPS, mask=mask, n_workers=2).make_simulation_mapped(
+        mesh, survey, wires.sigma, active_cells=active)
+    try:
+        assert par.n_workers == 2
+        v, w = rng.standard_normal(m.size), rng.standard_normal(one.survey.nD)
+        for a, b in ((one.dpred(m), par.dpred(m)), (one.Jvec(m, v), par.Jvec(m, v)),
+                     (one.Jtvec(m, w), par.Jtvec(m, w)), (one.getJtJdiag(m), par.getJtJdiag(m))):
+            np.testing.assert_allclose(b, a, rtol=1e-8, atol=1e-12 * np.abs(a).max())
+        # the density part of the joint model does not reach the MT data
+        assert np.all(par.Jtvec(m, w)[:7] == 0)
+    finally:
+        par.close()
+
+
+def test_closing_opened_stops_a_jobs_processes():
+    """The pipeline runs an inversion inside closing_opened(): the processes it started stop
+    when it ends (an error too), and their number is recorded."""
+    from geoinv3d.methods.parallel import closing_opened
+    mesh, active, mask, survey = _setup()
+    with pytest.raises(RuntimeError, match="the inversion failed"):
+        with closing_opened() as started:
+            par = MTMethod(frequencies=FREQS, components=COMPS, mask=mask, n_workers=2).make_simulation_active(
+                mesh, survey, active)
+            workers = list(par._workers)
+            assert all(w.is_alive() for w in workers)
+            raise RuntimeError("the inversion failed")
+    assert list(started) == [(2, par.threads, "processes")]
+    for w in workers:
+        w.join(timeout=10)
+    assert not any(w.is_alive() for w in workers)

@@ -950,6 +950,61 @@ class TestEMData:
         assert result["datasets"][0]["background"]["rho_ohm_m"] == pytest.approx(100.0, rel=0.01)
         assert capture["task"].method_kwargs["sigma_background"] == pytest.approx(0.01, rel=0.01)
 
+    @staticmethod
+    def _mt_npz(tmp_path):
+        stations = np.array([[0.0, 0.0, 0.0], [300.0, 300.0, 0.0]])
+        np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],
+                 components=np.array(["xy_real", "xy_imag"]), values=np.ones(8), std=np.full(8, 0.1))
+
+    def test_mt_workers_reach_the_mt_datasets(self, tmp_path, capture):
+        """A job's mt_workers (default "auto") becomes each MT dataset's n_workers, unless its
+        method_kwargs give their own."""
+        self._mt_npz(tmp_path)
+        params = {"method_type": "mt", "datasets": [{"method": "mt", "files": ["mt.npz"]}], **SMALL_MESH}
+        run_data_pipeline(params, str(tmp_path))
+        assert capture["task"].method_kwargs["n_workers"] == "auto"
+        run_data_pipeline({**params, "mt_workers": 2}, str(tmp_path))
+        assert capture["task"].method_kwargs["n_workers"] == 2
+        own = {**params, "mt_workers": 2,
+               "datasets": [{"method": "mt", "files": ["mt.npz"], "method_kwargs": {"n_workers": 1}}]}
+        run_data_pipeline(own, str(tmp_path))
+        assert capture["task"].method_kwargs["n_workers"] == 1
+        for bad in (0, 1.5, "two"):
+            with pytest.raises(ValueError, match="mt_workers"):
+                run_data_pipeline({**params, "mt_workers": bad}, str(tmp_path))
+
+    @pytest.mark.skipif(not __import__("os").environ.get("GEOINV3D_SLOW_TESTS")
+                        and __import__("geoinv3d.methods.solvers", fromlist=["pde_solver"]).pde_solver()[1]
+                        == "SolverLU", reason="slow with SuperLU: set GEOINV3D_SLOW_TESTS, or install PARDISO")
+    def test_mt_frequencies_on_processes_single_and_joint(self, tmp_path):
+        """MT's frequencies solved on two processes through the pipeline, alone and in a joint
+        inversion with gravity (each model its slice of the joint vector); the result records
+        the processes, and none is left running when the job ends."""
+        import multiprocessing as mp
+        self._mt_npz(tmp_path)
+        single = {"method_type": "mt", "datasets": [{"method": "mt", "files": ["mt.npz"]}],
+                  "mt_workers": 2, "max_iter": 1, **SMALL_MESH}
+        result = run_data_pipeline(single, str(tmp_path))
+        assert result["settings"]["mt_processes"] == 2
+        assert result["settings"]["mt_threads_per_process"] >= 1
+        assert np.all(np.isfinite(result["data"]["predicted"]))
+        assert not mp.active_children()
+        result = run_data_pipeline({**single, "mt_workers": 1}, str(tmp_path))
+        assert result["settings"]["mt_processes"] == 1
+        assert "mt_threads_per_process" not in result["settings"]
+
+        locs = _station_grid(0.0) - np.array([300.0, 300.0, 0.0])
+        _write_csv(tmp_path / "g.csv", locs, _synthetic("gravity", locs))
+        joint = {"inversion_mode": "joint", "param_mode": "manual", "mt_workers": 2, "max_iter": 1,
+                 "datasets": [{"method": "gravity", "files": ["g.csv"], "noise_pct": 0.05,
+                               "noise_floor": 0.01},
+                              {"method": "mt", "files": ["mt.npz"]}],
+                 "coupling": "cross_gradient", **SMALL_MESH}
+        result = run_data_pipeline(joint, str(tmp_path))
+        assert result["settings"]["mt_processes"] == 2
+        assert all(np.all(np.isfinite(d["predicted"])) for d in result["joint_data"].values())
+        assert not mp.active_children()
+
     def test_mt_file_checks(self, tmp_path):
         stations = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0]])
         np.savez(tmp_path / "mt.npz", locations=stations, frequencies=[10.0, 100.0],

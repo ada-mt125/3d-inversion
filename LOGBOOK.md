@@ -2578,3 +2578,124 @@ MUMPS and SciPy's LU agree to 7.7e-16 (relative). `GeoInv3D.command` now starts 
 solver it has; local jobs run with the server's Python, so they get MUMPS too. The environment
 has newer NumPy / SciPy than the EC2 workers' pins (2.5.3 / 1.18.1 against 2.3.3 / 1.16.2).
 The whole suite in this environment: 620 passed, none skipped (5 min 36 s).
+
+## 2026-10-08 — MT's processes from the job (step 5, item 1); SuperLU's complex LU on Windows
+
+Item 1 of the list above, on the Windows laptop (Core Ultra 7 265U, 14 threads):
+
+- `mt_workers` (job key, default "auto") becomes each MT dataset's `method_kwargs["n_workers"]`
+  unless the dataset gives its own (`worker._mt_workers`, next to `_mt_primaries`); "auto" or a
+  whole number from 1, else a ValueError.
+- The inversion runs inside `parallel.closing_opened()`: every `ParallelMetaSimulation` started
+  in that context (a contextvar: a job running in a thread closes only its own) is closed when
+  the inversion ends or fails; SimPEG's objects refer to each other, so collection alone could
+  leave the processes waiting for the garbage collector.
+- The result records `settings.mt_processes` (1: one process) and, above 1,
+  `settings.mt_threads_per_process`, from the simulations actually started.
+- Joint inversions: each method gets its slice of the joint vector through a `Wires`
+  projection; on two processes the data, J v, J^T v and diag(J^T J) match one process to 1e-8,
+  and the density part of J^T v stays zero.
+
+Tests: `test_mt_parallel.py` (+2: the joint slice; the processes stopped after a failing job,
+and counted), `test_data_pipeline.py::TestEMData` (+2: `mt_workers` into the datasets and its
+checks; a single MT job and a joint gravity + MT job with the cross-gradient on two processes,
+`mt_processes` recorded, no process left; skipped with SuperLU unless GEOINV3D_SLOW_TESTS).
+
+On this machine SciPy's SuperLU is unusable for MT: the parallel test's 6,144-cell system (20,536
+complex unknowns) did not factorize in 6 minutes. A 3D Laplacian of 19,683 unknowns takes 8.4 s
+real and 201 s complex (fill 124x, COLAMD); 2,744 unknowns 0.11 s vs 2.2 s: complex is 20-24x
+slower than real, not the 4x of the arithmetic. With `pydiso==0.3.1` and `mkl==2026.1.0` (the
+EC2 versions; win_amd64 wheels on PyPI, ~210 MB with intel-openmp) `pde_solver()` picks
+Pardiso and the parallel test runs in about 2 minutes, while a magnetic study ran beside it.
+
+Item 2, measured here (PARDISO, 14 threads): `examples/synthetic_builder.py OUT --only mt --quick
+--mt-workers 1 | 3` (new option; the result records `mt_processes`). The MT mesh: 28,392 cells
+(19,604 below the ground), 3 frequencies (10, 100, 1000 Hz), 192 data, 2 Gauss-Newton iterations:
+
+| run | 1 process | 3 processes (4 threads each) | speed-up |
+|---|---|---|---|
+| free | 733 s | 327 s | 2.2x |
+| with the holes | 748 s | 276 s | 2.7x |
+| the whole script (data too) | 1,567 s | 663 s | 2.4x |
+
+The same misfits iteration by iteration (phi_d 2.17e5, 2.64e4, 6.19e3) and the same results (chi2/N
+32.24 / 34.45, correlations 0.515 / 0.611, the bodies' values) on both. Less than 3x because PARDISO
+is threaded: one process already used the 14 threads. Memory, sampled every 2 s: one process
+peaked at 9.15 GB, three at 8.41 GB in all (the largest 2.71 GB): each process keeps only its own
+frequencies' factorizations, about 3 GB a frequency on this mesh, so the processes do not add
+memory here.
+
+Still to do: item 2 on EC2 (threads per process with PARDISO on more cores); item 3 (memory):
+since the total does not grow with the processes, a cap by memory matters only beside a mode that
+keeps fewer factorizations (frequencies one at a time) for meshes whose frequencies do not fit at
+once (9 frequencies of 150,000 cells did not fit 64 GB).
+
+## 2026-10-08 — MT's frequency groups on MPI ranks, for a cluster
+
+The user asked for an MPI interface, to run on a supercomputing centre later. The split is the
+one of the processes (a group of frequencies per worker; the model sent once, then only
+vectors), so `methods/parallel.py` now has one worker loop (`_Server`: simulations held by id,
+their model and fields; the messages "sim", "model", "fields", "dpred", "jvec", "jtvec", "jtj",
+"drop") and two transports for it:
+
+- `processes` (as before): spawned daemon processes, one per group, each with its share of the
+  cores' threads;
+- `mpi` (mpi4py): the ranks of the job. Started on N + 1 ranks (`mpiexec -n 4 python -m
+  geoinv3d.cloud.worker --local params.json DATA OUT`, or `srun`), `worker.main` runs under
+  `parallel.mpi_run`: rank 0 runs the job as usual, ranks 1..N wait in `serve_mpi` and each
+  takes a group of every parallel simulation the job makes (several at once share the ranks, by
+  id; only rank 0 talks to them, one operation at a time). At the end rank 0 lets them go; an
+  error on rank 0 calls `Abort`, so the ranks do not wait until the scheduler's wall time.
+  Threads per rank come from the launcher's OMP_NUM_THREADS / MKL_NUM_THREADS.
+
+`parallel_backend()`: GEOINV3D_PARALLEL "processes", "mpi" or "auto" (default: "mpi" when an MPI
+launcher started the process on more than one rank: OMPI_COMM_WORLD_SIZE, PMI_SIZE or
+SLURM_STEP_NUM_TASKS above 1; nothing imports mpi4py otherwise). Under MPI, `MTMethod.workers_for`
+gives "auto" the serving ranks whatever the mesh (they were started for it), at most one per
+frequency, and a number no more than there are. The result records `settings.mt_parallel`.
+Job scripts: `deploy/hpc/slurm_mt_mpi.sh`, `deploy/hpc/pbs_mt_mpi.sh` (PBS Pro, as Imperial's RCS).
+
+Tests (`tests/test_mt_mpi.py`): the ranks as threads behind a stand-in communicator that pickles
+every message as MPI does — the data, J v, J^T v and diag(J^T J) of 2 ranks equal one process's
+to 1e-8; two simulations alive on the same ranks; a rank's error raised on rank 0 with its
+traceback, the ranks still serving; a closed simulation dropped on them; `mpi_run`'s exit code,
+the ranks stopped, and the abort. `test_under_mpiexec` runs `tests/mpi_mt_check.py` on 3 real
+ranks when mpi4py and mpiexec are there. The processes' tests, the pipeline's MT tests and the
+local backend pass unchanged (22).
+
+With `mpi4py==4.1.2` (the user agreed; a 1.7 MB wheel on Microsoft MPI 10.1, already installed
+here, which sets PMI_SIZE): `test_under_mpiexec` passes on 3 ranks (40 s), and a whole job ran as a
+cluster would run it — `mpiexec -n 4 python -m geoinv3d.cloud.worker --local params.json data out`,
+the synthetic builder's MT data on its 200 m mesh (28,392 cells), 2 iterations: rank 0 ran the
+pipeline, "3 frequencies on 3 MPI ranks (4 solver threads each)", exit 0 with every rank gone,
+`settings.mt_parallel = "mpi"`, `mt_processes = 3`; 5 min 18 s, as the 3 local processes on that
+mesh (327 s for the same 2 iterations).
+
+Also on EC2 (m5.8xlarge, 32 vCPU = 16 cores with hyperthreads; MT inversion mesh 100 x 12.5 m,
+88,200 cells; 3 frequencies): one model's fields took 61.9 s on one process (32 threads) and 54.5 s
+on three (10 threads each), 1.14x — PARDISO already scales over the cores, unlike the laptop's
+2.2-2.7x. The three processes' 30 threads exceed the 16 physical cores; threads per process by
+physical cores is still to try.
+
+## 2026-10-08 — The synthetic builder's MT on a finer mesh, on EC2
+
+`examples/synthetic_builder.py OUT --only mt --mt-cell 100 12.5 --mt-data-cell 50 12.5 --mt-timing
+--ec2 --type m5.8xlarge` (new options: the inversion mesh, the mesh the data are modelled on —
+before, the inversion's own, an "inverse crime" — and the timing of one model's fields).
+ap-south-1, Owner=miaozhou, 11:21-12:28 (67 min, about $2), terminated after the fetch; outputs in
+`examples/output/mt_parallel_timing/ec2_m5.8xlarge_100m/`.
+
+- Data on 50 x 12.5 m (217,800 cells), 3 frequencies on 3 processes: 328 s.
+- Inversion mesh 100 x 12.5 m (88,200 cells, 61,740 below the ground); one model's fields: 61.9 s on
+  one process (32 threads), 54.5 s on three (10 threads each).
+- Free: 10 iterations, 1,884 s, chi2/N 0.46 (the beta schedule halved past the target),
+  correlation with the truth 0.14; the sulphide body 125 ohm m (true 6), the granite 91 ohm m
+  (true 4,600). With the two holes: 9 iterations, 1,558 s, chi2/N 1.00, correlation 0.21, 52 and
+  209 ohm m. On the 200 m mesh with the data from that mesh the correlations had been 0.52 / 0.61
+  (2 iterations): the inverse crime flattered them. 16 stations 500 m apart with 3 frequencies do
+  not resolve bodies 250-500 m wide; the section is near-surface speckle where the free run
+  over-fits.
+
+The follower stopped with the session that started it (the instance went on); `--attach` picked
+the run up, fetched it and terminated the instance. Its iteration lines were hidden below
+iteration 10 (the line was stripped before the check); fixed.

@@ -31,7 +31,6 @@ Components are SimPEG's, in the mesh's frame (x east, y north, z up), as
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import numpy as np
@@ -302,8 +301,9 @@ class MTMethod(MethodBase):
                     sigmaPrimary=sigma_1d[layer], **kwargs) for g in groups]
         outer = mapping if mapping is not None else maps.IdentityMap(nP=n_model)
         sim = ParallelMetaSimulation(sims, [outer] * len(sims))
-        print(f"[MT] {len(self.frequencies)} frequencies on {sim.n_workers} processes "
-              f"({sim.threads} solver thread{'s' if sim.threads > 1 else ''} each)")
+        where = "MPI ranks" if sim.backend == "mpi" else "processes"
+        threads = "" if not sim.threads else             f" ({sim.threads} solver thread{'s' if sim.threads > 1 else ''} each)"
+        print(f"[MT] {len(self.frequencies)} frequencies on {sim.n_workers} {where}{threads}")
         return sim
 
     PARALLEL_MIN_CELLS = 20000
@@ -315,13 +315,18 @@ class MTMethod(MethodBase):
         return np.flatnonzero(self.mask.reshape(len(self.frequencies), -1).any(axis=1))
 
     def workers_for(self, n_cells: int) -> int:
-        """The processes a simulation on a mesh of ``n_cells`` runs on (see n_workers)."""
+        """The workers a simulation on a mesh of ``n_cells`` runs on (see n_workers): processes,
+        or in an MPI job (geoinv3d.methods.parallel) its serving ranks, which "auto" uses
+        whatever the mesh (they were started for it), and no more of them than there are."""
+        from .parallel import available_workers, parallel_backend
         n_freq = len(self._frequencies_with_data())
+        mpi = parallel_backend() == "mpi"
         if self.n_workers == "auto":
-            if n_cells < self.PARALLEL_MIN_CELLS:
+            if not mpi and n_cells < self.PARALLEL_MIN_CELLS:
                 return 1
-            return max(1, min(n_freq, os.cpu_count() or 1))
-        return max(1, min(int(self.n_workers), n_freq))
+            return max(1, min(n_freq, available_workers()))
+        n = max(1, min(int(self.n_workers), n_freq))
+        return max(1, min(n, available_workers())) if mpi else n
 
     def forward(self, model: PhysicalModel, survey: SurveyData) -> NDArray:
         sim = self.make_simulation(model.mesh, survey)

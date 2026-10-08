@@ -31,6 +31,8 @@ section through both bodies (true, free, with the holes).
     python examples/synthetic_builder.py OUT --only gravity dc    # some
     python examples/synthetic_builder.py OUT --quick              # 2 iterations each
     python examples/synthetic_builder.py OUT --only mt --ec2      # on one EC2 instance (PARDISO)
+    python examples/synthetic_builder.py OUT --only mt --mt-workers 1   # MT on one process
+    python examples/synthetic_builder.py OUT --only mt --mt-cell 100 12.5 --mt-data-cell 50 12.5         --mt-timing --ec2 --type m5.8xlarge     # finer MT meshes; data modelled on a finer one
     python examples/synthetic_builder.py OUT --plot               # the figure of the runs in OUT
 
 MT needs PARDISO: with SciPy's LU (a Mac) each model costs ~6 minutes of factorizations here,
@@ -128,11 +130,19 @@ def tensor_mesh(extent, m=MESH):
                               m["depth_core_m"], m["pad_distance_m"])
 
 
-def mt_mesh(extent):
+# the mesh the MT data are modelled on, (cell, top cell) in m; None: the inversion's (an
+# "inverse crime", as before 2026-10-08); --mt-data-cell
+MT_DATA_CELL = None
+
+
+def mt_mesh(extent, cell=None):
+    """The MT inversion's mesh (MT_MESH), or with ``cell`` = (horizontal, top) cells of its own."""
     from geoinv3d.cloud.meshing import MT_TOP_LAYERS, MT_Z_GROWTH
     from geoinv3d.cloud.worker import _build_mt_tensor_mesh
     used = {k: MT_MESH[k] for k in ("core_cell_m", "core_cell_z_m", "depth_core_m", "pad_distance_m",
                                     "air_m", "margin_m")}
+    if cell is not None:
+        used["core_cell_m"], used["core_cell_z_m"] = (float(v) for v in cell)
     used.update(mt=True, z_growth=MT_Z_GROWTH, top_layers=MT_TOP_LAYERS)
     return _build_mt_tensor_mesh(extent, _flat, False, used)
 
@@ -248,20 +258,59 @@ def make_data(out: Path, only, seed: int = 0) -> dict:
     if "mt" in only:
         t0 = time.time()
         st = mt_stations()
-        mesh = mt_mesh((st[:, 0].min(), st[:, 0].max(), st[:, 1].min(), st[:, 1].max()))
+        mesh = mt_mesh((st[:, 0].min(), st[:, 0].max(), st[:, 1].min(), st[:, 1].max()), MT_DATA_CELL)
         tm = mesh.to_discretize()
         active = tm.cell_centers[:, 2] < 0
         m = truth(MODEL, "resistivity", tm, active)
+        # the frequencies side by side, as the inversion solves them (a fine data mesh is the
+        # largest system of the example)
         mt = MTMethod(frequencies=FREQUENCIES, components=COMPONENTS, sigma_background=SIGMA_BG,
-                      primary_layers=([0.0, 50.0], [1 / COVER, 1 / BASEMENT]))
+                      primary_layers=([0.0, 50.0], [1 / COVER, 1 / BASEMENT]), n_workers="auto")
         n = len(FREQUENCIES) * len(COMPONENTS) * len(st)
-        d = mt.make_simulation_active(mesh, _survey(st, n), active, forward_only=True).dpred(m)
+        sim = mt.make_simulation_active(mesh, _survey(st, n), active, forward_only=True)
+        d = sim.dpred(m)
+        if hasattr(sim, "close"):
+            sim.close()
         std = 0.03 * np.abs(d) + 0.01 * np.median(np.abs(d))
         d = d + std * rng.normal(size=d.size)
         np.savez(out / "mt.npz", locations=st, frequencies=FREQUENCIES, components=np.array(COMPONENTS),
                  values=d, std=std)
-        info["mt"] = {"n_data": int(d.size), "n_cells": mesh.n_cells, "seconds": round(time.time() - t0, 1)}
+        info["mt"] = {"n_data": int(d.size), "n_cells": mesh.n_cells, "seconds": round(time.time() - t0, 1),
+                      "data_mesh_cell": list(MT_DATA_CELL) if MT_DATA_CELL else "the inversion's",
+                      "inversion_mesh_cell": [MT_MESH["core_cell_m"], MT_MESH["core_cell_z_m"]]}
     return info
+
+
+def mt_timing(out: Path) -> dict:
+    """One model's fields on the MT inversion mesh (the factorizations of every frequency) on
+    one process and on one per frequency (cores shared out), written to OUT/mt_timing.json."""
+    import gc
+    import os
+    from geoinv3d.methods.mt import MTMethod
+    st = mt_stations()
+    mesh = mt_mesh((st[:, 0].min(), st[:, 0].max(), st[:, 1].min(), st[:, 1].max()))
+    tm = mesh.to_discretize()
+    active = tm.cell_centers[:, 2] < 0
+    m = np.full(int(active.sum()), np.log(SIGMA_BG))
+    n = len(FREQUENCIES) * len(COMPONENTS) * len(st)
+    got = {"n_cells": int(tm.n_cells), "n_edges": int(tm.n_edges), "cores": os.cpu_count(),
+           "frequencies": FREQUENCIES, "runs": []}
+    for k in (1, len(FREQUENCIES)):
+        mt = MTMethod(frequencies=FREQUENCIES, components=COMPONENTS, sigma_background=SIGMA_BG,
+                      primary_layers=([0.0, 50.0], [1 / COVER, 1 / BASEMENT]), n_workers=k)
+        sim = mt.make_simulation_active(mesh, _survey(st, n), active)
+        t0 = time.time()
+        sim.dpred(m)
+        run = {"processes": k, "seconds": round(time.time() - t0, 1)}
+        if hasattr(sim, "close"):
+            run["threads_per_process"] = sim.threads
+            sim.close()
+        got["runs"].append(run)
+        print("MT timing:", json.dumps(run), flush=True)
+        del sim
+        gc.collect()
+    (out / "mt_timing.json").write_text(json.dumps(got, indent=1))
+    return got
 
 
 # ── jobs ────────────────────────────────────────────────────────────────
@@ -281,7 +330,7 @@ METHODS = {
 QUICK = {"max_iter": 2, "max_irls_iterations": 1}
 
 
-def job(key, info, constrained: bool, quick: bool) -> dict:
+def job(key, info, constrained: bool, quick: bool, mt_workers=None) -> dict:
     prop, extra = METHODS[key]
     ds = {"gravity": {"method": "gravity", "files": ["gravity.csv"], "component": "gz", "noise_pct": 0.0},
           "magnetics": {"method": "magnetics", "files": ["magnetics.csv"], "component": "tmi", "noise_pct": 0.0,
@@ -296,6 +345,8 @@ def job(key, info, constrained: bool, quick: bool) -> dict:
               **ITER, **extra, **(QUICK if quick else {})}
     if constrained:
         params["geology"] = builder_spec(KNOWN, prop)
+    if key == "mt" and mt_workers is not None:     # else the pipeline's default ("auto")
+        params["mt_workers"] = mt_workers
     return params
 
 
@@ -320,13 +371,13 @@ def compare(key, result, tm, active):
     return out, rec, true
 
 
-def run(out: Path, keys, info, quick: bool) -> dict:
+def run(out: Path, keys, info, quick: bool, mt_workers=None) -> dict:
     from geoinv3d.cloud.worker import run_data_pipeline
     results, sections = {}, {}
     for key in keys:
         for constrained in (False, True):
             label = f"{key} {'with the holes' if constrained else 'free'}"
-            params = job(key, info, constrained, quick)
+            params = job(key, info, constrained, quick, mt_workers)
             t0 = time.time()
             # the pipeline's log as it goes (SimPEG's iterations too)
             with open(out / f"{key}_{'holes' if constrained else 'free'}.log", "w", buffering=1) as log, \
@@ -346,6 +397,8 @@ def run(out: Path, keys, info, quick: bool) -> dict:
             got, rec, true = compare(key, result, tm, active)
             got.update(seconds=round(time.time() - t0, 1), iterations=result.get("n_iterations"),
                        n_cells=int(result["n_active_cells"]), n_data=int(result["n_data"]))
+            if "mt_processes" in result.get("settings", {}):
+                got["mt_processes"] = result["settings"]["mt_processes"]
             results[label] = got
             sections.setdefault(key, {"tm": tm, "active": active, "true": true})[constrained] = rec
             print(f"{label}: {json.dumps(got)}", flush=True)
@@ -464,7 +517,12 @@ def on_ec2(args) -> int:
             ssh.write(f"{REMOTE}/code.tar.gz", code_archive())
             ssh.run(f"rm -rf {REMOTE}/code/geoinv3d && tar xzf {REMOTE}/code.tar.gz -C {REMOTE}/code")
             ssh.write(f"{REMOTE}/synthetic_builder.py", Path(__file__).read_bytes())
-            flags = f"--only {' '.join(args.only)}" + (" --quick" if args.quick else "")
+            flags = (f"--only {' '.join(args.only)}" + (" --quick" if args.quick else "")
+                     + (f" --mt-workers {args.mt_workers}" if args.mt_workers else "")
+                     + (f" --mt-cell {args.mt_cell[0]:g} {args.mt_cell[1]:g}" if args.mt_cell else "")
+                     + (f" --mt-data-cell {args.mt_data_cell[0]:g} {args.mt_data_cell[1]:g}"
+                        if args.mt_data_cell else "")
+                     + (" --mt-timing" if args.mt_timing else ""))
             inner = (f"cd {REMOTE} && PYTHONPATH={REMOTE}/code {REMOTE}/venv/bin/python -W ignore -u "
                      f"synthetic_builder.py out {flags} > run.log 2>&1; echo $? > run.done")
             ssh.run(f"{{ nohup setsid bash -c '{inner}' > /dev/null 2>&1 < /dev/null & }} && echo started")
@@ -481,7 +539,7 @@ def on_ec2(args) -> int:
             _, tail = ssh.run(f"f=$(ls -t {REMOTE}/out/*.log 2>/dev/null | head -1); "
                               f"[ -n \"$f\" ] && tail -n 1 \"$f\" < /dev/null; true")
             tail = tail.strip()
-            if tail and tail != last and tail[:4].strip().isdigit():
+            if tail and tail != last and tail.split()[0].isdigit():     # an iteration line
                 print("   ", tail[:110], flush=True)
                 last = tail
             done = ssh.read(f"{REMOTE}/run.done")
@@ -514,6 +572,14 @@ def main():
     p.add_argument("out", type=Path)
     p.add_argument("--only", nargs="*", default=list(METHODS), choices=list(METHODS))
     p.add_argument("--quick", action="store_true", help="2 iterations each: every path, quickly")
+    p.add_argument("--mt-workers", default=None,
+                   help="the processes MT's frequencies are solved on: auto (the default) or a number")
+    p.add_argument("--mt-cell", nargs=2, type=float, metavar=("H", "TOP"), default=None,
+                   help="the MT inversion mesh's horizontal and top cells, m (default 200 25)")
+    p.add_argument("--mt-data-cell", nargs=2, type=float, metavar=("H", "TOP"), default=None,
+                   help="the mesh the MT data are modelled on (default: the inversion's)")
+    p.add_argument("--mt-timing", action="store_true",
+                   help="also time one model's fields on 1 process and on one per frequency")
     p.add_argument("--ec2", action="store_true", help="run on one EC2 instance (MT with PARDISO), then terminate it")
     p.add_argument("--plot", action="store_true", help="only draw OUT/sections.png from the runs saved in OUT")
     p.add_argument("--type", default="m5.2xlarge", help="with --ec2: the instance type")
@@ -522,6 +588,11 @@ def main():
     p.add_argument("--attach", default=None, help="with --ec2: follow the run on this instance (started "
                    "before), fetch its outputs and terminate it")
     args = p.parse_args()
+    global MT_MESH, MT_DATA_CELL
+    if args.mt_cell:
+        MT_MESH = {**MT_MESH, "core_cell_m": args.mt_cell[0], "core_cell_z_m": args.mt_cell[1]}
+    if args.mt_data_cell:
+        MT_DATA_CELL = tuple(args.mt_data_cell)
     if args.ec2:
         code = on_ec2(args)
         print("figure:", plot(args.out, load_sections(args.out)))
@@ -538,7 +609,9 @@ def main():
     t0 = time.time()
     info = make_data(args.out, args.only)
     print("data:", json.dumps(info), flush=True)
-    results, _ = run(args.out, args.only, info, args.quick)
+    if args.mt_timing and "mt" in args.only:
+        mt_timing(args.out)
+    results, _ = run(args.out, args.only, info, args.quick, args.mt_workers)
     save_results(args.out, info, results)
     try:
         print("figure:", plot(args.out, load_sections(args.out)))
