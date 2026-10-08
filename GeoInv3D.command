@@ -10,7 +10,17 @@ cd "$(dirname "$0")" || exit 1
 PORT="${GEOINV3D_PORT:-8000}"
 URL="http://localhost:$PORT/"
 HEALTH="http://127.0.0.1:$PORT/api/health"
-PYTHON=".venv/bin/python"
+# The Python: GEOINV3D_PYTHON if set; else the conda-forge environment with MUMPS (a Mac with
+# Apple silicon has no PARDISO: MUMPS solves MT and DC ~50 times faster than SciPy's LU; see the
+# README), if there is one; else the project's .venv.  Jobs run with the server's Python.
+MAMBA_PYTHON="$HOME/mamba/envs/geoinv3d-mumps/bin/python"
+if [ -n "$GEOINV3D_PYTHON" ]; then
+    PYTHON="$GEOINV3D_PYTHON"
+elif [ -x "$MAMBA_PYTHON" ]; then
+    PYTHON="$MAMBA_PYTHON"
+else
+    PYTHON=".venv/bin/python"
+fi
 
 running() { curl -s --max-time 2 "$HEALTH" 2>/dev/null | grep -q '"service":"GeoInv3D'; }
 
@@ -29,7 +39,7 @@ if running; then
 fi
 
 if [ ! -x "$PYTHON" ]; then
-    fail "No Python environment in $(pwd)/.venv.  Create it here with:
+    fail "No Python environment ($PYTHON).  Create one in $(pwd)/.venv with:
   uv venv --python 3.13
   uv pip install -e \".[full,dev,cloud]\" rasterio"
 fi
@@ -46,6 +56,7 @@ elif [ -z "$AWS_ACCESS_KEY_ID$AWS_PROFILE" ] && [ ! -f "$HOME/.aws/credentials" 
     echo
 fi
 
+echo "Python: $PYTHON (sparse solver: $("$PYTHON" -c 'from geoinv3d.methods.solvers import pde_solver; print(pde_solver()[1])' 2>/dev/null))"
 echo "Starting the GeoInv3D server on port $PORT ..."
 "$PYTHON" -m geoinv3d.api --host 127.0.0.1 --port "$PORT" &
 SERVER=$!

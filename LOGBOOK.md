@@ -2554,3 +2554,27 @@ Still to do:
    check that the threads per process (cores / processes) do not oversubscribe.
 3. Memory: each process keeps its own factorizations (the same total as one process); with
    many frequencies on a big mesh, cap the processes by memory as well as cores.
+
+## 2026-10-08 — MUMPS on the Mac: MT and DC 50 times faster here
+
+pydiso (PARDISO) is Intel MKL, x86 only: on this Mac (Apple M5 Pro, arm64) MT and DC used SciPy's
+single-threaded LU. pymatsolver 0.4 also takes MUMPS (`python-mumps`), and `pde_solver()` already
+prefers it to SciPy; PyPI has no arm64 wheels of python-mumps, conda-forge has. So a
+conda-forge environment (micromamba from Homebrew: `~/mamba/envs/geoinv3d-mumps`, Python 3.13,
+SimPEG 0.25.2, discretize 0.12.0, python-mumps) with the rest of the project installed by uv
+(`-e ".[full,dev,cloud]" rasterio`); the project's `.venv` is left as it was.
+
+The synthetic example's MT mesh (28 392 cells, 91 000 edges), one forward with the layered
+primary:
+
+| solver | 3 frequencies (10, 100, 1000 Hz) | 1000 Hz |
+|---|---|---|
+| SciPy LU (`.venv`) | 348 s | 110.2 s |
+| MUMPS (this Mac) | 7.5 s | 2.2 s |
+| PARDISO (EC2 m5.4xlarge) | 12.7 s | — |
+
+MUMPS and SciPy's LU agree to 7.7e-16 (relative). `GeoInv3D.command` now starts the server with
+`GEOINV3D_PYTHON` if set, else this environment if it exists, else `.venv`, and says which
+solver it has; local jobs run with the server's Python, so they get MUMPS too. The environment
+has newer NumPy / SciPy than the EC2 workers' pins (2.5.3 / 1.18.1 against 2.3.3 / 1.16.2).
+The whole suite in this environment: 620 passed, none skipped (5 min 36 s).

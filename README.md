@@ -38,6 +38,22 @@ pip install rasterio                # GeoTIFF grids in the raw-data pipeline (op
 python -m pytest                    # full test suite, ~3 min
 ```
 
+**The sparse solver of MT and DC.** They factorize a large sparse system per frequency (MT) or
+per model (DC); SciPy's LU (single-threaded) is the fallback. On x86 Linux and Windows,
+`pip install pydiso` gives PARDISO (the EC2 workers install it). A Mac with Apple silicon has
+no PARDISO (Intel MKL is x86-only); MUMPS from conda-forge does the same there — 2.2 s for an
+MT frequency on 28 000 cells against SciPy's 110 s, the same numbers to 1e-15. Its environment
+holds the whole project (`GeoInv3D.command` uses it when it exists):
+
+```bash
+brew install micromamba
+micromamba create -y -r ~/mamba -n geoinv3d-mumps -c conda-forge python=3.13 python-mumps "pymatsolver>=0.4" simpeg=0.25.2 discretize=0.12.0 numba
+uv pip install --python ~/mamba/envs/geoinv3d-mumps/bin/python -e ".[full,dev,cloud]" rasterio
+```
+
+`geoinv3d.methods.solvers.pde_solver()` takes PARDISO, else MUMPS, else SciPy's LU
+(`GEOINV3D_SOLVER` forces one).
+
 ### Dependencies
 
 | Package    | Purpose                        |
