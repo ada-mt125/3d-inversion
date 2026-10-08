@@ -31,6 +31,7 @@ Components are SimPEG's, in the mesh's frame (x east, y north, z up), as
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
@@ -62,6 +63,7 @@ class MTMethod(MethodBase):
         mask=None,
         h_in_air: bool = True,
         primary_layers=None,
+        n_workers=1,
     ) -> None:
         """
         Args:
@@ -86,6 +88,11 @@ class MTMethod(MethodBase):
                 conductivities), the tops of the layers below the ground (m, the first 0) and
                 their conductivities (S/m).  The closer the primary is to the earth's layering,
                 the less the secondary field has to carry to the mesh's edge.
+            n_workers: processes the frequencies are solved on, side by side
+                (geoinv3d.methods.parallel): 1 (one process, the default), a number (at most
+                one per frequency), or "auto": one per frequency up to the cores, on meshes of
+                at least PARALLEL_MIN_CELLS cells (below, starting the processes costs more
+                than it saves).
         """
         self.frequencies = (
             np.asarray(frequencies, dtype=float) if frequencies is not None
@@ -105,6 +112,9 @@ class MTMethod(MethodBase):
                     or not np.all(sig > 0):
                 raise ValueError("primary_layers: increasing tops from 0 and positive conductivities")
             self.primary_layers = (tops, sig)
+        if not (n_workers == "auto" or (isinstance(n_workers, (int, np.integer)) and n_workers >= 1)):
+            raise ValueError(f"n_workers must be a whole number from 1 or 'auto', got {n_workers!r}")
+        self.n_workers = n_workers
         self.mask = None if mask is None else np.asarray(mask, dtype=bool)
         if self.mask is not None and self.mask.shape[:2] != (len(self.frequencies), len(self.components)):
             raise ValueError(f"mask has shape {self.mask.shape}, expected ({len(self.frequencies)}, "
@@ -166,10 +176,11 @@ class MTMethod(MethodBase):
         return loc_e, loc_h
 
     def _build_survey(self, locations: NDArray, sigma_primary: NDArray | None = None,
-                      locations_h: NDArray | None = None):
+                      locations_h: NDArray | None = None, frequencies=None):
         """Build a SimPEG natural source survey; ``sigma_primary``: the primary 1D model on
         the mesh's vertical cells (the background, uniform, if None); ``locations_h``: where
-        the horizontal H is taken (``locations`` if None, as E and the tipper's Hz)."""
+        the horizontal H is taken (``locations`` if None, as E and the tipper's Hz);
+        ``frequencies``: the indices of the frequencies it has (all if None)."""
         from simpeg.electromagnetics.natural_source import (
             receivers, sources, survey,
         )
@@ -195,6 +206,8 @@ class MTMethod(MethodBase):
         src_list = []
         sigma_1d = np.full(1, self.sigma_background) if sigma_primary is None else sigma_primary
         for f, freq in enumerate(self.frequencies):
+            if frequencies is not None and f not in frequencies:
+                continue
             rx_list = [receiver(o, part, mask[f, c])
                        for c, (o, part) in enumerate(parsed) if mask[f, c].any()]
             if not rx_list:
@@ -265,13 +278,50 @@ class MTMethod(MethodBase):
         loc_e, loc_h = survey.locations, None
         if active_cells is not None and self.h_in_air:
             loc_e, loc_h = self.measurement_points(dmesh, survey.locations, active_cells)
-        return Simulation3DPrimarySecondary(
-            mesh=dmesh,
-            survey=self._build_survey(loc_e, sigma_1d, loc_h),
-            sigmaMap=self._sigma_map(dmesh, mapping, active_cells),
-            sigmaPrimary=sigma_1d[layer],
-            **kwargs,
-        )
+        n = self.workers_for(dmesh.n_cells)
+        if n == 1:
+            return Simulation3DPrimarySecondary(
+                mesh=dmesh,
+                survey=self._build_survey(loc_e, sigma_1d, loc_h),
+                sigmaMap=self._sigma_map(dmesh, mapping, active_cells),
+                sigmaPrimary=sigma_1d[layer],
+                **kwargs,
+            )
+        # the frequencies in n contiguous groups (the data stay frequency by frequency), each a
+        # simulation of its own on a process of its own; the processes map the model themselves
+        from simpeg import maps
+
+        from .parallel import ParallelMetaSimulation
+
+        n_model = (mapping.shape[1] if mapping is not None
+                   else int(np.sum(active_cells)) if active_cells is not None else dmesh.n_cells)
+        groups = [set(g.tolist()) for g in np.array_split(self._frequencies_with_data(), n) if g.size]
+        sims = [Simulation3DPrimarySecondary(
+                    mesh=dmesh, survey=self._build_survey(loc_e, sigma_1d, loc_h, frequencies=g),
+                    sigmaMap=self._sigma_map(dmesh, None, active_cells),
+                    sigmaPrimary=sigma_1d[layer], **kwargs) for g in groups]
+        outer = mapping if mapping is not None else maps.IdentityMap(nP=n_model)
+        sim = ParallelMetaSimulation(sims, [outer] * len(sims))
+        print(f"[MT] {len(self.frequencies)} frequencies on {sim.n_workers} processes "
+              f"({sim.threads} solver thread{'s' if sim.threads > 1 else ''} each)")
+        return sim
+
+    PARALLEL_MIN_CELLS = 20000
+
+    def _frequencies_with_data(self) -> NDArray:
+        """The indices of the frequencies with at least one datum."""
+        if self.mask is None:
+            return np.arange(len(self.frequencies))
+        return np.flatnonzero(self.mask.reshape(len(self.frequencies), -1).any(axis=1))
+
+    def workers_for(self, n_cells: int) -> int:
+        """The processes a simulation on a mesh of ``n_cells`` runs on (see n_workers)."""
+        n_freq = len(self._frequencies_with_data())
+        if self.n_workers == "auto":
+            if n_cells < self.PARALLEL_MIN_CELLS:
+                return 1
+            return max(1, min(n_freq, os.cpu_count() or 1))
+        return max(1, min(int(self.n_workers), n_freq))
 
     def forward(self, model: PhysicalModel, survey: SurveyData) -> NDArray:
         sim = self.make_simulation(model.mesh, survey)

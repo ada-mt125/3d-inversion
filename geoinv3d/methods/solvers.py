@@ -32,8 +32,17 @@ def pde_solver():
             raise ValueError(f"GEOINV3D_SOLVER must be Pardiso, Mumps or {SLOW}, got {asked!r}")
         if asked != SLOW and not AvailableSolvers.get(asked):
             raise ValueError(f"GEOINV3D_SOLVER={asked}, but it is not installed")
-        return getattr(pymatsolver, asked), asked
+        return _picklable(getattr(pymatsolver, asked)), asked
     for name in ("Pardiso", "Mumps"):
         if AvailableSolvers.get(name):
             return getattr(pymatsolver, name), name
-    return pymatsolver.SolverLU, SLOW
+    return _picklable(pymatsolver.SolverLU), SLOW
+
+
+def _picklable(cls):
+    """pymatsolver makes SolverLU at run time (its module says "abc"): pickle looks a class up
+    by its module and name, so a simulation holding it could not go to another process
+    (geoinv3d.methods.parallel).  It is pymatsolver.SolverLU."""
+    if getattr(cls, "__module__", None) == "abc":
+        cls.__module__, cls.__qualname__ = "pymatsolver", cls.__name__
+    return cls

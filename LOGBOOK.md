@@ -2514,3 +2514,43 @@ Reviewed (a reviewer and a web-test agent): the builder spec matches the page's 
 the page's mesh context is keyed on all its rows (an OcTree's levels changed nothing in its
 label). Tests: `tests/test_builder.py` (new), the background and the models' mesh field in
 `test_data_pipeline.py` / `test_api_local.py`; the suite 615 passed, 2 skipped.
+
+## 2026-10-08 — MT's frequencies on processes side by side (step 5, in progress)
+
+Each MT frequency is a PDE of its own, factorized once per model and independent of the others.
+SciPy's LU is single-threaded: here a model costs ~2 minutes per frequency on 28k cells, and the
+synthetic example's MT runs did not finish (2026-10-07). Solving the frequencies on processes
+at once is the first speed-up, and the same split is what an MPI / cluster version would
+distribute (one process per frequency group; only vectors travel).
+
+Done (committed, tested):
+
+- `geoinv3d/methods/parallel.py`: `ParallelMetaSimulation` — simulations (one per group of
+  frequencies) on processes started with "spawn" (forking a process whose MKL / OpenMP threads
+  run can hang), as daemons, each with its share of the cores' threads; the model goes to them
+  once, then the fields, predicted data, J v, J^T v and diag(J^T J) are computed by each for its
+  frequencies and added up here; a process's error is raised here (`WorkerError`, with its
+  traceback); `close()` (also when collected) stops them. The simulations are pickled in the
+  main process, so a pickling error is raised at once (a queue's feeder thread only prints it,
+  and the process then waits for ever: the first test hung that way).
+- `MTMethod(n_workers=1 | k | "auto")`: k contiguous groups of the frequencies with data (the
+  data stay frequency by frequency), each a `Simulation3DPrimarySecondary` mapping the model
+  itself; "auto" = one per frequency up to the cores on meshes of ≥ 20 000 cells (below,
+  starting processes costs more than it saves). Default 1: unchanged behaviour.
+- `solvers.pde_solver`: pymatsolver builds `SolverLU` at run time with module "abc", so no
+  simulation holding it could be pickled; it is named `pymatsolver.SolverLU` now.
+- `tests/test_mt_parallel.py`: two processes give one process's data, J v, J^T v and
+  diag(J^T J) to 1e-8 on a masked 3-frequency survey, and fresh fields for a new model; an error
+  in a process reaches the caller and the processes keep working; `n_workers` checks.
+
+Still to do:
+
+1. The pipeline: a job's `mt_workers` (default "auto") into each MT dataset's
+   `method_kwargs["n_workers"]` (worker.py, where `_mt_primaries` fills the MT kwargs); record the
+   processes used in `result["settings"]`; close the simulation when the job ends (joint
+   inversions too: `make_simulation_mapped` passes a mapping, untested in parallel).
+2. Measure: `examples/synthetic_builder.py OUT --only mt` with the frequencies in parallel
+   (3 frequencies: expected ~3x with SuperLU), then the full MT run; on EC2 with PARDISO
+   check that the threads per process (cores / processes) do not oversubscribe.
+3. Memory: each process keeps its own factorizations (the same total as one process); with
+   many frequencies on a big mesh, cap the processes by memory as well as cores.
