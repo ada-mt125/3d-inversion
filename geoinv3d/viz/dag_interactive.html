@@ -208,6 +208,9 @@ svg#dag:active{cursor:grabbing;}
 .up-aoi-win i[data-h=ne]{left:100%;top:0;cursor:nesw-resize;} .up-aoi-win i[data-h=e]{left:100%;top:50%;cursor:ew-resize;}
 .up-aoi-win i[data-h=se]{left:100%;top:100%;cursor:nwse-resize;} .up-aoi-win i[data-h=s]{left:50%;top:100%;cursor:ns-resize;}
 .up-aoi-win i[data-h=sw]{left:0;top:100%;cursor:nesw-resize;} .up-aoi-win i[data-h=w]{left:0;top:50%;cursor:ew-resize;}
+.up-aoi-win i[data-h=rot]{left:50%;top:-24px;border-radius:50%;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;cursor:grab;background:#fff;border:2px solid var(--accent);}
+.up-aoi-win b.rot-stem{position:absolute;left:50%;top:-18px;width:0;height:18px;border-left:2px solid var(--accent);pointer-events:none;}
+.up-aoi-turn{flex:0 0 110px;}
 .up-aoi-btns{display:flex;gap:8px;align-items:flex-end;flex:0 0 auto;}
 .up-aoi-layers{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap;margin:0 0 10px;font-size:12px;}
 .up-aoi-layers .ml-list.ml-list-row{flex-direction:row;flex-wrap:wrap;gap:4px 14px;}
@@ -678,10 +681,11 @@ svg#dag:active{cursor:grabbing;}
 
         <div class="up-pane" data-pane="2" hidden>
           <section class="up-sec">
-            <div class="up-sec-h">Area of interest<span class="up-hint">Drag the orange window to move it, or its corners and edges to resize it; drag the map to pan and scroll to zoom</span></div>
+            <div class="up-sec-h">Area of interest<span class="up-hint">Drag the window to move it, its corners and edges to resize it, the round knob above it to turn it (Shift: 15° steps); drag the map to pan and scroll to zoom</span></div>
             <div class="up-card">
               <div class="up-aoi-top">
                 <div class="up-col"><label class="up-lbl" for="up-aoi-layer">Map</label><select id="up-aoi-layer" class="up-in"></select></div>
+                <div class="up-col up-aoi-turn"><label class="up-lbl" for="up-aoi-turn" title="The window turned clockwise about its centre, e.g. to the strike; 0: along the axes. A turned window is sent as a polygon: its data are cropped to it and an OcTree is refined only under it">Turned (°)</label><input id="up-aoi-turn" type="number" class="up-in" min="-90" max="90" step="1" value="0"></div>
                 <div class="up-aoi-btns">
                   <button type="button" class="up-btn" id="up-aoi-square">Make square</button>
                   <button type="button" class="up-btn" id="up-aoi-all">Whole survey</button>
@@ -696,9 +700,10 @@ svg#dag:active{cursor:grabbing;}
               <div class="up-aoi-wrap">
                 <div class="up-aoi-map" id="up-aoi-map"></div>
                 <div class="up-aoi-clip" id="up-aoi-clip" hidden>
-                  <div class="up-aoi-win" id="up-aoi-win" title="Drag to move; drag a corner or an edge to resize">
+                  <div class="up-aoi-win" id="up-aoi-win" title="Drag to move; drag a corner or an edge to resize; drag the knob above to turn">
                     <i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i>
                     <i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i>
+                    <b class="rot-stem"></b><i data-h="rot" title="Drag to turn the window (Shift: 15° steps)"></i>
                   </div>
                 </div>
               </div>
@@ -3746,7 +3751,10 @@ window.GeoCRS=GeoCRS;
 // A workflow brings its own (map_layers, e.g. a study's viewer); more come from GeoJSON or
 // CSV files added here, and in a workspace the server keeps them for all its runs.
 // A layer: {name, color, kind: 'points'|'lines', items}, items {x, y, label} or
-// {xy: [[x, y], …], label, closed}, in the data's projected metres.
+// {xy: [[x, y], …], label, closed}, in the data's projected metres.  A point may be a borehole:
+// with depth (its length, m) and optionally z (the collar's elevation; else the ground), dip
+// (from the horizontal, 90 vertical; 0 or none: vertical) and azimuth (clockwise from north),
+// as the geology constraints take them; the 3D view draws its trace, the maps its collar.
 // ══════════════════════════════════════════
 const ML={own:[], hidden:new Set()};
 const ML_COLORS=['#e0a100','#ef476f','#06d6a0','#4cc9f0','#f78c6b','#c77dff','#6d6a7c'];
@@ -3768,8 +3776,15 @@ function mlFromGeoJSON(gj,fname){
     const gname=String(pr.layer||pr.Layer||fname), label=mlLabel(pr);
     if(!groups.has(gname))groups.set(gname,{points:[],lines:[],color:pr.color||pr.colour||pr.stroke||pr['marker-color']||null});
     const G=groups.get(gname), xy=c=>[+c[0],+c[1]];
+    const hole=c=>{   // a borehole's fields, by the names the geology constraints read
+      const num=(...ks)=>{for(const k of ks){const v=parseFloat(pr[k]);if(isFinite(v))return v;}return null;};
+      const depth=num('length_m','length','depth','depth_m','hole_length');
+      if(!(depth>0))return {};
+      const z=num('rl_collar_','rl_collar','collar_rl','elevation','elev','z')??(c.length>2&&isFinite(+c[2])?+c[2]:null);
+      return {depth,dip:num('cl_inclina','inclination','dip'),azimuth:num('bearing','azimuth','azi'),...(z!=null?{z}:{})};
+    };
     const add=(t,c)=>{
-      if(t==='Point')G.points.push({x:+c[0],y:+c[1],label});
+      if(t==='Point')G.points.push({x:+c[0],y:+c[1],label,...hole(c)});
       else if(t==='MultiPoint')c.forEach(q=>G.points.push({x:+q[0],y:+q[1],label}));
       else if(t==='LineString')G.lines.push({xy:c.map(xy),label});
       else if(t==='MultiLineString')c.forEach(l=>G.lines.push({xy:l.map(xy),label}));
@@ -3877,7 +3892,8 @@ const ML_LISTS=['ml-list','ml-list-area'];
 function mlNote(text){['ml-note','ml-note-area'].forEach(id=>{const el=$v(id); if(el)el.textContent=text;});}
 function mlListHTML(){
   const L=mlAll();
-  return L.length?L.map((l,k)=>`<div class="ml-item"><label title="${escH(l.name)}: ${l.items.length} ${l.kind==='points'?'points':'lines'}">`+
+  const what=l=>l.kind!=='points'?'lines':l.items.some(p=>p.depth>0)?'boreholes':'points';
+  return L.length?L.map((l,k)=>`<div class="ml-item"><label title="${escH(l.name)}: ${l.items.length} ${what(l)}">`+
       `<input type="checkbox" data-ml="${k}"${ML.hidden.has(mlKey(l))?'':' checked'} style="accent-color:${mlColor(l,k)}">`+
       `<span class="sw${l.kind==='points'?' pt':''}" style="background:${mlColor(l,k)}"></span><span class="nm">${escH(l.name)}</span></label>`+
       (l.builtin?'':`<button type="button" class="x" data-ml-del="${k}" title="Remove this layer">×</button>`)+'</div>').join('')
@@ -3993,10 +4009,26 @@ function mlTraces3D(){
   for(const l of L){
     if(l.kind==='points'){
       const it=l.items.filter(p=>inside(p.x,p.y)); if(!it.length)continue;
-      out.push({type:'scatter3d',mode:'markers+text',name:l.name,x:it.map(p=>p.x),y:it.map(p=>p.y),z:it.map(p=>zAt(p.x,p.y)),
+      // a borehole's collar at its own elevation when it has one
+      const zc=p=>p.depth>0&&p.z!=null&&isFinite(p.z)?+p.z:zAt(p.x,p.y);
+      out.push({type:'scatter3d',mode:'markers+text',name:l.name,x:it.map(p=>p.x),y:it.map(p=>p.y),z:it.map(zc),
         text:it.map(p=>p.label||''),textposition:'top center',textfont:{size:10,color:TH.text},
         marker:{size:4,color:l.color,symbol:'diamond',line:{color:TH.bg,width:1}},
         hovertemplate:`%{text}<br>${escH(l.name)}<extra></extra>`});
+      // boreholes: straight from the collar along their dip and azimuth to their length
+      const holes=it.filter(p=>p.depth>0);
+      if(holes.length){
+        const x=[],y=[],z=[],t=[];
+        for(const p of holes){
+          const dip=(p.dip>0?+p.dip:90)*Math.PI/180, az=(+p.azimuth||0)*Math.PI/180, L=+p.depth, z0=zc(p);
+          const h=L*Math.cos(dip), tip=`${p.label||'hole'}: ${L.toFixed(1)} m, dip ${(dip*180/Math.PI).toFixed(0)}°`+
+            (Math.abs(Math.cos(dip))>1e-6?`, azimuth ${(+p.azimuth||0).toFixed(0)}°`:'')+` (collar ${z0.toFixed(0)} m)`;
+          x.push(p.x,p.x+h*Math.sin(az),null); y.push(p.y,p.y+h*Math.cos(az),null);
+          z.push(z0,z0-L*Math.sin(dip),null); t.push(tip,tip,null);
+        }
+        out.push({type:'scatter3d',mode:'lines',name:l.name+' · traces',x,y,z,text:t,connectgaps:false,
+          line:{color:l.color,width:8},hovertemplate:`%{text}<extra>${escH(l.name)}</extra>`});
+      }
     }else{
       const x=[],y=[],z=[];
       for(const it of l.items){
@@ -4604,6 +4636,15 @@ window.GeoMesh=GeoMesh;
 // coarse sample of their nodes, stations in full.  Counts in a window and
 // after thinning follow the worker (grid_strides / thin_points).
 // ══════════════════════════════════════════
+// (x, y) inside the polygon [[x, y], ...] (even-odd rule), as worker.in_polygon
+function geoInPoly(x,y,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const [xi,yi]=poly[i],[xj,yj]=poly[j];
+    if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi)inside=!inside;
+  }
+  return inside;
+}
 const GeoPreview=(function(){
   const MAX_SIDE=400;
   const blank=(v,nodata)=>!Number.isFinite(v)||Math.abs(v)>=1e30||(nodata!=null&&v===nodata);
@@ -4769,14 +4810,15 @@ const GeoPreview=(function(){
     throw new Error('no preview for .'+ext);
   }
 
-  // ── Counts inside a window [W, E, S, N] after thinning to `target` metres ──
+  // ── Counts inside a window [W, E, S, N] (and a turned window's polygon, `poly`) after
+  // thinning to `target` metres ──
   // Grids: nodes in the window, every sx-th column and sy-th row (grid_strides)
   function nodeRange(min,d,n,lo,hi){
     if(!(d>0))return [0,n-1];
     const a=Math.max(0,Math.ceil((lo-min)/d-1e-9)), b=Math.min(n-1,Math.floor((hi-min)/d+1e-9));
     return [a,b];
   }
-  function gridCount(p,win,target){
+  function gridCount(p,win,target,poly){
     const [ja,jb]=win?nodeRange(p.xmin,p.dx,p.nx,win[0],win[1]):[0,p.nx-1];
     const [ia,ib]=win?nodeRange(p.ymin,p.dy,p.ny,win[2],win[3]):[0,p.ny-1];
     const nxa=Math.max(0,jb-ja+1), nya=Math.max(0,ib-ia+1);
@@ -4785,7 +4827,8 @@ const GeoPreview=(function(){
     let valid=0,all=0;
     for(let r=0;r<p.py.length;r++){const y=p.py[r]; if(win&&(y<win[2]||y>win[3]))continue;
       const row=p.z[r];
-      for(let c=0;c<p.px.length;c++){const x=p.px[c]; if(win&&(x<win[0]||x>win[1]))continue; all++; if(!Number.isNaN(row[c]))valid++;}}
+      for(let c=0;c<p.px.length;c++){const x=p.px[c]; if(win&&(x<win[0]||x>win[1]))continue; all++;
+        if(!Number.isNaN(row[c])&&(!poly||geoInPoly(x,y,poly)))valid++;}}
     const frac=all?valid/all:0;
     const nodes=Math.ceil(nxa/sx)*Math.ceil(nya/sy);
     return {before:Math.round(nxa*nya*frac),after:Math.round(nodes*frac),stride:[sx,sy],
@@ -4793,10 +4836,10 @@ const GeoPreview=(function(){
   }
   // Points: the stations in the window, one per cell of `target` metres
   // counted from the window's south-west corner (or the stations') — thin_points
-  function pointCount(p,win,target,nativeSpacing){
+  function pointCount(p,win,target,nativeSpacing,poly){
     const idx=[];
     for(let i=0;i<p.xs.length;i++){const x=p.xs[i],y=p.ys[i];
-      if(!win||(x>=win[0]&&x<=win[1]&&y>=win[2]&&y<=win[3]))idx.push(i);}
+      if((!win||(x>=win[0]&&x<=win[1]&&y>=win[2]&&y<=win[3]))&&(!poly||geoInPoly(x,y,poly)))idx.push(i);}
     if(!target)return {before:idx.length,after:idx.length,spacing:nativeSpacing};
     let x0=Infinity,y0=Infinity;
     if(win){x0=win[0];y0=win[2];}else for(const i of idx){if(p.xs[i]<x0)x0=p.xs[i];if(p.ys[i]<y0)y0=p.ys[i];}
@@ -4804,7 +4847,7 @@ const GeoPreview=(function(){
     for(const i of idx)cells.add(Math.floor((p.xs[i]-x0)/target)*67108864+Math.floor((p.ys[i]-y0)/target));
     return {before:idx.length,after:cells.size,spacing:Math.max(target,nativeSpacing||0)};
   }
-  const count=(p,win,target,nativeSpacing)=>p.kind==='grid'?gridCount(p,win,target):pointCount(p,win,target,nativeSpacing);
+  const count=(p,win,target,nativeSpacing,poly)=>p.kind==='grid'?gridCount(p,win,target,poly):pointCount(p,win,target,nativeSpacing,poly);
 
   return {preview,count,MAX_SIDE};
 })();
@@ -5115,7 +5158,7 @@ window.GeoPreview=GeoPreview;
     const d=crsCheck&&crsCheck.crs===crs?crsCheck:await checkCrs();
     if(!d)throw new Error(`The coordinate system ${crs} is not known`);
     if(d.geographic)throw new Error('The data coordinates must be projected (metres), not degrees');
-    return {ext:aoi||analysis.native.extent,crs,inWindow:!!aoi};
+    return {ext:aoiBox()||analysis.native.extent,crs,inWindow:!!aoi};
   }
 
   // ── A DEM for the data area, downloaded by the server (SRTM 30 m, else ETOPO 2022) ──
@@ -5197,7 +5240,7 @@ window.GeoPreview=GeoPreview;
     const crs=dataCrs()||detectedCrs();
     if(!analysis){msg.textContent='Computed from IGRF-14 for the area once the data are read (next step).';return;}
     if(!crs){igrfInfo=null; msg.innerHTML='<span class="up-warn">⚠ The field is computed in the data’s coordinates: give the coordinate system below.</span>';return;}
-    const e=aoi||(analysis.ds.find(x=>x.t.key==='magnetic')||{}).extent||analysis.native.extent;
+    const e=aoiBox()||(analysis.ds.find(x=>x.t.key==='magnetic')||{}).extent||analysis.native.extent;
     const x=(e[0]+e[1])/2, y=(e[2]+e[3])/2, known=surveyDate(), date=known||DEFAULT_IGRF_DATE;
     try{
       const f=await igrfAt(x,y,crs,date);
@@ -5226,12 +5269,12 @@ window.GeoPreview=GeoPreview;
   // python -m geoinv3d.cloud.worker --local params.json data out), saved from the Review step
   // and loaded again here; or a finished job's settings with its files, from the server ──
   const SETUP_VERSION=1;
-  let pendingSetup=null, pendingAoi=null;
+  let pendingSetup=null, pendingAoi=null, pendingTurn=0;
   function setupJSON(jobs){
     return {geoinv3d_setup:SETUP_VERSION,saved:new Date().toISOString(),
       jobs:jobs.map(j=>({method:j.method,variant:j.variant||null,files:j.files.map(f=>f.name),params:j.params})),
       page:{method:$u('upload-method').value,where,instance:$u('upload-instance').value,preview:$u('up-preview').checked,
-        mesh_type:$u('upload-mesh').value,note:$u('upload-note').value,aoi,crs:dataCrs(),
+        mesh_type:$u('upload-mesh').value,note:$u('upload-note').value,aoi,aoi_turn:aoiTurn,crs:dataCrs(),
         survey_date:$u('up-magnetic-date').value,sweep:{param:$u('up-sweep-param').value,values:$u('up-sweep-values').value}}};
   }
   $u('up-save-setup').addEventListener('click',()=>{
@@ -5332,6 +5375,7 @@ window.GeoPreview=GeoPreview;
     if(MESH_INPUTS.some(([k])=>p[k]!=null))meshEdited=true;
     if(setv('upload-mesh',page.mesh_type||p.mesh_type))fire('upload-mesh');
     pendingAoi=page.aoi||p.aoi||null;
+    pendingTurn=page.aoi?+(page.aoi_turn||0):0;
     // where it runs
     if(page.where==='aws'||page.where==='local'){where=page.where; renderWhere();}
     if(page.instance&&page.instance!=='local')setv('upload-instance',page.instance);
@@ -5585,7 +5629,8 @@ window.GeoPreview=GeoPreview;
       title:{text:m.label,font:{size:12,color:TH.text},x:0.01,y:0.98},
       xaxis:{title:{text:'Easting (km)'},gridcolor:TH.border,zeroline:false,range:[x[0],x[x.length-1]]},
       yaxis:{title:{text:'Northing (km)'},gridcolor:TH.border,zeroline:false,scaleanchor:'x',scaleratio:1,range:[y[0],y[y.length-1]]},
-      shapes:w?[{type:'rect',x0:w[0]/1000,x1:w[1]/1000,y0:w[2]/1000,y1:w[3]/1000,line:{color:TH.accent,width:2},fillcolor:'rgba(0,0,0,0)'}]:[]},
+      shapes:aoiPolygon()?[{type:'path',path:'M '+aoiPolygon().map(q=>`${q[0]/1000} ${q[1]/1000}`).join(' L ')+' Z',line:{color:TH.accent,width:2},fillcolor:'rgba(0,0,0,0)'}]
+        :w?[{type:'rect',x0:w[0]/1000,x1:w[1]/1000,y0:w[2]/1000,y1:w[3]/1000,line:{color:TH.accent,width:2},fillcolor:'rgba(0,0,0,0)'}]:[]},
       {displaylogo:false,responsive:true,scrollZoom:true,modeBarButtonsToRemove:['select2d','lasso2d','autoScale2d','toggleSpikelines']});
   }
 
@@ -6373,7 +6418,17 @@ window.GeoPreview=GeoPreview;
     if(n<=S.REVIEW){
       try{
         if(step<=S.DATA&&n>=S.AREA){if(!loadedTypes().length)throw new Error('Upload observed data first');await analyse();
-          fillCrs(); if(pendingAoi){aoi=pendingAoi.slice(); pendingAoi=null;}}
+          fillCrs();
+          if(pendingAoi){   // [W, E, S, N] (and its turn), or a turned window's corners (a job's aoi)
+            const turned=Array.isArray(pendingAoi[0])?aoiFromPolygon(pendingAoi):null;
+            if(Array.isArray(pendingAoi[0])&&!turned){
+              const xs=pendingAoi.map(q=>+q[0]), ys=pendingAoi.map(q=>+q[1]);
+              aoi=[Math.min(...xs),Math.max(...xs),Math.min(...ys),Math.max(...ys)]; aoiTurn=0;
+              showStatus('<div class="up-warn">⚠ The job\'s area of interest is a polygon other than a rectangle: its bounding box is shown; the page draws rectangles only</div>');
+            }else if(turned){aoi=turned.rect; aoiTurn=normTurn(turned.turn);}
+            else{aoi=pendingAoi.slice(); aoiTurn=normTurn(pendingTurn);}
+            pendingAoi=null; pendingTurn=0;
+          }}
         if(step<=S.AREA&&n>S.AREA)previewIgrf();     // the field for the window chosen (not awaited: a busy server must not hold the steps)
         if(step<=S.AREA&&n>=S.MESH){applyArea();renderResolution();recommend();}
         if(step<=S.MESH&&n>=S.MODEL)meshParams();
@@ -6578,7 +6633,7 @@ window.GeoPreview=GeoPreview;
     // mesh-step numbers start as the whole survey; applyArea() narrows them
     analysis={rows,ds,native,nData:native.nData,spacing:native.spacing,extent:native.extent,mt};
     analysisKey=key;
-    aoi=null;
+    aoi=null; aoiTurn=0;
   }
 
   function renderResolution(){
@@ -6599,7 +6654,7 @@ window.GeoPreview=GeoPreview;
       <th style="text-align:right">Points</th><th style="text-align:right">Extent (E × N)</th><th>Data spacing</th></tr></thead><tbody>`+
       analysis.rows.map(r=>`<tr><td><span class="up-dot" style="--c:${r.t.color};display:inline-block;margin-right:5px"></span>${r.t.label}</td>`+
         `<td>${escH(r.f.name)}</td>${cells(r)}</tr>`).join('')+'</tbody></table>'+
-      (analysis.counts?`<div class="up-est">Used for the mesh: ${aoi?`a <b>${fmtLen(aoi[1]-aoi[0])} × ${fmtLen(aoi[3]-aoi[2])}</b> window`:'the <b>whole survey</b>'}`+
+      (analysis.counts?`<div class="up-est">Used for the mesh: ${aoi?`a <b>${fmtLen(aoi[1]-aoi[0])} × ${fmtLen(aoi[3]-aoi[2])}</b> window`+(aoiTurn?` turned ${aoiTurn}° (the OcTree refined under it alone)`:''):'the <b>whole survey</b>'}`+
         `, <b>${fmtInt(analysis.nData)}</b> data`+analysis.counts.filter(c=>c.target).map(c=>` · ${c.d.t.label} thinned to ${fmtLen(c.spacing)}`).join('')+
         ` <span class="up-en">(set in step 2)</span></div>`:'');
   }
@@ -6783,6 +6838,38 @@ window.GeoPreview=GeoPreview;
   // The window is kept in metres; the map shows kilometres.  Thinning is per
   // data type: a factor of the native spacing, or a spacing in metres.
   let aoi=null;                              // [W, E, S, N] (m); null = the whole survey
+  // The window turned clockwise about its centre by aoiTurn degrees (-90..90; 0: along the
+  // axes): aoi then holds it before the turn (its centre and its width and height), and the
+  // job gets its corners as a polygon (worker.parse_aoi)
+  let aoiTurn=0;
+  const normTurn=t=>{t=((+t||0)%180+180)%180; return t>90?t-180:t;};
+  // the window's width and height directions (east and north turned clockwise)
+  const turnAxes=()=>{const t=aoiTurn*Math.PI/180; return [[Math.cos(t),-Math.sin(t)],[Math.sin(t),Math.cos(t)]];};
+  // A turned window's corners (m), else null
+  function aoiPolygon(){
+    if(!aoi||!aoiTurn)return null;
+    const cx=(aoi[0]+aoi[1])/2, cy=(aoi[2]+aoi[3])/2, a=(aoi[1]-aoi[0])/2, b=(aoi[3]-aoi[2])/2, [u,v]=turnAxes();
+    return [[-1,-1],[1,-1],[1,1],[-1,1]].map(([s,r])=>[cx+s*a*u[0]+r*b*v[0],cy+s*a*u[1]+r*b*v[1]]);
+  }
+  // The box under the window: aoi, or a turned window's bounding box
+  function aoiBox(){
+    const P=aoiPolygon(); if(!P)return aoi;
+    const xs=P.map(q=>q[0]), ys=P.map(q=>q[1]);
+    return [Math.min(...xs),Math.max(...xs),Math.min(...ys),Math.max(...ys)];
+  }
+  // A polygon of 4 corners as a turned window ({rect, turn}); null for any other shape
+  function aoiFromPolygon(P){
+    if(!Array.isArray(P)||P.length<4)return null;
+    if(P.length===5&&P[4][0]===P[0][0]&&P[4][1]===P[0][1])P=P.slice(0,4);
+    if(P.length!==4)return null;
+    const e1=[P[1][0]-P[0][0],P[1][1]-P[0][1]], e2=[P[3][0]-P[0][0],P[3][1]-P[0][1]];
+    const L1=Math.hypot(...e1), L2=Math.hypot(...e2);
+    if(!(L1>0&&L2>0)||Math.abs(e1[0]*e2[0]+e1[1]*e2[1])>1e-6*L1*L2)return null;      // not a rectangle
+    const cx=P.reduce((a,q)=>a+q[0],0)/4, cy=P.reduce((a,q)=>a+q[1],0)/4;
+    let turn=Math.atan2(-e1[1],e1[0])*180/Math.PI, w=L1, h=L2;
+    if(turn>90||turn<=-90){turn=normTurn(turn);}
+    return {rect:[cx-w/2,cx+w/2,cy-h/2,cy+h/2],turn:Math.round(turn*1000)/1000};
+  }
   const decChoice={}, decCustom={};          // type key -> '1'…'8' | 'custom', custom spacing (m)
   const previews=new WeakMap();
   const preview=f=>{if(!previews.has(f))previews.set(f,GeoPreview.preview(f).catch(e=>({error:e.message||String(e)})));return previews.get(f);};
@@ -6807,12 +6894,13 @@ window.GeoPreview=GeoPreview;
 
   // Data kept per type in the window after thinning (see GeoPreview.count)
   function areaCounts(){
-    const whole=surveyExtent(), win=aoi, frac=win?((win[1]-win[0])*(win[3]-win[2]))/Math.max((whole[1]-whole[0])*(whole[3]-whole[2]),1):1;
+    const whole=surveyExtent(), win=aoiBox(), poly=aoiPolygon();
+    const frac=aoi?((aoi[1]-aoi[0])*(aoi[3]-aoi[2]))/Math.max((whole[1]-whole[0])*(whole[3]-whole[2]),1):1;
     return analysis.ds.map(d=>{
       const target=decTarget(d); let before=0,after=0,spacing=null,approx=false;
       for(const r of analysis.rows.filter(r=>r.t===d.t&&!r.info.error)){
         if(r.prev&&!r.prev.error){
-          const c=GeoPreview.count(r.prev,win,target,r.info.spacing);
+          const c=GeoPreview.count(r.prev,win,target,r.info.spacing,poly);
           before+=c.before;after+=c.after;spacing=spacing==null?c.spacing:Math.min(spacing,c.spacing);
         }else{   // no preview: scale the file's count by the window's share of the survey
           const k=target&&r.info.spacing?Math.max(1,target/r.info.spacing):1;
@@ -6827,8 +6915,9 @@ window.GeoPreview=GeoPreview;
   // The data the mesh step designs for: the window, the thinned spacing and count
   function applyArea(){
     if(!analysis)return;
-    const counts=areaCounts(), nat=analysis.native, w=windowRect();
+    const counts=areaCounts(), nat=analysis.native, w=aoiBox()||windowRect();
     analysis.extent=aoi?[Math.max(w[0],nat.extent[0]),Math.min(w[1],nat.extent[1]),Math.max(w[2],nat.extent[2]),Math.min(w[3],nat.extent[3])]:nat.extent;
+    analysis.polygon=aoiPolygon();          // a turned window: the OcTree is refined under it alone
     const sp=counts.map(c=>c.spacing).filter(v=>v>0);
     analysis.spacing=sp.length?arrMin(sp):nat.spacing;
     analysis.nData=counts.reduce((a,c)=>a+c.after,0);
@@ -6925,7 +7014,10 @@ window.GeoPreview=GeoPreview;
     const xa=fl.xaxis, ya=fl.yaxis, w=windowRect();
     Object.assign(clip.style,{left:xa._offset+'px',top:ya._offset+'px',width:xa._length+'px',height:ya._length+'px'});
     const l=xa.l2p(w[0]/1000), r=xa.l2p(w[1]/1000), t=ya.l2p(w[3]/1000), b=ya.l2p(w[2]/1000);
-    Object.assign(box.style,{left:l+'px',top:t+'px',width:Math.max(r-l,4)+'px',height:Math.max(b-t,4)+'px'});
+    // a turned window: the box turned about its centre (the map's axes keep one scale, so a
+    // turn on the screen is the same turn on the ground)
+    Object.assign(box.style,{left:l+'px',top:t+'px',width:Math.max(r-l,4)+'px',height:Math.max(b-t,4)+'px',
+      transform:aoiTurn?`rotate(${aoiTurn}deg)`:''});
     clip.hidden=false;
   }
 
@@ -6936,10 +7028,28 @@ window.GeoPreview=GeoPreview;
     const box=$u('up-aoi-win'), fl=$u('up-aoi-map')._fullLayout, xa=fl.xaxis, ya=fl.yaxis;
     const h=ev.target.dataset.h||'move', start=windowRect().slice(), cx=ev.clientX, cy=ev.clientY;
     const mx=1000*(xa.range[1]-xa.range[0])/xa._length, my=1000*(ya.range[1]-ya.range[0])/ya._length;   // m per pixel
+    if(!aoi&&h!=='move'){aoi=start.slice();}    // turning or resizing the whole survey makes it a window
+    // the window's centre on the screen (turning it), and its axes then (resizing a turned window)
+    const cr=$u('up-aoi-clip').getBoundingClientRect();
+    const pcx=cr.left+(xa.l2p(start[0]/1000)+xa.l2p(start[1]/1000))/2, pcy=cr.top+(ya.l2p(start[2]/1000)+ya.l2p(start[3]/1000))/2;
+    const [u,v]=turnAxes();
     box.classList.add('drag'); box.setPointerCapture(ev.pointerId);
     const move=e=>{
       const dX=(e.clientX-cx)*mx, dY=-(e.clientY-cy)*my, r=start.slice();
+      if(h==='rot'){   // the knob's direction from the centre: the window's height axis
+        let t=Math.atan2(e.clientX-pcx,-(e.clientY-pcy))*180/Math.PI;
+        t=e.shiftKey?Math.round(t/15)*15:Math.round(t);
+        aoiTurn=normTurn(t); placeWindow(); renderAreaInfo(); return;
+      }
       if(h==='move'){r[0]+=dX;r[1]+=dX;r[2]+=dY;r[3]+=dY;}
+      else if(aoiTurn){   // a turned window: the drag along its own width and height axes
+        const du=dX*u[0]+dY*u[1], dv=dX*v[0]+dY*v[1];
+        let a=(r[1]-r[0])/2, b=(r[3]-r[2])/2, su=0, sv=0;
+        if(h.includes('e')){a=Math.max(a+du/2,0);su=du/2;} if(h.includes('w')){a=Math.max(a-du/2,0);su=du/2;}
+        if(h.includes('n')){b=Math.max(b+dv/2,0);sv=dv/2;} if(h.includes('s')){b=Math.max(b-dv/2,0);sv=dv/2;}
+        const ccx=(r[0]+r[1])/2+su*u[0]+sv*v[0], ccy=(r[2]+r[3])/2+su*u[1]+sv*v[1];
+        r[0]=ccx-a;r[1]=ccx+a;r[2]=ccy-b;r[3]=ccy+b;
+      }
       else{if(h.includes('w'))r[0]=Math.min(r[0]+dX,r[1]);if(h.includes('e'))r[1]=Math.max(r[1]+dX,r[0]);
         if(h.includes('s'))r[2]=Math.min(r[2]+dY,r[3]);if(h.includes('n'))r[3]=Math.max(r[3]+dY,r[2]);}
       setWindow(r,h==='move'?'move':'cut');
@@ -6954,6 +7064,15 @@ window.GeoPreview=GeoPreview;
   function setWindow(r,mode='auto'){
     const e=surveyExtent(), prev=windowRect(), W=e[1]-e[0], H=e[3]-e[2];
     const same=(a,b,L)=>Math.abs(a-b)<=1e-6*L;
+    if(aoiTurn){
+      // a turned window: its centre kept in the survey (its corners may reach out of it: the
+      // data stop at the survey's edge), and at least three data spacings across
+      const minSide=3*(analysis.native.spacing||0.01*Math.max(W,H));
+      let w=Math.max(r[1]-r[0],minSide), h=Math.max(r[3]-r[2],minSide);
+      const ccx=Math.min(Math.max((r[0]+r[1])/2,e[0]),e[1]), ccy=Math.min(Math.max((r[2]+r[3])/2,e[2]),e[3]);
+      aoi=[ccx-w/2,ccx+w/2,ccy-h/2,ccy+h/2].map(v=>Math.round(v));
+      placeWindow(); renderAreaInfo(); return;
+    }
     let c;
     if(mode==='move'||(mode==='auto'&&same(r[1]-r[0],prev[1]-prev[0],W)&&same(r[3]-r[2],prev[3]-prev[2],H))){
       const w=Math.min(r[1]-r[0],W), h=Math.min(r[3]-r[2],H);
@@ -6973,19 +7092,22 @@ window.GeoPreview=GeoPreview;
 
   function renderAreaInfo(){
     demNote(); noiseUi('gravity'); noiseUi('magnetic');
-    const w=windowRect(), e=surveyExtent();
+    const w=windowRect(), e=surveyExtent(), P=aoiPolygon();
     const kmv=m=>+(m/1000).toFixed(3);
     [['up-aoi-w',w[1]-w[0]],['up-aoi-h',w[3]-w[2]],['up-aoi-cx',(w[0]+w[1])/2],['up-aoi-cy',(w[2]+w[3])/2]].forEach(([id,v])=>{
       if(document.activeElement!==$u(id))$u(id).value=kmv(v);});
+    if(document.activeElement!==$u('up-aoi-turn'))$u('up-aoi-turn').value=aoiTurn;
     const counts=areaCounts();
     counts.forEach(c=>{const n=$u('up-dec-n-'+c.d.t.key);
       if(n)n.innerHTML=`<b>${c.approx?'≈ ':''}${fmtInt(c.after)}</b> of ${fmtInt(c.before)} data`+(c.spacing?` · spacing ${fmtLen(c.spacing)}`:'');});
     const total=counts.reduce((a,c)=>a+c.after,0);
     const area=(w[1]-w[0])*(w[3]-w[2])/1e6;
     $u('up-aoi-est').innerHTML=(aoi
-      ?`Window <b>${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])}</b> (${fmtInt(area)} km²) centred on E ${kmv((w[0]+w[1])/2)} km, N ${kmv((w[2]+w[3])/2)} km`
+      ?`Window <b>${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])}</b> (${fmtInt(area)} km²) centred on E ${kmv((w[0]+w[1])/2)} km, N ${kmv((w[2]+w[3])/2)} km`+
+        (P?`, <b>turned ${aoiTurn}°</b> clockwise (its width along ${((90+aoiTurn)%180+180)%180}°, its height along ${(aoiTurn%180+180)%180}° from north)`:'')
       :`Whole survey <b>${fmtLen(e[1]-e[0])} × ${fmtLen(e[3]-e[2])}</b> (${fmtInt(area)} km²)`)+
-      `<br><span class="up-en">W ${Math.round(w[0])} · E ${Math.round(w[1])} · S ${Math.round(w[2])} · N ${Math.round(w[3])} m</span>`+
+      (P?`<br><span class="up-en">Corners: ${P.map(q=>`(${Math.round(q[0])}, ${Math.round(q[1])})`).join(' · ')} m — the OcTree is refined under the window alone</span>`
+        :`<br><span class="up-en">W ${Math.round(w[0])} · E ${Math.round(w[1])} · S ${Math.round(w[2])} · N ${Math.round(w[3])} m</span>`)+
       `<br>Data used: <b>${fmtInt(total)}</b>`+counts.map(c=>` · ${c.d.t.label} ${fmtInt(c.after)}`).join('')+
       (total>30000?`<br><span class="up-warn">⚠ ${fmtInt(total)} data make a large sensitivity matrix — thin the data or choose a smaller window</span>`:'');
     $u('up-aoi-all').disabled=!aoi;
@@ -7018,7 +7140,15 @@ window.GeoPreview=GeoPreview;
     // centred where asked, slid back inside the survey if needed
     setWindow([v[2]-v[0]/2,v[2]+v[0]/2,v[3]-v[1]/2,v[3]+v[1]/2],'move');
   }));
-  $u('up-aoi-all').addEventListener('click',()=>{aoi=null;placeWindow();renderAreaInfo();});
+  $u('up-aoi-all').addEventListener('click',()=>{aoi=null;aoiTurn=0;placeWindow();renderAreaInfo();});
+  $u('up-aoi-turn').addEventListener('change',()=>{
+    if(!analysis)return;
+    const t=+$u('up-aoi-turn').value;
+    if(!Number.isFinite(t)){renderAreaInfo();return;}
+    if(!aoi)aoi=surveyExtent().slice();     // turning the whole survey makes it a window
+    aoiTurn=normTurn(Math.round(t*1000)/1000);
+    setWindow(aoi.slice(),'move');
+  });
   $u('up-aoi-square').addEventListener('click',()=>{
     const w=windowRect(), s=Math.min(w[1]-w[0],w[3]-w[2]), cx=(w[0]+w[1])/2, cy=(w[2]+w[3])/2;
     setWindow([cx-s/2,cx+s/2,cy-s/2,cy+s/2],'move');
@@ -7411,7 +7541,8 @@ window.GeoPreview=GeoPreview;
         (c?`, ${c.approx?'≈ ':''}${fmtInt(c.after)} ${edi?'stations':'data'}, spacing ${fmtLen(c.spacing)}`+(c.target?` (thinned from ${fmtInt(c.before)})`:''):'')+
         (reg?` · regional: ${escH(reg.textContent)}`:'');
     }).join('<br>');
-    const w=aoi, areaTxt=w?`Window ${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])} · W ${Math.round(w[0])}, E ${Math.round(w[1])}, S ${Math.round(w[2])}, N ${Math.round(w[3])} m`
+    const w=aoi, P=aoiPolygon(), areaTxt=P?`Window ${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])} turned ${aoiTurn}° · corners ${P.map(q=>`(${Math.round(q[0])}, ${Math.round(q[1])})`).join(', ')} m`
+      :w?`Window ${fmtLen(w[1]-w[0])} × ${fmtLen(w[3]-w[2])} · W ${Math.round(w[0])}, E ${Math.round(w[1])}, S ${Math.round(w[2])}, N ${Math.round(w[3])} m`
       :'Whole survey';
     const cells=analysis&&analysis.extent?meshCells(m):null;
     const regTxt=s.gl?(p.param_mode==='auto'?'Auto — ':'')+escH(regSummary(p))+
@@ -7506,9 +7637,12 @@ window.GeoPreview=GeoPreview;
     if(!analysis)return null;
     const w=windowRect(), inner=[], edge=[];
     const band=0.08*Math.min(w[1]-w[0],w[3]-w[2]);
+    // in the window's own frame (turned or not): distances to its sides
+    const cx=(w[0]+w[1])/2, cy=(w[2]+w[3])/2, a=(w[1]-w[0])/2, b=(w[3]-w[2])/2, [u,vv]=turnAxes();
     const put=(x,y,v)=>{
-      if(!Number.isFinite(v)||x<w[0]||x>w[1]||y<w[2]||y>w[3])return;
-      (Math.min(x-w[0],w[1]-x,y-w[2],w[3]-y)<band?edge:inner).push(v);
+      const s=(x-cx)*u[0]+(y-cy)*u[1], r=(x-cx)*vv[0]+(y-cy)*vv[1];
+      if(!Number.isFinite(v)||Math.abs(s)>a||Math.abs(r)>b)return;
+      (Math.min(a-Math.abs(s),b-Math.abs(r))<band?edge:inner).push(v);
     };
     for(const r of analysis.rows.filter(r=>r.t.key===key&&r.prev&&!r.prev.error)){
       const p=r.prev;
@@ -7560,7 +7694,8 @@ window.GeoPreview=GeoPreview;
         `their sources continue outside, so the inversion puts them in the padding cells (counted as "outside the core" in the result) and the model near the edges is less certain. `+
         `A window a few kilometres wider than the area you want to interpret moves those edges away from it`,
         ['Widen the window by 2 km',()=>{const e=surveyExtent(), r=windowRect(), g=2000;
-          aoi=[Math.max(e[0],r[0]-g),Math.min(e[1],r[1]+g),Math.max(e[2],r[2]-g),Math.min(e[3],r[3]+g)];
+          aoi=aoiTurn?[r[0]-g,r[1]+g,r[2]-g,r[3]+g]
+            :[Math.max(e[0],r[0]-g),Math.min(e[1],r[1]+g),Math.max(e[2],r[2]-g),Math.min(e[3],r[3]+g)];
           applyArea(); renderResolution(); recommend(); if(typeof placeWindow==='function')placeWindow(); renderAreaInfo();}]);
   }
   async function preflight(jobs){
@@ -7732,7 +7867,9 @@ window.GeoPreview=GeoPreview;
   const MESH_COUNTS=new Map();
   let meshCountTimer=null;
   function meshCount(m){
-    const key=JSON.stringify([analysis.extent.map(Math.round),m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m,m.octree_levels||null]);
+    const poly=analysis.polygon||null;
+    const key=JSON.stringify([analysis.extent.map(Math.round),m.core_cell_m,m.core_cell_z_m,m.depth_core_m,m.pad_distance_m,m.octree_levels||null,
+      poly&&poly.map(q=>q.map(Math.round))]);
     if(MESH_COUNTS.has(key))return MESH_COUNTS.get(key);
     clearTimeout(meshCountTimer);
     meshCountTimer=setTimeout(async()=>{
@@ -7741,7 +7878,7 @@ window.GeoPreview=GeoPreview;
       try{
         const r=await fetch(apiBase()+'/api/mesh/cells',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({extent:analysis.extent,core_cell_m:m.core_cell_m,core_cell_z_m:m.core_cell_z_m,
-            depth_core_m:m.depth_core_m,pad_distance_m:m.pad_distance_m,mesh_type:'octree',
+            depth_core_m:m.depth_core_m,pad_distance_m:m.pad_distance_m,mesh_type:'octree',...(poly?{polygon:poly}:{}),
             ...(m.octree_levels?{octree_levels:m.octree_levels}:{})})});
         const d=await r.json();
         MESH_COUNTS.set(key,r.ok&&d.ok&&!d.too_large?d.n_cells:null);
@@ -7826,8 +7963,12 @@ window.GeoPreview=GeoPreview;
     try{renderReview(buildJobs());}catch(err){showStatus(`<div class="up-err">⚠ ${escH(err.message)}</div>`);}
   });
 
-  // The window chosen in the area step, [west, east, south, north] in metres
-  function areaParams(){return aoi?{aoi:aoi.map(v=>Math.round(v*100)/100)}:{};}
+  // The window chosen in the area step, [west, east, south, north] in metres, or a turned
+  // window's corners [[x, y], ...] (a polygon: worker.parse_aoi)
+  function areaParams(){
+    const P=aoiPolygon(), r2=v=>Math.round(v*100)/100;
+    return P?{aoi:P.map(q=>q.map(r2))}:aoi?{aoi:aoi.map(r2)}:{};
+  }
 
   // ── Build the job specs sent to the API ──
   // wS1 / wS2 and the λ path belong to the coordinate descent (l1l2_cda.py); under IRLS they

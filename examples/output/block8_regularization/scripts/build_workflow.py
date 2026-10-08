@@ -49,9 +49,36 @@ def runs():
     return out
 
 
+def map_layers():
+    """The boreholes of data/inputs/boreholes.geojson (the GSI drilling collars near the window) as a layer: collars on
+    the maps, traces in the 3D view (dag_interactive.html's map layers); and the window."""
+    layers = []
+    f = trials.INPUTS / "boreholes.geojson"
+    if f.exists():
+        items = []
+        for ft in json.loads(f.read_text(encoding="utf-8"))["features"]:
+            p = ft["properties"]
+            x, y = ft["geometry"]["coordinates"][:2]
+            item = {"x": x, "y": y, "label": p["name"]}
+            if p.get("length_m"):
+                item.update(depth=p["length_m"], dip=p.get("cl_inclina") or 90.0,
+                            azimuth=p.get("bearing") or 0.0)
+                if p.get("rl_collar_") is not None:
+                    item["z"] = p["rl_collar_"]
+            items.append(item)
+        layers.append({"name": "Boreholes (GSI): Ramanadurga South, iron ore", "kind": "points",
+                       "color": "#00b4d8", "items": items})
+    w = trials.WINDOW
+    layers.append({"name": "The 5 km window", "kind": "lines", "color": "#adb5bd",
+                   "items": [{"xy": [[w[0], w[2]], [w[1], w[2]], [w[1], w[3]], [w[0], w[3]]],
+                              "label": "window", "closed": True}]})
+    return layers
+
+
 def main():
     rs = runs()
     workflow = build_workflow(rs)
+    workflow["map_layers"] = map_layers()
     DEST.write_text(json.dumps(workflow, separators=(",", ":")), encoding="utf-8")
     viewer = generate_viewer(str(DEST))
     print(f"{len(rs)} runs ->", viewer, f"{Path(viewer).stat().st_size / 1e6:.0f} MB")

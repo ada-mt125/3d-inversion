@@ -2699,3 +2699,62 @@ ap-south-1, Owner=miaozhou, 11:21-12:28 (67 min, about $2), terminated after the
 The follower stopped with the session that started it (the instance went on); `--attach` picked
 the run up, fetched it and terminated the instance. Its iteration lines were hidden below
 iteration 10 (the line was stripped before the check); fixed.
+
+## 2026-10-08 — Boreholes in the viewer: the GSI drilling collars over Block 8
+
+The state's drilling shapefile (`karnataka_ap_gravity/Drill/DRILLING_BOREHOLE_DETAILS_STATE_KARNATAKA`,
+448 collars: position, collar elevation, inclination, bearing, length, dates, commodity, block;
+no logs) has 7 holes in the Block-8 window: Ramanadurga South, iron ore, KBRS-1 to KBRS-10,
+vertical, 32-92 m, 2017 (GSI report M3AGIM/NC/SR//2022/47162), on the ridge 1.0-1.5 km W and
+0.9-1.25 km N of the window's centre; their collars (984-1,005 m) are 1-6 m below GLO-90's ground.
+
+- The viewer's map layers take boreholes: a point with `depth` (its length) and optionally `z`
+  (collar elevation; else the ground), `dip` (from the horizontal; 0 or none: vertical) and
+  `azimuth`, as the geology constraints read them; the 3D view draws the trace from the collar,
+  the maps and sections the collar as before. A GeoJSON point brings them from the properties the
+  constraints use (`length_m`, `cl_inclina`, `bearing`, `rl_collar_`, or depth, dip, azimuth,
+  elevation).
+- `block8_regularization/data/inputs/boreholes.geojson` holds the holes within 10 km of the
+  window (read with `geoinv3d.io.vector.read_shapefile`, projected to UTM 43N, with the fields
+  above); `build_workflow.py` adds them and the window outline as layers.
+
+Along the holes (top 100 m, model grid 75 m) every trial puts raised susceptibility: on average
+0.18-0.30 SI, the 69th (L1-L2) to 94th (Lp (0,2,2,1), L 1) percentile of the window's top 100 m,
+with 0.01-0.79 SI from hole to hole; the strongest belt lies further SE.
+
+## 2026-10-08 — A polygon as the area of interest (a window turned to the strike)
+
+The user wants the 20 km study window turned to the strike (NW-SE) rather than along the axes,
+the data and the mesh's axes unchanged. An OcTree is refined only where it is told, so a polygon
+costs about what a window along the axes of the same area does:
+
+- `aoi` may be [west, east, south, north] as before, or a polygon `[[x, y], ...]` (or
+  `{"polygon": [...]}`) in the job's CRS (`worker.parse_aoi`: at least 3 vertices enclosing an
+  area; a closed ring's repeated vertex dropped). Gravity and magnetic data are cropped to its
+  box and then to it (`in_polygon`; grid nodes outside become NaN and drop out with nodata).
+  The filters on the full grid (continuation, RTP) work on the box plus their margin as before.
+- The OcTree is refined under the polygon and two cells around it (`_build_octree_mesh(polygon=)`);
+  the rest of its box coarsens as the padding does. A tensor mesh still fills the box. MT and DC
+  jobs keep the box (their stations and electrodes are not cropped to the AOI).
+- The shares of the model outside the core are measured from the polygon (`_core_columns`).
+  The result records `aoi: {box, polygon}` and `mesh_design.used.refined_under`.
+- `POST /api/mesh/cells` takes `polygon` (its box the extent when none is given).
+
+Cells below the ground (flat), 100 x 50 m, a 20 km square turned 45 degrees: 365,151 refined
+under the window against 693,564 for its box (a 20 km window along the axes: 374,744). A short
+inversion on a 2 km grid: the turned window kept 761 of the box's 1,521 data, all inside it, with
+15,500 active cells against 21,632. Tests: `test_aoi_decimation.py` (+6), `test_api_local.py` (+1).
+The page does not yet draw or send a turned window: the user will give it.
+
+The page (Area step) draws a turned window: a round knob above the window turns it about its
+centre (Shift: 15-degree steps), and "Turned (°)" sets the turn (clockwise, -90 to 90; 0 along
+the axes). The window keeps its centre, width and height (aoi before the turn) and aoiTurn;
+corners and edges resize it along its own axes; a turned window keeps its centre in the survey
+(its corners may reach out of it). What follows the turn: the data counted inside it
+(GeoPreview.count takes the polygon), the edge check in its frame, the DEM and IGRF on its box,
+the OcTree count (`polygon` to /api/mesh/cells), the texts (the turn, the axes' bearings, the
+corners), the enhancement map, saved setups (`aoi_turn`; a job's 4-corner polygon comes back as
+a turned window, another polygon as its box with a warning), and the job's `aoi`: the corners.
+Checked in the browser on a synthetic 50 x 55 km TMI table: a 20 km window turned 45 degrees
+gave the corners (650358, 1661000), (664500, 1646858), (678642, 1661000), (664500, 1675142) and
+1,625 data against 1,681 along the axes; the knob turned it to 29 degrees.

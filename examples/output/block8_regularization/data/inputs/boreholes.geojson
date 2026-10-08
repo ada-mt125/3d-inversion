@@ -1,0 +1,428 @@
+{
+ "type": "FeatureCollection",
+ "name": "Boreholes (GSI, Karnataka drilling details)",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::32643"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     660825.8,
+     1668181.9
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-3",
+    "rl_collar_": 1000.0,
+    "length_m": 70.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-08-24",
+    "date_closi": "2017-09-01",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-3",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     661096.2,
+     1667937.8
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-1",
+    "rl_collar_": 999.0,
+    "length_m": 76.4,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-07-10",
+    "date_closi": "2017-07-28",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-1",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     660946.1,
+     1668059.7
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-2",
+    "rl_collar_": 1005.0,
+    "length_m": 56.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-08-02",
+    "date_closi": "2017-08-21",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-2",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     661035.2,
+     1668121.8
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-9",
+    "rl_collar_": 992.0,
+    "length_m": 54.5,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-08-07",
+    "date_closi": "2017-08-14",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-9",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     660884.9,
+     1668274.5
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS- 10",
+    "rl_collar_": 984.0,
+    "length_m": 92.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-08-21",
+    "date_closi": "2017-09-01",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-10",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     660675.7,
+     1668303.8
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-4",
+    "rl_collar_": 992.0,
+    "length_m": 32.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-09-06",
+    "date_closi": "2017-09-09",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-4",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     661125.4,
+     1668030.2
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBRS-8",
+    "rl_collar_": 993.0,
+    "length_m": 47.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "Ramanadurga South",
+    "prospect_n": "Ramanadurga South",
+    "date_start": "2017-09-01",
+    "date_closi": "2017-09-09",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/47162",
+    "name": "KBRS-8",
+    "in_window": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     670779.9,
+     1658508.5
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-10",
+    "rl_collar_": 978.0,
+    "length_m": 40.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2011",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-10-15",
+    "date_closi": "2016-10-16",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-10",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     671134.8,
+     1659002.8
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-1",
+    "rl_collar_": 1026.0,
+    "length_m": 125.0,
+    "cl_inclina": 55.0,
+    "bearing": 211.0,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2003",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-08-18",
+    "date_closi": "2016-09-11",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-1",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     671075.9,
+     1658879.4
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-4",
+    "rl_collar_": 1010.0,
+    "length_m": 100.0,
+    "cl_inclina": 55.0,
+    "bearing": 198.0,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2006",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-09-14",
+    "date_closi": "2016-09-30",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-4",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     670927.0,
+     1658816.9
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-3",
+    "rl_collar_": 1021.0,
+    "length_m": 110.0,
+    "cl_inclina": 55.0,
+    "bearing": 198.0,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2005",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-09-13",
+    "date_closi": "2016-09-30",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-3",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     670807.1,
+     1658877.5
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-8",
+    "rl_collar_": 1038.0,
+    "length_m": 40.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2009",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-10-13",
+    "date_closi": "2016-10-14",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-8",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     670509.2,
+     1658752.4
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-9",
+    "rl_collar_": 1008.0,
+    "length_m": 12.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2010",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-10-19",
+    "date_closi": "2016-10-20",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-9",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     671524.5,
+     1658821.2
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-2",
+    "rl_collar_": 995.0,
+    "length_m": 90.0,
+    "cl_inclina": 55.0,
+    "bearing": 211.0,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2004",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-08-20",
+    "date_closi": "2016-09-10",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-2",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     671705.1,
+     1658638.1
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-6",
+    "rl_collar_": 950.0,
+    "length_m": 62.0,
+    "cl_inclina": 45.0,
+    "bearing": 217.0,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2007",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-10-04",
+    "date_closi": "2016-10-06",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-6",
+    "in_window": false
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     671371.1,
+     1659373.3
+    ]
+   },
+   "properties": {
+    "borehole_n": "KBK-7",
+    "rl_collar_": 1019.0,
+    "length_m": 45.0,
+    "cl_inclina": 90.0,
+    "bearing": null,
+    "commodity_": "IRON (HAEMATITE / MAGNETITE)",
+    "block_name": "NOTIFIED BLOCK 4B/C116/MMM 2008",
+    "prospect_n": "KUMARASWAMY HILL RANGE",
+    "date_start": "2016-10-09",
+    "date_closi": "2016-10-10",
+    "stage_of_i": "G3",
+    "source_of_": "M3AGIM/NC/SR//2022/51286",
+    "name": "KBK-7",
+    "in_window": false
+   }
+  }
+ ]
+}
